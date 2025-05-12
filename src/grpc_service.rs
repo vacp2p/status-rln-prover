@@ -1,12 +1,12 @@
 // std
-use std::collections::HashMap;
 use std::io::Cursor;
 use std::net::SocketAddr;
+use std::time::Duration;
 // third-party
 use alloy::primitives::Address;
 use ark_bn254::Fr;
+use bytesize::ByteSize;
 use futures::TryFutureExt;
-use parking_lot::RwLock;
 use rln::{
     hashers::{hash_to_field, poseidon_hash},
     protocol::prepare_prove_input,
@@ -19,7 +19,12 @@ use tokio::sync::{
     mpsc,
 };
 use tonic::{
-    Request, Response, Status, codegen::tokio_stream::wrappers::ReceiverStream, transport::Server,
+    Request,
+    Response,
+    Status,
+    codegen::tokio_stream::wrappers::ReceiverStream,
+    transport::Server,
+    // codec::CompressionEncoding
 };
 use tracing::{
     debug,
@@ -27,7 +32,10 @@ use tracing::{
     // info
 };
 // internal
-use crate::error::{AppError, RegistrationError};
+use crate::{
+    error::{AppError, RegistrationError},
+    registry::UserRegistry,
+};
 
 pub mod prover_proto {
 
@@ -43,9 +51,22 @@ use prover_proto::{
     rln_prover_server::{RlnProver, RlnProverServer},
 };
 
+const PROVER_SERVICE_LIMIT_PER_CONNECTION: usize = 16;
+// Timeout for all handlers of a request
+const PROVER_SERVICE_GRPC_TIMEOUT: Duration = Duration::from_secs(30);
+//
+const PROVER_SERVICE_HTTP2_MAX_CONCURRENT_STREAM: u32 = 64;
+// Http2 max frame size (e.g. 16 Kb)
+const PROVER_SERVICE_HTTP2_MAX_FRAME_SIZE: ByteSize = ByteSize::kib(16);
+// Max size for Message (decoding, e.g., 5 Mb)
+// const PROVER_SERVICE_MESSAGE_DECODING_MAX_SIZE: usize = 1024 * 1024 * 5;
+const PROVER_SERVICE_MESSAGE_DECODING_MAX_SIZE: ByteSize = ByteSize::mib(5);
+// Max size for Message (encoding, e.g., 5 Mb)
+const PROVER_SERVICE_MESSAGE_ENCODING_MAX_SIZE: ByteSize = ByteSize::mib(5);
+
 #[derive(Debug)]
 pub struct ProverService {
-    user_registered: RwLock<HashMap<Address, (Fr, Fr)>>,
+    registry: UserRegistry,
     broadcast_channel: (Sender<Vec<u8>>, Receiver<Vec<u8>>),
 }
 
@@ -60,9 +81,8 @@ impl RlnProver for ProverService {
         let sender = req.sender;
 
         let id = if let Some(sender) = sender {
-            let guard = self.user_registered.read();
             if let Ok(sender_) = Address::try_from(sender.value.as_slice()) {
-                if let Some(id) = guard.get(&sender_) {
+                if let Some(id) = self.registry.get(&sender_) {
                     Ok(*id)
                 } else {
                     Err(RegistrationError::NotFound(sender_))
@@ -176,18 +196,64 @@ impl GrpcProverService {
     pub(crate) async fn serve(&self) -> Result<(), AppError> {
         let (tx, rx) = broadcast::channel(2);
         let prover_service = ProverService {
-            user_registered: Default::default(),
+            registry: Default::default(),
             broadcast_channel: (tx, rx),
         };
+
         let reflection_service = tonic_reflection::server::Builder::configure()
             .register_encoded_file_descriptor_set(prover_proto::FILE_DESCRIPTOR_SET)
             .build_v1()?;
 
+        let r = RlnProverServer::new(prover_service)
+            .max_decoding_message_size(PROVER_SERVICE_MESSAGE_DECODING_MAX_SIZE.as_u64() as usize)
+            .max_encoding_message_size(PROVER_SERVICE_MESSAGE_ENCODING_MAX_SIZE.as_u64() as usize)
+            // TODO: perf?
+            //.accept_compressed(CompressionEncoding::Gzip)
+            //.send_compressed(CompressionEncoding::Gzip)
+            ;
+
         Server::builder()
+            // service protection && limits
+            // limits: connection
+            .concurrency_limit_per_connection(PROVER_SERVICE_LIMIT_PER_CONNECTION)
+            .timeout(PROVER_SERVICE_GRPC_TIMEOUT)
+            // limits : http2
+            .max_concurrent_streams(PROVER_SERVICE_HTTP2_MAX_CONCURRENT_STREAM)
+            .max_frame_size(PROVER_SERVICE_HTTP2_MAX_FRAME_SIZE.as_u64() as u32)
+            // perf: tcp
+            .tcp_nodelay(true)
+            // No http 1
+            .accept_http1(false)
+            // services
             .add_service(reflection_service)
-            .add_service(RlnProverServer::new(prover_service))
+            .add_service(r)
             .serve(self.addr)
             .map_err(AppError::from)
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::grpc_service::prover_proto::Address;
+    use prost::Message;
+    // use crate::proto::prover::{Address}; // Adjust the import path as needed
+
+    const MAX_ADDRESS_SIZE_BYTES: usize = 20;
+
+    #[test]
+    #[should_panic]
+    fn test_address_size_limit() {
+        // Check if an invalid address can be encoded (as Address grpc type)
+
+        let invalid_address = vec![0; MAX_ADDRESS_SIZE_BYTES + 1];
+
+        let addr = Address {
+            value: invalid_address,
+        };
+        let mut addr_encoded = vec![];
+        addr.encode(&mut addr_encoded).unwrap();
+
+        let _addr_decoded = Address::decode(&*addr_encoded).unwrap();
     }
 }

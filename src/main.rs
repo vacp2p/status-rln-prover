@@ -1,6 +1,7 @@
 mod args;
 mod error;
 mod grpc_service;
+mod registry;
 mod registry_listener;
 
 // std
