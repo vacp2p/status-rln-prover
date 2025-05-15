@@ -3,6 +3,10 @@ package prover;
 
 import "google/protobuf/descriptor.proto";
 
+option java_package = "net.vac.prover";
+option java_outer_classname = "OuterSample";
+option java_multiple_files = true;
+
 service RlnProver {
 
   rpc SendTransaction (SendTransactionRequest) returns (SendTransactionReply);
@@ -111,7 +115,7 @@ message SendTransactionRequest {
 
 message SendTransactionReply {
   bool result = 1;
-  string message = 2;
+  // string message = 2;
 }
 
 message RlnProofFilter {

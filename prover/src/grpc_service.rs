@@ -1,20 +1,23 @@
 // std
-use std::io::Cursor;
+use std::collections::HashMap;
+use std::io::{Cursor, Write};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
+// use std::sync::atomic::{
+//     AtomicI64,
+// };
 // third-party
 use alloy::primitives::Address;
 use ark_bn254::Fr;
+use ark_serialize::{CanonicalSerialize, SerializationError};
 use bytesize::ByteSize;
 use futures::TryFutureExt;
-use rln::{
-    hashers::{hash_to_field, poseidon_hash},
-    protocol::prepare_prove_input,
-    public::RLN,
-};
-use serde_json::json;
+use rln::hashers::{hash_to_field, poseidon_hash};
+use rln::pm_tree_adapter::PmTree;
+use rln::protocol::{ProofError, serialize_proof_values};
 use tokio::sync::{
-    broadcast,
+    RwLock, broadcast,
     broadcast::{Receiver, Sender},
     mpsc,
 };
@@ -33,7 +36,10 @@ use tracing::{
 };
 // internal
 use crate::{
-    error::{AppError, RegistrationError},
+    error::{
+        AppError,
+        // RegistrationError
+    },
     registry::UserRegistry,
 };
 
@@ -50,6 +56,9 @@ use prover_proto::{
     SendTransactionRequest,
     rln_prover_server::{RlnProver, RlnProverServer},
 };
+use rln_proof::{
+    RlnData, RlnIdentifier, RlnUserIdentity, ZerokitMerkleTree, compute_rln_proof_and_values,
+};
 
 const PROVER_SERVICE_LIMIT_PER_CONNECTION: usize = 16;
 // Timeout for all handlers of a request
@@ -59,15 +68,30 @@ const PROVER_SERVICE_HTTP2_MAX_CONCURRENT_STREAM: u32 = 64;
 // Http2 max frame size (e.g. 16 Kb)
 const PROVER_SERVICE_HTTP2_MAX_FRAME_SIZE: ByteSize = ByteSize::kib(16);
 // Max size for Message (decoding, e.g., 5 Mb)
-// const PROVER_SERVICE_MESSAGE_DECODING_MAX_SIZE: usize = 1024 * 1024 * 5;
 const PROVER_SERVICE_MESSAGE_DECODING_MAX_SIZE: ByteSize = ByteSize::mib(5);
 // Max size for Message (encoding, e.g., 5 Mb)
 const PROVER_SERVICE_MESSAGE_ENCODING_MAX_SIZE: ByteSize = ByteSize::mib(5);
+const PROVER_SPAM_LIMIT: u64 = 10_000;
 
 #[derive(Debug)]
 pub struct ProverService {
     registry: UserRegistry,
+    rln_identifier: Arc<RlnIdentifier>,
+    message_counters: RwLock<HashMap<Address, u64>>,
+    spam_limit: u64,
     broadcast_channel: (Sender<Vec<u8>>, Receiver<Vec<u8>>),
+}
+
+#[derive(thiserror::Error, Debug)]
+enum ProofGenerationError {
+    #[error("Proof generation failed: {0}")]
+    Proof(#[from] ProofError),
+    #[error("Proof serialization failed: {0}")]
+    Serialization(#[from] SerializationError),
+    #[error("Proof serialization failed: {0}")]
+    SerializationWrite(#[from] std::io::Error),
+    #[error("Error: {0}")]
+    Misc(String),
 }
 
 #[tonic::async_trait]
@@ -78,74 +102,103 @@ impl RlnProver for ProverService {
     ) -> Result<Response<SendTransactionReply>, Status> {
         debug!("send_transaction request: {:?}", request);
         let req = request.into_inner();
-        let sender = req.sender;
 
-        let id = if let Some(sender) = sender {
-            if let Ok(sender_) = Address::try_from(sender.value.as_slice()) {
-                if let Some(id) = self.registry.get(&sender_) {
-                    Ok(*id)
-                } else {
-                    Err(RegistrationError::NotFound(sender_))
-                }
+        let sender = if let Some(sender) = req.sender {
+            if let Ok(sender) = Address::try_from(sender.value.as_slice()) {
+                sender
             } else {
-                Err(RegistrationError::InvalidAddress(sender.value.to_vec()))
+                return Err(Status::invalid_argument("Invalid sender address"));
             }
         } else {
-            Err(RegistrationError::NoSender)
+            return Err(Status::invalid_argument("No sender address"));
         };
 
-        let reply = match id {
-            Ok(id) => {
-                let id_secret_hash = id.0;
-                let _id_commitment = id.1;
+        // Update the counter as soon as possible (should help to prevent spamming...)
+        let mut message_counter_guard = self.message_counters.write().await;
+        let counter = *message_counter_guard
+            .entry(sender)
+            .and_modify(|e| *e += 1)
+            .or_insert(1);
+        drop(message_counter_guard);
 
-                // TODO/FIXME: blocking code
-                {
-                    // FIXME
-                    let tree_height = 20;
-                    let input = Cursor::new(json!({}).to_string());
-                    let mut rln = RLN::new(tree_height, input).unwrap();
-
-                    // FIXME
-                    let message_id = Fr::from(1);
-                    let id_index = 10;
-                    let user_message_limit = Fr::from(10);
-                    let rln_identifier = hash_to_field(b"test-rln-identifier");
-                    let epoch = hash_to_field(b"Today at noon, this year");
-                    let external_nullifier = poseidon_hash(&[epoch, rln_identifier]);
-                    let signal = b"RLN is awesome";
-
-                    let prove_input = prepare_prove_input(
-                        id_secret_hash,
-                        id_index,
-                        user_message_limit,
-                        message_id,
-                        external_nullifier,
-                        signal,
-                    );
-
-                    let mut input_buffer = Cursor::new(prove_input);
-                    let mut output_buffer = Cursor::new(Vec::<u8>::new());
-                    rln.generate_rln_proof(&mut input_buffer, &mut output_buffer)
-                        .unwrap();
-
-                    self.broadcast_channel
-                        .0
-                        .send(output_buffer.into_inner())
-                        .unwrap();
-                }
-
-                SendTransactionReply {
-                    result: true,
-                    message: "".to_string(),
-                }
-            }
-            Err(e) => SendTransactionReply {
-                result: false,
-                message: e.to_string(),
-            },
+        let user_id = if let Some(id) = self.registry.get(&sender) {
+            *id
+        } else {
+            return Err(Status::not_found("Sender not registered"));
         };
 
+        let user_identity = RlnUserIdentity {
+            secret_hash: user_id.0,
+            commitment: user_id.1,
+            user_limit: Fr::from(self.spam_limit),
+        };
+
+        // Inexpensive clone (behind Arc ptr)
+        let rln_identifier = self.rln_identifier.clone();
+
+        // Move to a task (as generating the proof can take quite some time)
+        let blocking_task = tokio::task::spawn_blocking(move || {
+            let rln_data = RlnData {
+                message_id: Fr::from(counter),
+                // TODO: tx hash to field
+                data: hash_to_field(b"RLN is awesome"),
+            };
+            // FIXME: track/update epoch
+            let epoch = hash_to_field(b"Today at noon, this year");
+
+            // FIXME: maintain tree in Prover or query RLN Reg SC ?
+            // Merkle tree
+            let tree_height = 20;
+            let mut tree = PmTree::new(tree_height, Fr::from(0), Default::default())
+                .map_err(|e| ProofGenerationError::Misc(e.to_string()))?;
+            // .unwrap();
+            // let mut tree = OptimalMerkleTree::new(tree_height, Fr::from(0), Default::default()).unwrap();
+            let rate_commit = poseidon_hash(&[user_identity.commitment, user_identity.user_limit]);
+            tree.set(0, rate_commit)
+                .map_err(|e| ProofGenerationError::Misc(e.to_string()))?;
+            //.unwrap();
+            let merkle_proof = tree
+                .proof(0)
+                .map_err(|e| ProofGenerationError::Misc(e.to_string()))?;
+            // .unwrap();
+
+            let (proof, proof_values) = compute_rln_proof_and_values(
+                &user_identity,
+                &rln_identifier,
+                rln_data,
+                epoch,
+                &merkle_proof,
+            )
+            .map_err(ProofGenerationError::Proof)?;
+            //    .unwrap(); // FIXME: no unwrap
+
+            // Serialize proof
+            // FIXME: proof size?
+            let mut output_buffer = Cursor::new(Vec::with_capacity(512));
+            proof
+                .serialize_compressed(&mut output_buffer)
+                .map_err(ProofGenerationError::Serialization)?;
+            // .unwrap();
+            output_buffer
+                .write_all(&serialize_proof_values(&proof_values))
+                .map_err(ProofGenerationError::SerializationWrite)?;
+            // .unwrap();
+
+            Ok::<Vec<u8>, ProofGenerationError>(output_buffer.into_inner())
+        });
+
+        let result = blocking_task.await;
+        if let Err(e) = result {
+            return Err(Status::from_error(Box::new(e)));
+        }
+        // blocking_task returns Result<Result<Vec<u8>, _>>
+        // Result (1st) is a JoinError (and should not happen)
+        // Result (2nd) is a ProofGenerationError
+        let _result = result.unwrap();
+
+        // TODO: broadcast proof
+
+        let reply = SendTransactionReply { result: true };
         Ok(Response::new(reply))
     }
 
@@ -186,17 +239,30 @@ impl RlnProver for ProverService {
 
 pub(crate) struct GrpcProverService {
     addr: SocketAddr,
+    rln_identifier: RlnIdentifier,
+    // epoch_counter: Arc<AtomicI64>,
 }
 
 impl GrpcProverService {
-    pub(crate) fn new(addr: SocketAddr) -> Self {
-        Self { addr }
+    pub(crate) fn new(
+        addr: SocketAddr,
+        rln_identifier: RlnIdentifier, /* epoch_counter: Arc<AtomicI64> */
+    ) -> Self {
+        Self {
+            addr,
+            rln_identifier,
+            // epoch_counter,
+        }
     }
 
     pub(crate) async fn serve(&self) -> Result<(), AppError> {
         let (tx, rx) = broadcast::channel(2);
+
         let prover_service = ProverService {
             registry: Default::default(),
+            rln_identifier: Arc::new(self.rln_identifier.clone()),
+            message_counters: Default::default(),
+            spam_limit: PROVER_SPAM_LIMIT,
             broadcast_channel: (tx, rx),
         };
 
@@ -237,7 +303,6 @@ impl GrpcProverService {
 mod tests {
     use crate::grpc_service::prover_proto::Address;
     use prost::Message;
-    // use crate::proto::prover::{Address}; // Adjust the import path as needed
 
     const MAX_ADDRESS_SIZE_BYTES: usize = 20;
 

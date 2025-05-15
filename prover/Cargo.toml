@@ -1,0 +1,29 @@
+[package]
+name = "status_rln_prover"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.5.37", features = ["derive"] }
+tonic = { version = "0.13", features = ["gzip"] }
+tonic-reflection = "0.13"
+prost = "0.13"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+tracing = "0.1.41"
+tracing-test = "0.2.5"
+alloy = { version = "0.15", features = ["full"] }
+thiserror = "2.0"
+futures = "0.3"
+rln = { git = "https://github.com/vacp2p/zerokit" }
+ark-bn254 = { version = "0.5", features = ["std"] }
+ark-serialize = "0.5.0"
+serde_json = "1.0"
+dashmap = "6.1.0"
+bytesize = "2.0.1"
+rln_proof = { path = "../rln_proof" }
+chrono = "0.4.41"
+parking_lot = "0.12.3"
+
+[build-dependencies]
+tonic-build = "*"

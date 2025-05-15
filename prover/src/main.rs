@@ -1,4 +1,5 @@
 mod args;
+mod epoch_service;
 mod error;
 mod grpc_service;
 mod registry;
@@ -8,7 +9,12 @@ mod registry_listener;
 use std::net::SocketAddr;
 // third-party
 use alloy::primitives::address;
+// use chrono::{
+//     DateTime,
+//     Utc
+// };
 use clap::Parser;
+use rln_proof::RlnIdentifier;
 use tracing::level_filters::LevelFilter;
 use tracing::{
     debug,
@@ -16,11 +22,13 @@ use tracing::{
     // info
 };
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
-
 // internal
 use crate::args::AppArgs;
+// use crate::epoch_service::EpochService;
 use crate::grpc_service::GrpcProverService;
 use crate::registry_listener::RegistryListener;
+
+const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -42,18 +50,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let registry_listener =
         RegistryListener::new(app_args.rpc_url.as_str(), uniswap_token_address, event);
 
+    // Epoch
+    // let mut epoch_service = EpochService::new(
+    //     Duration::from_secs(10),
+    //     Utc::now()
+    // );
+
     // grpc
 
+    let rln_identifier = RlnIdentifier::new(RLN_IDENTIFIER_NAME);
     let addr = SocketAddr::new(app_args.ip, app_args.port);
     debug!("Listening on: {}", addr);
-    let prover_service = GrpcProverService::new(addr);
+    let prover_service = GrpcProverService::new(
+        addr,
+        rln_identifier,
+        // epoch_service.current_epoch.clone()
+    );
 
-    let res = tokio::try_join!(prover_service.serve(), registry_listener.listen());
+    let res = tokio::try_join!(
+        // epoch_service.listen_for_new_epoch(),
+        registry_listener.listen(),
+        prover_service.serve(),
+    );
 
     match res {
-        Ok((first, second)) => {
-            debug!("{:?}", first);
-            debug!("{:?}", second);
+        // Ok((epoch, registry, prover)) => {
+        Ok((registry, prover)) => {
+            debug!("{:?}", registry);
+            debug!("{:?}", prover);
         }
         Err(e) => {
             error!("{:?}", e);
