@@ -29,6 +29,11 @@ use tonic::{
     transport::Server,
     // codec::CompressionEncoding
 };
+use tonic_web::{
+    GrpcWebLayer,
+};
+use tower_http::cors::{Any, CorsLayer};
+use http::Method;
 use tracing::{
     debug,
     // error,
@@ -206,7 +211,10 @@ impl RlnProver for ProverService {
         &self,
         _request: Request<RegisterUserRequest>,
     ) -> Result<Response<RegisterUserReply>, Status> {
-        todo!()
+        let reply = RegisterUserReply {
+            status: 0
+        };
+        Ok(Response::new(reply))
     }
 
     type GetProofsStream = ReceiverStream<Result<RlnProof, Status>>;
@@ -278,6 +286,20 @@ impl GrpcProverService {
             //.send_compressed(CompressionEncoding::Gzip)
             ;
 
+        // CORS
+        let cors = CorsLayer::new()
+            // Allow `GET`, `POST` and `OPTIONS` when accessing the resource
+            .allow_methods([
+                Method::GET,
+                // http POST && OPTIONS not required for grpc-web
+                // Method::POST,
+                // Method::OPTIONS
+            ])
+            // Allow requests from any origin
+            // FIXME: config?
+            .allow_origin(Any)
+            .allow_headers(Any);
+
         Server::builder()
             // service protection && limits
             // limits: connection
@@ -288,9 +310,11 @@ impl GrpcProverService {
             .max_frame_size(PROVER_SERVICE_HTTP2_MAX_FRAME_SIZE.as_u64() as u32)
             // perf: tcp
             .tcp_nodelay(true)
-            // No http 1
-            .accept_http1(false)
+            // http 1 layer required for GrpcWebLayer
+            .accept_http1(true)
             // services
+            .layer(cors)
+            .layer(GrpcWebLayer::new())
             .add_service(reflection_service)
             .add_service(r)
             .serve(self.addr)

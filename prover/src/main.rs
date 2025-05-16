@@ -1,5 +1,5 @@
 mod args;
-mod epoch_service;
+// mod epoch_service;
 mod error;
 mod grpc_service;
 mod registry;
