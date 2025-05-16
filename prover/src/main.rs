@@ -2,6 +2,7 @@ mod args;
 // mod epoch_service;
 mod error;
 mod grpc_service;
+mod proof_service;
 mod registry;
 mod registry_listener;
 
@@ -15,10 +16,11 @@ use alloy::primitives::address;
 // };
 use clap::Parser;
 use rln_proof::RlnIdentifier;
+use tokio::task::JoinSet;
 use tracing::level_filters::LevelFilter;
 use tracing::{
     debug,
-    error,
+    // error,
     // info
 };
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
@@ -26,9 +28,11 @@ use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberI
 use crate::args::AppArgs;
 // use crate::epoch_service::EpochService;
 use crate::grpc_service::GrpcProverService;
+use crate::proof_service::ProofService;
 use crate::registry_listener::RegistryListener;
 
 const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
+const PROOF_SERVICE_COUNT: u8 = 8;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -56,33 +60,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //     Utc::now()
     // );
 
+    // proof service
+    // FIXME: bound
+    let (tx, rx) = tokio::sync::broadcast::channel(2);
+    // TODO: bounded channel
+    let (proof_sender, proof_receiver) = async_channel::unbounded();
+
     // grpc
 
     let rln_identifier = RlnIdentifier::new(RLN_IDENTIFIER_NAME);
     let addr = SocketAddr::new(app_args.ip, app_args.port);
     debug!("Listening on: {}", addr);
     let prover_service = GrpcProverService::new(
+        proof_sender,
+        (tx.clone(), rx),
         addr,
         rln_identifier,
         // epoch_service.current_epoch.clone()
     );
 
-    let res = tokio::try_join!(
-        // epoch_service.listen_for_new_epoch(),
-        registry_listener.listen(),
-        prover_service.serve(),
-    );
+    let mut set = JoinSet::new();
+    for _i in 0..PROOF_SERVICE_COUNT {
+        let proof_recv = proof_receiver.clone();
+        let broadcast_sender = tx.clone();
 
-    match res {
-        // Ok((epoch, registry, prover)) => {
-        Ok((registry, prover)) => {
-            debug!("{:?}", registry);
-            debug!("{:?}", prover);
-        }
-        Err(e) => {
-            error!("{:?}", e);
-        }
+        set.spawn(async {
+            let proof_service = ProofService::new(proof_recv, broadcast_sender);
+            proof_service.serve().await
+        });
     }
+    set.spawn(async move { registry_listener.listen().await });
+    set.spawn(async move { prover_service.serve().await });
 
+    let _ = set.join_all().await;
     Ok(())
 }

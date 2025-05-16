@@ -27,6 +27,7 @@ chrono = "0.4.41"
 parking_lot = "0.12.3"
 tower-http = { version = "0.6.4", features = ["cors"] }
 http = "*"
+async-channel = "2.3.1"
 
 [build-dependencies]
 tonic-build = "*"

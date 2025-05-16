@@ -1,24 +1,19 @@
 // std
 use std::collections::HashMap;
-use std::io::{Cursor, Write};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-// use std::sync::atomic::{
-//     AtomicI64,
-// };
 // third-party
 use alloy::primitives::Address;
 use ark_bn254::Fr;
-use ark_serialize::{CanonicalSerialize, SerializationError};
+use async_channel::Sender;
 use bytesize::ByteSize;
 use futures::TryFutureExt;
-use rln::hashers::{hash_to_field, poseidon_hash};
-use rln::pm_tree_adapter::PmTree;
-use rln::protocol::{ProofError, serialize_proof_values};
+use http::Method;
 use tokio::sync::{
-    RwLock, broadcast,
-    broadcast::{Receiver, Sender},
+    RwLock,
+    broadcast,
+    // broadcast::{Receiver, Sender},
     mpsc,
 };
 use tonic::{
@@ -29,11 +24,8 @@ use tonic::{
     transport::Server,
     // codec::CompressionEncoding
 };
-use tonic_web::{
-    GrpcWebLayer,
-};
+use tonic_web::GrpcWebLayer;
 use tower_http::cors::{Any, CorsLayer};
-use http::Method;
 use tracing::{
     debug,
     // error,
@@ -62,7 +54,11 @@ use prover_proto::{
     rln_prover_server::{RlnProver, RlnProverServer},
 };
 use rln_proof::{
-    RlnData, RlnIdentifier, RlnUserIdentity, ZerokitMerkleTree, compute_rln_proof_and_values,
+    // RlnData,
+    RlnIdentifier,
+    RlnUserIdentity,
+    // ZerokitMerkleTree,
+    // compute_rln_proof_and_values,
 };
 
 const PROVER_SERVICE_LIMIT_PER_CONNECTION: usize = 16;
@@ -80,23 +76,15 @@ const PROVER_SPAM_LIMIT: u64 = 10_000;
 
 #[derive(Debug)]
 pub struct ProverService {
+    proof_sender: Sender<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
     registry: UserRegistry,
     rln_identifier: Arc<RlnIdentifier>,
     message_counters: RwLock<HashMap<Address, u64>>,
     spam_limit: u64,
-    broadcast_channel: (Sender<Vec<u8>>, Receiver<Vec<u8>>),
-}
-
-#[derive(thiserror::Error, Debug)]
-enum ProofGenerationError {
-    #[error("Proof generation failed: {0}")]
-    Proof(#[from] ProofError),
-    #[error("Proof serialization failed: {0}")]
-    Serialization(#[from] SerializationError),
-    #[error("Proof serialization failed: {0}")]
-    SerializationWrite(#[from] std::io::Error),
-    #[error("Error: {0}")]
-    Misc(String),
+    broadcast_channel: (
+        tokio::sync::broadcast::Sender<Vec<u8>>,
+        tokio::sync::broadcast::Receiver<Vec<u8>>,
+    ),
 }
 
 #[tonic::async_trait]
@@ -141,67 +129,11 @@ impl RlnProver for ProverService {
         // Inexpensive clone (behind Arc ptr)
         let rln_identifier = self.rln_identifier.clone();
 
-        // Move to a task (as generating the proof can take quite some time)
-        let blocking_task = tokio::task::spawn_blocking(move || {
-            let rln_data = RlnData {
-                message_id: Fr::from(counter),
-                // TODO: tx hash to field
-                data: hash_to_field(b"RLN is awesome"),
-            };
-            // FIXME: track/update epoch
-            let epoch = hash_to_field(b"Today at noon, this year");
-
-            // FIXME: maintain tree in Prover or query RLN Reg SC ?
-            // Merkle tree
-            let tree_height = 20;
-            let mut tree = PmTree::new(tree_height, Fr::from(0), Default::default())
-                .map_err(|e| ProofGenerationError::Misc(e.to_string()))?;
-            // .unwrap();
-            // let mut tree = OptimalMerkleTree::new(tree_height, Fr::from(0), Default::default()).unwrap();
-            let rate_commit = poseidon_hash(&[user_identity.commitment, user_identity.user_limit]);
-            tree.set(0, rate_commit)
-                .map_err(|e| ProofGenerationError::Misc(e.to_string()))?;
-            //.unwrap();
-            let merkle_proof = tree
-                .proof(0)
-                .map_err(|e| ProofGenerationError::Misc(e.to_string()))?;
-            // .unwrap();
-
-            let (proof, proof_values) = compute_rln_proof_and_values(
-                &user_identity,
-                &rln_identifier,
-                rln_data,
-                epoch,
-                &merkle_proof,
-            )
-            .map_err(ProofGenerationError::Proof)?;
-            //    .unwrap(); // FIXME: no unwrap
-
-            // Serialize proof
-            // FIXME: proof size?
-            let mut output_buffer = Cursor::new(Vec::with_capacity(512));
-            proof
-                .serialize_compressed(&mut output_buffer)
-                .map_err(ProofGenerationError::Serialization)?;
-            // .unwrap();
-            output_buffer
-                .write_all(&serialize_proof_values(&proof_values))
-                .map_err(ProofGenerationError::SerializationWrite)?;
-            // .unwrap();
-
-            Ok::<Vec<u8>, ProofGenerationError>(output_buffer.into_inner())
-        });
-
-        let result = blocking_task.await;
-        if let Err(e) = result {
-            return Err(Status::from_error(Box::new(e)));
-        }
-        // blocking_task returns Result<Result<Vec<u8>, _>>
-        // Result (1st) is a JoinError (and should not happen)
-        // Result (2nd) is a ProofGenerationError
-        let _result = result.unwrap();
-
-        // TODO: broadcast proof
+        // Send some data to one of the proof services
+        self.proof_sender
+            .send((user_identity, rln_identifier, counter))
+            .await
+            .map_err(|e| Status::from_error(Box::new(e)))?;
 
         let reply = SendTransactionReply { result: true };
         Ok(Response::new(reply))
@@ -211,9 +143,7 @@ impl RlnProver for ProverService {
         &self,
         _request: Request<RegisterUserRequest>,
     ) -> Result<Response<RegisterUserReply>, Status> {
-        let reply = RegisterUserReply {
-            status: 0
-        };
+        let reply = RegisterUserReply { status: 0 };
         Ok(Response::new(reply))
     }
 
@@ -246,6 +176,8 @@ impl RlnProver for ProverService {
 }
 
 pub(crate) struct GrpcProverService {
+    proof_sender: Sender<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
+    broadcast_channel: (broadcast::Sender<Vec<u8>>, broadcast::Receiver<Vec<u8>>),
     addr: SocketAddr,
     rln_identifier: RlnIdentifier,
     // epoch_counter: Arc<AtomicI64>,
@@ -253,10 +185,15 @@ pub(crate) struct GrpcProverService {
 
 impl GrpcProverService {
     pub(crate) fn new(
+        proof_sender: Sender<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
+        broadcast_channel: (broadcast::Sender<Vec<u8>>, broadcast::Receiver<Vec<u8>>),
         addr: SocketAddr,
-        rln_identifier: RlnIdentifier, /* epoch_counter: Arc<AtomicI64> */
+        rln_identifier: RlnIdentifier,
+        /* epoch_counter: Arc<AtomicI64> */
     ) -> Self {
         Self {
+            proof_sender,
+            broadcast_channel,
             addr,
             rln_identifier,
             // epoch_counter,
@@ -264,14 +201,16 @@ impl GrpcProverService {
     }
 
     pub(crate) async fn serve(&self) -> Result<(), AppError> {
-        let (tx, rx) = broadcast::channel(2);
-
         let prover_service = ProverService {
+            proof_sender: self.proof_sender.clone(),
             registry: Default::default(),
             rln_identifier: Arc::new(self.rln_identifier.clone()),
             message_counters: Default::default(),
             spam_limit: PROVER_SPAM_LIMIT,
-            broadcast_channel: (tx, rx),
+            broadcast_channel: (
+                self.broadcast_channel.0.clone(),
+                self.broadcast_channel.0.subscribe(),
+            ),
         };
 
         let reflection_service = tonic_reflection::server::Builder::configure()
