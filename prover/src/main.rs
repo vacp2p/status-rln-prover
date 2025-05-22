@@ -85,9 +85,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for _i in 0..PROOF_SERVICE_COUNT {
         let proof_recv = proof_receiver.clone();
         let broadcast_sender = tx.clone();
+        let current_epoch = epoch_service.current_epoch.clone();
 
         set.spawn(async {
-            let proof_service = ProofService::new(proof_recv, broadcast_sender);
+            let proof_service = ProofService::new(proof_recv, broadcast_sender, current_epoch);
             proof_service.serve().await
         });
     }

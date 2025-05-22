@@ -1,9 +1,9 @@
 use std::ops::Add;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 // third-party
 use chrono::{DateTime, NaiveDate, NaiveDateTime, OutOfRangeError, TimeDelta, Utc};
+use parking_lot::RwLock;
 use tracing::debug;
 // internal
 use crate::error::AppError;
@@ -20,10 +20,8 @@ const WAIT_UNTIL_MIN_DURATION: Duration = Duration::from_secs(5);
 pub struct EpochService {
     /// A subdivision of an epoch (in minutes or seconds)
     epoch_slice_duration: Duration,
-    /// Current epoch
-    pub current_epoch: Arc<AtomicI64>,
-    /// Current epoch slice
-    pub current_epoch_slice: Arc<AtomicI64>,
+    /// Current epoch and epoch slice
+    pub current_epoch: Arc<RwLock<(Epoch, EpochSlice)>>,
     /// Genesis time (aka when the service has been started at the first time)
     genesis: DateTime<Utc>,
 }
@@ -34,7 +32,7 @@ impl EpochService {
             Self::compute_epoch_slice_count(EPOCH_DURATION, self.epoch_slice_duration);
         debug!("epoch slice in an epoch: {}", epoch_slice_count);
 
-        let (current_epoch, current_epoch_slice, mut wait_until) =
+        let (mut current_epoch, mut current_epoch_slice, mut wait_until) =
             match self.compute_wait_until(&|| Utc::now(), &|| tokio::time::Instant::now()) {
                 Ok((current_epoch, current_epoch_slice, wait_until)) => {
                     (current_epoch, current_epoch_slice, wait_until)
@@ -46,9 +44,8 @@ impl EpochService {
                 }
             };
 
-        self.current_epoch.store(current_epoch, Ordering::SeqCst);
-        self.current_epoch_slice
-            .store(current_epoch_slice, Ordering::SeqCst);
+        debug!("wait until: {:?}", wait_until);
+        *self.current_epoch.write() = (current_epoch.into(), current_epoch_slice.into());
 
         loop {
             debug!("wait until: {:?}", wait_until);
@@ -63,13 +60,13 @@ impl EpochService {
             //       overflows as a timestamp
             wait_until += self.epoch_slice_duration;
 
-            let current_epoch_slice = self.current_epoch_slice.fetch_add(1, Ordering::SeqCst);
-            debug!("current epoch slice: {}", current_epoch_slice);
+            current_epoch_slice += 1;
             if current_epoch_slice == epoch_slice_count {
-                let epoch_ = self.current_epoch.fetch_add(1, Ordering::SeqCst);
-                self.current_epoch_slice.store(0, Ordering::SeqCst);
-                debug!("Current epoch: {}, current epoch slice: 0", epoch_);
+                current_epoch_slice = 0;
+                current_epoch += 1;
             }
+            *self.current_epoch.write() = (current_epoch.into(), current_epoch_slice.into());
+            debug!("epoch: {}, epoch slice: {}", current_epoch, current_epoch_slice);
         }
 
         // Ok(())
@@ -135,7 +132,7 @@ impl EpochService {
     }
 
     /// Compute current epoch slice
-    /// now_date: today's date
+    /// now_date: today's date (usually returned by: compute_current_epoch)
     fn compute_current_epoch_slice<F: Fn() -> DateTime<Utc>>(
         now_date: NaiveDate,
         epoch_slice_duration: Duration,
@@ -173,11 +170,10 @@ impl TryFrom<(Duration, DateTime<Utc>)> for EpochService {
     fn try_from(
         (epoch_slice_duration, genesis): (Duration, DateTime<Utc>),
     ) -> Result<Self, Self::Error> {
-        
         if genesis >= Utc::now() {
             return Err(EpochServiceInitError::InvalidGenesis);
         }
-        
+
         if epoch_slice_duration.as_secs() == 0
             || i32::try_from(epoch_slice_duration.as_secs()).is_err()
             || epoch_slice_duration < WAIT_UNTIL_MIN_DURATION
@@ -190,8 +186,9 @@ impl TryFrom<(Duration, DateTime<Utc>)> for EpochService {
 
         Ok(Self {
             epoch_slice_duration,
-            current_epoch: Arc::new(AtomicI64::new(0)),
-            current_epoch_slice: Arc::new(AtomicI64::new(0)),
+            // current_epoch: Arc::new(AtomicI64::new(0)),
+            // current_epoch_slice: Arc::new(AtomicI64::new(0)),
+            current_epoch: Arc::new(Default::default()),
             genesis,
         })
     }
@@ -203,6 +200,37 @@ pub enum WaitUntilError {
     OutOfRange(#[from] OutOfRangeError),
     #[error("Wait until is too low: {0:?} (min value: {1:?}")]
     TooLow(Duration, Duration),
+}
+
+/// An Epoch (wrapper type over i64)
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Epoch(pub(crate) i64);
+impl From<i64> for Epoch {
+    fn from(value: i64) -> Self {
+        Self(value)
+    }
+}
+
+impl From<Epoch> for i64 {
+    fn from(value: Epoch) -> Self {
+        value.0
+    }
+}
+
+/// An Epoch slice (wrapper type over i64)
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct EpochSlice(pub(crate) i64);
+
+impl From<i64> for EpochSlice {
+    fn from(value: i64) -> Self {
+        Self(value)
+    }
+}
+
+impl From<EpochSlice> for i64 {
+    fn from(value: EpochSlice) -> Self {
+        value.0
+    }
 }
 
 #[cfg(test)]
