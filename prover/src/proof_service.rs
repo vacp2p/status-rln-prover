@@ -4,11 +4,13 @@ use std::sync::Arc;
 use ark_bn254::Fr;
 use ark_serialize::{CanonicalSerialize, SerializationError};
 use async_channel::Receiver;
+use parking_lot::RwLock;
 use rln::hashers::{hash_to_field, poseidon_hash};
 use rln::pm_tree_adapter::PmTree;
 use rln::protocol::{ProofError, serialize_proof_values};
 use tracing::debug;
 // internal
+use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::AppError;
 use rln_proof::{
     RlnData, RlnIdentifier, RlnUserIdentity, ZerokitMerkleTree, compute_rln_proof_and_values,
@@ -30,16 +32,19 @@ enum ProofGenerationError {
 pub struct ProofService {
     receiver: Receiver<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
     broadcast_sender: tokio::sync::broadcast::Sender<Vec<u8>>,
+    current_epoch: Arc<RwLock<(Epoch, EpochSlice)>>,
 }
 
 impl ProofService {
     pub(crate) fn new(
         receiver: Receiver<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
         broadcast_sender: tokio::sync::broadcast::Sender<Vec<u8>>,
+        current_epoch: Arc<RwLock<(Epoch, EpochSlice)>>,
     ) -> Self {
         Self {
             receiver,
             broadcast_sender,
+            current_epoch,
         }
     }
 
@@ -53,6 +58,8 @@ impl ProofService {
             }
             let (user_identity, rln_identifier, counter) = received.unwrap();
 
+            let (current_epoch, current_epoch_slice) = *self.current_epoch.read();
+
             // Move to a task (as generating the proof can take quite some time)
             let blocking_task = tokio::task::spawn_blocking(move || {
                 let rln_data = RlnData {
@@ -60,8 +67,13 @@ impl ProofService {
                     // TODO: tx hash to field
                     data: hash_to_field(b"RLN is awesome"),
                 };
-                // FIXME: track/update epoch
-                let epoch = hash_to_field(b"Today at noon, this year");
+
+                let epoch_bytes = {
+                    let mut v = i64::from(current_epoch).to_be_bytes().to_vec();
+                    v.extend(i64::from(current_epoch_slice).to_be_bytes());
+                    v
+                };
+                let epoch = hash_to_field(epoch_bytes.as_slice());
 
                 // FIXME: maintain tree in Prover or query RLN Reg SC ?
                 // Merkle tree

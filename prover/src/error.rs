@@ -1,3 +1,4 @@
+use crate::epoch_service::WaitUntilError;
 use alloy::{
     primitives::Address,
     transports::{RpcError, TransportErrorKind},
@@ -13,6 +14,8 @@ pub enum AppError {
     Alloy(#[from] RpcError<RpcError<TransportErrorKind>>),
     #[error("SC error 2: {0}")]
     Alloy2(#[from] RpcError<TransportErrorKind>),
+    #[error("Epoch service error: {0}")]
+    EpochError(#[from] WaitUntilError),
 }
 
 #[derive(thiserror::Error, Debug)]
