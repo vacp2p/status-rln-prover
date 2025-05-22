@@ -6,6 +6,7 @@ mod grpc_service;
 mod proof_service;
 mod registry;
 mod registry_listener;
+mod user_db;
 
 // std
 use std::net::SocketAddr;

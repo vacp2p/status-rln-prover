@@ -13,7 +13,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 tracing = "0.1.41"
 tracing-test = "0.2.5"
-alloy = { version = "0.15", features = ["full"] }
+alloy = { version = "0.15", features = ["full", "getrandom"] }
 thiserror = "2.0"
 futures = "0.3"
 rln = { git = "https://github.com/vacp2p/zerokit" }
@@ -31,3 +31,10 @@ async-channel = "2.3.1"
 
 [build-dependencies]
 tonic-build = "*"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "user_db_heavy_write"
+harness = false

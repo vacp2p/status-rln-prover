@@ -322,6 +322,7 @@ dependencies = [
  "const-hex",
  "derive_more",
  "foldhash",
+ "getrandom 0.3.2",
  "hashbrown 0.15.2",
  "indexmap 2.9.0",
  "itoa",
@@ -3888,7 +3889,6 @@ dependencies = [
  "ark-serialize 0.5.0",
  "criterion",
  "rln",
- "serde_json",
  "zerokit_utils",
 ]
 
@@ -4368,6 +4368,7 @@ dependencies = [
  "bytesize",
  "chrono",
  "clap",
+ "criterion",
  "dashmap",
  "futures",
  "http",

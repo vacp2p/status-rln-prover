@@ -48,6 +48,7 @@ pub mod prover_proto {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
         tonic::include_file_descriptor_set!("prover_descriptor");
 }
+use crate::grpc_service::prover_proto::{GetUserTierInfoReply, GetUserTierInfoRequest};
 use prover_proto::{
     RegisterUserReply, RegisterUserRequest, RlnProof, RlnProofFilter, SendTransactionReply,
     SendTransactionRequest,
@@ -172,6 +173,14 @@ impl RlnProver for ProverService {
         });
 
         Ok(Response::new(ReceiverStream::new(rx)))
+    }
+
+    async fn get_user_tier_info(
+        &self,
+        request: Request<GetUserTierInfoRequest>,
+    ) -> Result<Response<GetUserTierInfoReply>, Status> {
+        debug!("request: {:?}", request);
+        todo!()
     }
 }
 

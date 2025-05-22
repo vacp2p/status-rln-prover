@@ -14,6 +14,8 @@ service RlnProver {
   // Server side streaming RPC: 1 request -> X responses (stream)
   rpc GetProofs(RlnProofFilter) returns (stream RlnProof);
 
+  rpc GetUserTierInfo(GetUserTierInfoRequest) returns (GetUserTierInfoReply);
+
 }
 
 // TransactionType: https://github.com/Consensys/linea-besu/blob/09cbed1142cfe4d29b50ecf2f156639a4bc8c854/datatypes/src/main/java/org/hyperledger/besu/datatypes/TransactionType.java#L22
@@ -142,3 +144,31 @@ message RegisterUserReply {
   RegistrationStatus status = 1;
 }
 
+message GetUserTierInfoRequest {
+  Address user = 1;
+}
+
+message GetUserTierInfoReply {
+  oneof resp {
+    // variant for success
+    UserTierInfoResult res = 1;
+    // variant for error
+    UserTierInfoError error = 2;
+  }
+}
+
+message UserTierInfoError {
+  string message = 1;
+}
+
+message UserTierInfoResult {
+  sint64 current_epoch = 1;
+  sint64 current_epoch_slice = 2;
+  uint64 tx_count = 3;
+  Tier tier = 4;
+}
+
+message Tier {
+  string name = 1;
+  uint64 quota = 2;
+}
