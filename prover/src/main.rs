@@ -1,5 +1,6 @@
 mod args;
 // mod epoch_service;
+mod epoch_service;
 mod error;
 mod grpc_service;
 mod proof_service;
@@ -8,8 +9,10 @@ mod registry_listener;
 
 // std
 use std::net::SocketAddr;
+use std::time::Duration;
 // third-party
 use alloy::primitives::address;
+use chrono::{DateTime, Utc};
 // use chrono::{
 //     DateTime,
 //     Utc
@@ -26,13 +29,14 @@ use tracing::{
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 // internal
 use crate::args::AppArgs;
-// use crate::epoch_service::EpochService;
+use crate::epoch_service::EpochService;
 use crate::grpc_service::GrpcProverService;
 use crate::proof_service::ProofService;
 use crate::registry_listener::RegistryListener;
 
 const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
 const PROOF_SERVICE_COUNT: u8 = 8;
+const GENESIS: DateTime<Utc> = DateTime::from_timestamp(1431648000, 0).unwrap();
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -55,10 +59,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         RegistryListener::new(app_args.rpc_url.as_str(), uniswap_token_address, event);
 
     // Epoch
-    // let mut epoch_service = EpochService::new(
-    //     Duration::from_secs(10),
-    //     Utc::now()
-    // );
+    let epoch_service = EpochService::try_from((Duration::from_secs(60 * 2), GENESIS))
+        .expect("Failed to create epoch service");
 
     // proof service
     // FIXME: bound
@@ -89,7 +91,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             proof_service.serve().await
         });
     }
-    set.spawn(async move { registry_listener.listen().await });
+    // set.spawn(async move { registry_listener.listen().await });
+    set.spawn(async move { epoch_service.listen_for_new_epoch().await });
     set.spawn(async move { prover_service.serve().await });
 
     let _ = set.join_all().await;
