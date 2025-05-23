@@ -12,10 +12,21 @@ use rln::protocol::{
 };
 
 /// A RLN user identity & limit
+#[derive(Debug, Clone)]
 pub struct RlnUserIdentity {
     pub commitment: Fr,
     pub secret_hash: Fr,
     pub user_limit: Fr,
+}
+
+impl From<(Fr, Fr)> for RlnUserIdentity {
+    fn from((commitment, secret_hash): (Fr, Fr)) -> Self {
+        Self {
+            commitment,
+            secret_hash,
+            user_limit: Fr::from(0),
+        }
+    }
 }
 
 /// RLN info for a channel / group

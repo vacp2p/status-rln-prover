@@ -66,7 +66,10 @@ impl EpochService {
                 current_epoch += 1;
             }
             *self.current_epoch.write() = (current_epoch.into(), current_epoch_slice.into());
-            debug!("epoch: {}, epoch slice: {}", current_epoch, current_epoch_slice);
+            debug!(
+                "epoch: {}, epoch slice: {}",
+                current_epoch, current_epoch_slice
+            );
         }
 
         // Ok(())
@@ -203,8 +206,17 @@ pub enum WaitUntilError {
 }
 
 /// An Epoch (wrapper type over i64)
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Epoch(pub(crate) i64);
+
+impl Add<i64> for Epoch {
+    type Output = Self;
+
+    fn add(self, rhs: i64) -> Self::Output {
+        Self(self.0 + rhs)
+    }
+}
+
 impl From<i64> for Epoch {
     fn from(value: i64) -> Self {
         Self(value)
@@ -218,8 +230,16 @@ impl From<Epoch> for i64 {
 }
 
 /// An Epoch slice (wrapper type over i64)
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct EpochSlice(pub(crate) i64);
+
+impl Add<i64> for EpochSlice {
+    type Output = Self;
+
+    fn add(self, rhs: i64) -> Self::Output {
+        Self(self.0 + rhs)
+    }
+}
 
 impl From<i64> for EpochSlice {
     fn from(value: i64) -> Self {
