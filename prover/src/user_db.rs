@@ -1,9 +1,12 @@
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
+use std::collections::BTreeMap;
+use std::ops::Bound::Included;
 // third-party
 use alloy::primitives::Address;
-use dashmap::DashMap;
+// use dashmap::DashMap;
 use parking_lot::RwLock;
 use rln::protocol::keygen;
+use scc::HashMap;
 use tokio::sync::Notify;
 use tracing::debug;
 // internal
@@ -11,38 +14,53 @@ use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::AppError;
 use rln_proof::RlnUserIdentity;
 
+static TIER_LIMITS: LazyLock<BTreeMap<u64, String>> = LazyLock::new(|| {
+    BTreeMap::from([
+        (6, "Basic".to_string()),
+        (120, "Active".to_string()),
+        (720, "Regular".to_string()),
+        (14440, "Power User".to_string()),
+        (86400, "High-Throughput".to_string()),
+        (432000, "S-Tier".to_string()),
+    ])
+});
+
 #[derive(Debug)]
 pub(crate) struct UserDb {
-    inner: DashMap<Address, RlnUserIdentity>,
-    inner_counter: DashMap<Address, (u64, u64)>,
+    inner: HashMap<Address, RlnUserIdentity>,
+    inner_counter: HashMap<Address, (u64, u64)>,
     epoch_changes: Arc<Notify>,
     epoch_ref: Arc<RwLock<(Epoch, EpochSlice)>>,
     current_epoch: Epoch,
     current_epoch_slice: EpochSlice,
+    // tier_limits: BTreeMap<u64, String>,
 }
 
 impl UserDb {
     fn new() -> Self {
         Self {
-            inner: DashMap::new(),
+            inner: Default::default(),
             inner_counter: Default::default(),
             epoch_changes: Arc::new(Default::default()),
             epoch_ref: Arc::new(Default::default()),
             current_epoch: Default::default(),
             current_epoch_slice: Default::default(),
+            // tier_limits: TIER_LIMITS.clone(),
         }
     }
 
-    fn register(&self, address: Address) {
+    fn register(&self, address: Address) -> bool {
         let (identity_secret_hash, id_commitment) = keygen();
         self.inner.insert(
             address,
             RlnUserIdentity::from((identity_secret_hash, id_commitment)),
-        );
+        )
+            .map(|()| true)
+            .unwrap_or(false)
     }
 
     fn incr_tx_counter(&self, address: &Address, incr_value: Option<u64>) -> bool {
-        if self.inner.contains_key(address) {
+        if self.inner.contains(address) {
             let incr_value = incr_value.unwrap_or(1);
             let mut entry = self.inner_counter.entry(*address).or_insert((0, 0));
             *entry = (entry.0 + incr_value, entry.1 + incr_value);
@@ -53,18 +71,24 @@ impl UserDb {
     }
 
     fn user_tier_info(&self, address: &Address) -> Option<UserTierInfo> {
-        if self.inner.contains_key(address) {
+        if self.inner.contains(address) {
             let (epoch_tx_count, epoch_slice_tx_count) = self
                 .inner_counter
                 .get(address)
                 .map(|ref_v| (ref_v.0, ref_v.1))
                 .unwrap_or((0, 0));
 
+            // let range_res = self.tier_limits
+            //     .range((Included(&0), Included(&epoch_tx_count)));
+            // let current_tier = range_res.into_iter().last().unwrap();
+
             Some(UserTierInfo {
                 current_epoch: self.current_epoch.into(),
                 current_epoch_slice: self.current_epoch_slice.into(),
                 epoch_tx_count,
                 epoch_slice_tx_count,
+                // tier: current_tier.1.clone(),
+                // tier_limit: *current_tier.0,
             })
         } else {
             None
@@ -87,7 +111,11 @@ impl UserDb {
         if new_epoch > self.current_epoch {
             self.inner_counter.clear();
         } else if new_epoch_slice > self.current_epoch_slice {
-            self.inner_counter.alter_all(|_a, v| (v.0, 0));
+            // self.inner_counter.alter_all(|_a, v| (v.0, 0));
+            self.inner_counter.retain(|_a, v| {
+                *v = (v.0, 0);
+                true
+            });
         }
 
         self.current_epoch = new_epoch;
@@ -101,7 +129,8 @@ struct UserTierInfo {
     current_epoch_slice: i64,
     epoch_tx_count: u64,
     epoch_slice_tx_count: u64,
-    // Tier tier = 4;
+    tier: String,
+    tier_limit: u64,
 }
 
 #[cfg(test)]
@@ -136,12 +165,13 @@ mod tests {
             epoch_ref: epoch_store.clone(),
             current_epoch: epoch,
             current_epoch_slice: epoch_slice,
+            // tier_limits: TIER_LIMITS.clone(),
         };
 
         let addr_1 = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
         let addr_1_tx_count = 2;
         let addr_2 = address!("0xb20a608c624Ca5003905aA834De7156C68b2E1d0");
-        let addr_2_tx_count = 42;
+        let addr_2_tx_count = 820;
         user_db.register(addr_1);
         // (0..addr_1_tx_count).into_iter().for_each(|_i| { user_db.incr_tx_counter(&addr_1); });
         user_db.incr_tx_counter(&addr_1, Some(addr_1_tx_count));
@@ -155,10 +185,12 @@ mod tests {
             let addr_1_tier_info = user_db.user_tier_info(&addr_1).unwrap();
             assert_eq!(addr_1_tier_info.epoch_tx_count, addr_1_tx_count);
             assert_eq!(addr_1_tier_info.epoch_slice_tx_count, 0);
+            assert_eq!(addr_1_tier_info.tier, "Basic");
 
             let addr_2_tier_info = user_db.user_tier_info(&addr_2).unwrap();
             assert_eq!(addr_2_tier_info.epoch_tx_count, addr_2_tx_count);
             assert_eq!(addr_2_tier_info.epoch_slice_tx_count, 0);
+            // assert_eq!(addr_2_tier_info.tier, "");
         }
 
         // incr epoch (11 -> 12, epoch slice reset)
