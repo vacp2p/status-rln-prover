@@ -58,12 +58,12 @@ static TIER_LIMITS: LazyLock<BTreeMap<KarmaAmount, (TierLimit, String)>> = LazyL
     ])
 });
 
-trait KarmaAmountExt {
+pub trait KarmaAmountExt {
     async fn karma_amount(&self, address: &Address) -> U256;
 }
 
 #[derive(Debug)]
-pub(crate) struct UserDb<KSC: KarmaAmountExt> {
+pub struct UserDb<KSC: KarmaAmountExt> {
     inner: HashMap<Address, RlnUserIdentity>,
     inner_counter: HashMap<Address, (u64, u64)>,
     epoch_changes: Arc<Notify>,
@@ -97,15 +97,15 @@ where
             .insert(
                 address,
                 RlnUserIdentity::from((identity_secret_hash, id_commitment)),
-            )
-            .map(|()| true)
-            .unwrap_or(false)
+            ).is_ok()
     }
 
     fn incr_tx_counter(&self, address: &Address, incr_value: Option<u64>) -> bool {
         if self.inner.contains(address) {
             let incr_value = incr_value.unwrap_or(1);
-            let mut entry = self.inner_counter.entry(*address).or_insert((0, 0));
+            let mut entry = self.inner_counter
+                .entry(*address)
+                .or_insert((0, 0));
             *entry = (entry.0 + incr_value, entry.1 + incr_value);
             true
         } else {
@@ -136,6 +136,7 @@ where
                     current_epoch_slice: self.current_epoch_slice.into(),
                     epoch_tx_count,
                     epoch_slice_tx_count,
+                    karma_amount: karma_amount.into(),
                     tier: None,
                     tier_limit: None,
                 };
@@ -164,6 +165,7 @@ where
         }
     }
 
+    /// Internal - used by listen_for_epoch_changes
     fn update_on_epoch_changes(&mut self, new_epoch: Epoch, new_epoch_slice: EpochSlice) {
         if new_epoch > self.current_epoch {
             self.inner_counter.clear();
@@ -185,6 +187,7 @@ struct UserTierInfo {
     current_epoch_slice: i64,
     epoch_tx_count: u64,
     epoch_slice_tx_count: u64,
+    karma_amount: U256,
     tier: Option<String>,
     tier_limit: Option<u64>,
 }
@@ -195,11 +198,6 @@ mod tests {
     use alloy::primitives::address;
 
     struct MockKarmaSc {}
-    impl MockKarmaSc {
-        fn new() -> Self {
-            Self {}
-        }
-    }
 
     impl KarmaAmountExt for MockKarmaSc {
         async fn karma_amount(&self, _address: &Address) -> U256 {
@@ -207,9 +205,26 @@ mod tests {
         }
     }
 
+    const addr_1: Address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
+    const addr_2: Address = address!("0xb20a608c624Ca5003905aA834De7156C68b2E1d0");
+    
+    struct MockKarmaSc2 {}
+
+    impl KarmaAmountExt for MockKarmaSc2 {
+        async fn karma_amount(&self, address: &Address) -> U256 {
+            if address == &addr_1 {
+                U256::from(10)
+            } else if address == &addr_2 {
+                U256::from(2000)
+            } else {
+                U256::ZERO
+            }
+        }
+    }
+
     #[tokio::test]
     async fn test_incr_tx_counter() {
-        let user_db = UserDb::new(MockKarmaSc::new());
+        let user_db = UserDb::new(MockKarmaSc {});
         let address = Address::new([0; 20]);
 
         assert_eq!(user_db.incr_tx_counter(&address, None), false);
@@ -224,6 +239,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_on_epoch_changes() {
+        
         let epoch = Epoch::from(11);
         let epoch_slice = EpochSlice::from(42);
         let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
@@ -234,20 +250,15 @@ mod tests {
             epoch_ref: epoch_store.clone(),
             current_epoch: epoch,
             current_epoch_slice: epoch_slice,
-            // tier_limits: TIER_LIMITS.clone(),
-            tier_limits: Default::default(),
-            karma_sc: MockKarmaSc::new(),
+            tier_limits: TIER_LIMITS.clone(),
+            karma_sc: MockKarmaSc2 {},
         };
 
-        let addr_1 = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
         let addr_1_tx_count = 2;
-        let addr_2 = address!("0xb20a608c624Ca5003905aA834De7156C68b2E1d0");
         let addr_2_tx_count = 820;
         user_db.register(addr_1);
-        // (0..addr_1_tx_count).into_iter().for_each(|_i| { user_db.incr_tx_counter(&addr_1); });
         user_db.incr_tx_counter(&addr_1, Some(addr_1_tx_count));
         user_db.register(addr_2);
-        // (0..addr_2_tx_count).into_iter().for_each(|_i| { user_db.incr_tx_counter(&addr_2); });
         user_db.incr_tx_counter(&addr_2, Some(addr_2_tx_count));
 
         // incr epoch slice (42 -> 43)
@@ -261,19 +272,21 @@ mod tests {
             let addr_2_tier_info = user_db.user_tier_info(&addr_2).await.unwrap();
             assert_eq!(addr_2_tier_info.epoch_tx_count, addr_2_tx_count);
             assert_eq!(addr_2_tier_info.epoch_slice_tx_count, 0);
-            // assert_eq!(addr_2_tier_info.tier, "");
+            assert_eq!(addr_2_tier_info.tier, Some("Power User".to_string()));
         }
-
+        
         // incr epoch (11 -> 12, epoch slice reset)
         {
             user_db.update_on_epoch_changes(epoch + 1, EpochSlice::from(0));
             let addr_1_tier_info = user_db.user_tier_info(&addr_1).await.unwrap();
             assert_eq!(addr_1_tier_info.epoch_tx_count, 0);
             assert_eq!(addr_1_tier_info.epoch_slice_tx_count, 0);
+            assert_eq!(addr_1_tier_info.tier, Some("Basic".to_string()));
 
             let addr_2_tier_info = user_db.user_tier_info(&addr_2).await.unwrap();
             assert_eq!(addr_2_tier_info.epoch_tx_count, 0);
             assert_eq!(addr_2_tier_info.epoch_slice_tx_count, 0);
+            assert_eq!(addr_2_tier_info.tier, Some("Power User".to_string()));
         }
     }
 }

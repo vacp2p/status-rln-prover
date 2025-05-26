@@ -409,17 +409,17 @@ mod tests {
 
         let now_f = move || {
             let now_0: NaiveDateTime = day.and_hms_opt(0, 4, 0).unwrap();
-            let now: DateTime<Utc> = chrono::DateTime::from_utc(now_0, chrono::Utc);
+            let now: DateTime<Utc> = chrono::DateTime::from_naive_utc_and_offset(now_0, chrono::Utc);
             now
         };
         let now_f_2 = move || {
             let now_0: NaiveDateTime = day.and_hms_opt(0, 5, 59).unwrap();
-            let now: DateTime<Utc> = chrono::DateTime::from_utc(now_0, chrono::Utc);
+            let now: DateTime<Utc> = chrono::DateTime::from_naive_utc_and_offset(now_0, chrono::Utc);
             now
         };
         let now_f_3 = move || {
             let now_0: NaiveDateTime = day.and_hms_opt(0, 6, 0).unwrap();
-            let now: DateTime<Utc> = chrono::DateTime::from_utc(now_0, chrono::Utc);
+            let now: DateTime<Utc> = chrono::DateTime::from_naive_utc_and_offset(now_0, chrono::Utc);
             now
         };
 
