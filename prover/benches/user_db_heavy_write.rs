@@ -1,15 +1,19 @@
-use std::hint::black_box;
 use alloy::primitives::Address;
+use std::hint::black_box;
 // criterion
-use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
-                // black_box
+use criterion::{
+    BenchmarkId,
+    Criterion,
+    Throughput,
+    criterion_group,
+    criterion_main,
+    // black_box
 };
 use dashmap::DashMap;
 use rand::Rng;
 use scc::HashMap;
 
 pub fn criterion_benchmark(c: &mut Criterion) {
-
     let size = 1_250_000;
     let mut rng = rand::thread_rng();
     let d_1m: DashMap<Address, (u64, u64)> = DashMap::with_capacity(size as usize);
@@ -41,7 +45,6 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             }));
         })
     });
-
 
     group.finish();
 }
