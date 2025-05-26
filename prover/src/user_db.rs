@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::ops::Bound::Included;
+use std::ops::Deref;
 use std::sync::{Arc, LazyLock};
 // third-party
 use alloy::primitives::{Address, U256};
@@ -62,12 +63,67 @@ pub trait KarmaAmountExt {
     async fn karma_amount(&self, address: &Address) -> U256;
 }
 
+#[derive(Debug, Default, Clone)]
+pub(crate) struct UserRegistry {
+    inner: HashMap<Address, RlnUserIdentity>,
+}
+impl UserRegistry {
+    fn register(&self, address: Address) -> bool {
+        let (identity_secret_hash, id_commitment) = keygen();
+        self.inner
+            .insert(
+                address,
+                RlnUserIdentity::from((identity_secret_hash, id_commitment)),
+            )
+            .is_ok()
+    }
+}
+
+impl Deref for UserRegistry {
+    type Target = HashMap<Address, RlnUserIdentity>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub(crate) struct TxRegistry {
+    inner: HashMap<Address, (u64, u64)>,
+}
+impl Deref for TxRegistry {
+    type Target = HashMap<Address, (u64, u64)>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+impl TxRegistry {
+    /// Update the transaction counter for the given address
+    ///
+    /// If incr_value is None, the counter will be incremented by 1
+    /// If incr_value is Some(x), the counter will be incremented by x
+    ///
+    /// Returns the new counter value OR None if the address is not registered
+    pub fn incr_counter(&self, address: &Address, incr_value: Option<u64>) -> Option<u64> {
+        if self.inner.contains(address) {
+            let incr_value = incr_value.unwrap_or(1);
+            let mut entry = self.inner.entry(*address).or_insert((0, 0));
+            *entry = (entry.0 + incr_value, entry.1 + incr_value);
+            println!("entry: {:?}", entry);
+            Some(entry.0)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct UserDb<KSC: KarmaAmountExt> {
-    inner: HashMap<Address, RlnUserIdentity>,
-    inner_counter: HashMap<Address, (u64, u64)>,
+    user_registry: Arc<UserRegistry>,
+    tx_registry: Arc<TxRegistry>,
     epoch_changes: Arc<Notify>,
-    epoch_ref: Arc<RwLock<(Epoch, EpochSlice)>>,
+    epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
     current_epoch: Epoch,
     current_epoch_slice: EpochSlice,
     tier_limits: BTreeMap<KarmaAmount, (TierLimit, String)>,
@@ -78,12 +134,16 @@ impl<KSC> UserDb<KSC>
 where
     KSC: KarmaAmountExt,
 {
-    fn new(karma_sc: KSC) -> Self {
+    pub(crate) fn new(
+        karma_sc: KSC,
+        epoch_changes_notifier: Arc<Notify>,
+        epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
+    ) -> Self {
         Self {
-            inner: Default::default(),
-            inner_counter: Default::default(),
-            epoch_changes: Arc::new(Default::default()),
-            epoch_ref: Arc::new(Default::default()),
+            user_registry: Default::default(),
+            tx_registry: Default::default(),
+            epoch_changes: epoch_changes_notifier,
+            epoch_store,
             current_epoch: Default::default(),
             current_epoch_slice: Default::default(),
             tier_limits: TIER_LIMITS.clone(),
@@ -91,33 +151,19 @@ where
         }
     }
 
-    fn register(&self, address: Address) -> bool {
-        let (identity_secret_hash, id_commitment) = keygen();
-        self.inner
-            .insert(
-                address,
-                RlnUserIdentity::from((identity_secret_hash, id_commitment)),
-            ).is_ok()
+    pub fn user_registry_db(&self) -> Arc<UserRegistry> {
+        self.user_registry.clone()
     }
 
-    fn incr_tx_counter(&self, address: &Address, incr_value: Option<u64>) -> bool {
-        if self.inner.contains(address) {
-            let incr_value = incr_value.unwrap_or(1);
-            let mut entry = self.inner_counter
-                .entry(*address)
-                .or_insert((0, 0));
-            *entry = (entry.0 + incr_value, entry.1 + incr_value);
-            true
-        } else {
-            false
-        }
+    pub fn tx_registry_db(&self) -> Arc<TxRegistry> {
+        self.tx_registry.clone()
     }
 
     /// Get user tier info
     async fn user_tier_info(&self, address: &Address) -> Option<UserTierInfo> {
-        if self.inner.contains(address) {
+        if self.user_registry.contains(address) {
             let (epoch_tx_count, epoch_slice_tx_count) = self
-                .inner_counter
+                .tx_registry
                 .get(address)
                 .map(|ref_v| (ref_v.0, ref_v.1))
                 .unwrap_or((0, 0));
@@ -136,7 +182,7 @@ where
                     current_epoch_slice: self.current_epoch_slice.into(),
                     epoch_tx_count,
                     epoch_slice_tx_count,
-                    karma_amount: karma_amount.into(),
+                    karma_amount,
                     tier: None,
                     tier_limit: None,
                 };
@@ -153,10 +199,10 @@ where
         }
     }
 
-    async fn listen_for_epoch_changes(&mut self) -> Result<(), AppError> {
+    pub async fn listen_for_epoch_changes(&mut self) -> Result<(), AppError> {
         loop {
             self.epoch_changes.notified().await;
-            let (new_epoch, new_epoch_slice) = *self.epoch_ref.read();
+            let (new_epoch, new_epoch_slice) = *self.epoch_store.read();
             debug!(
                 "new epoch: {:?}, new epoch slice: {:?}",
                 new_epoch, new_epoch_slice
@@ -168,9 +214,9 @@ where
     /// Internal - used by listen_for_epoch_changes
     fn update_on_epoch_changes(&mut self, new_epoch: Epoch, new_epoch_slice: EpochSlice) {
         if new_epoch > self.current_epoch {
-            self.inner_counter.clear();
+            self.tx_registry.clear();
         } else if new_epoch_slice > self.current_epoch_slice {
-            self.inner_counter.retain(|_a, v| {
+            self.tx_registry.retain(|_a, v| {
                 *v = (v.0, 0);
                 true
             });
@@ -205,16 +251,16 @@ mod tests {
         }
     }
 
-    const addr_1: Address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
-    const addr_2: Address = address!("0xb20a608c624Ca5003905aA834De7156C68b2E1d0");
-    
+    const ADDR_1: Address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
+    const ADDR_2: Address = address!("0xb20a608c624Ca5003905aA834De7156C68b2E1d0");
+
     struct MockKarmaSc2 {}
 
     impl KarmaAmountExt for MockKarmaSc2 {
         async fn karma_amount(&self, address: &Address) -> U256 {
-            if address == &addr_1 {
+            if address == &ADDR_1 {
                 U256::from(10)
-            } else if address == &addr_2 {
+            } else if address == &ADDR_2 {
                 U256::from(2000)
             } else {
                 U256::ZERO
@@ -224,30 +270,29 @@ mod tests {
 
     #[tokio::test]
     async fn test_incr_tx_counter() {
-        let user_db = UserDb::new(MockKarmaSc {});
-        let address = Address::new([0; 20]);
+        let user_db = UserDb::new(MockKarmaSc {}, Default::default(), Default::default());
+        let addr = Address::new([0; 20]);
 
-        assert_eq!(user_db.incr_tx_counter(&address, None), false);
-        let tier_info = user_db.user_tier_info(&address).await;
+        assert_eq!(user_db.tx_registry.incr_counter(&addr, None), None);
+        let tier_info = user_db.user_tier_info(&addr).await;
         assert_eq!(tier_info, None);
-        user_db.register(address);
-        assert_eq!(user_db.incr_tx_counter(&address, None), true);
-        let tier_info = user_db.user_tier_info(&address).await.unwrap();
+        user_db.user_registry.register(addr);
+        assert_eq!(user_db.tx_registry.incr_counter(&addr, None), Some(0));
+        let tier_info = user_db.user_tier_info(&addr).await.unwrap();
         assert_eq!(tier_info.epoch_tx_count, 1);
         assert_eq!(tier_info.epoch_slice_tx_count, 1);
     }
 
     #[tokio::test]
     async fn test_update_on_epoch_changes() {
-        
         let epoch = Epoch::from(11);
         let epoch_slice = EpochSlice::from(42);
         let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
         let mut user_db = UserDb {
-            inner: Default::default(),
-            inner_counter: Default::default(),
+            user_registry: Default::default(),
+            tx_registry: Default::default(),
             epoch_changes: Default::default(),
-            epoch_ref: epoch_store.clone(),
+            epoch_store: epoch_store.clone(),
             current_epoch: epoch,
             current_epoch_slice: epoch_slice,
             tier_limits: TIER_LIMITS.clone(),
@@ -256,34 +301,38 @@ mod tests {
 
         let addr_1_tx_count = 2;
         let addr_2_tx_count = 820;
-        user_db.register(addr_1);
-        user_db.incr_tx_counter(&addr_1, Some(addr_1_tx_count));
-        user_db.register(addr_2);
-        user_db.incr_tx_counter(&addr_2, Some(addr_2_tx_count));
+        user_db.user_registry.register(ADDR_1);
+        user_db
+            .tx_registry
+            .incr_counter(&ADDR_1, Some(addr_1_tx_count));
+        user_db.user_registry.register(ADDR_2);
+        user_db
+            .tx_registry
+            .incr_counter(&ADDR_2, Some(addr_2_tx_count));
 
         // incr epoch slice (42 -> 43)
         {
             user_db.update_on_epoch_changes(epoch, epoch_slice + 1);
-            let addr_1_tier_info = user_db.user_tier_info(&addr_1).await.unwrap();
+            let addr_1_tier_info = user_db.user_tier_info(&ADDR_1).await.unwrap();
             assert_eq!(addr_1_tier_info.epoch_tx_count, addr_1_tx_count);
             assert_eq!(addr_1_tier_info.epoch_slice_tx_count, 0);
             assert_eq!(addr_1_tier_info.tier, Some("Basic".to_string()));
 
-            let addr_2_tier_info = user_db.user_tier_info(&addr_2).await.unwrap();
+            let addr_2_tier_info = user_db.user_tier_info(&ADDR_2).await.unwrap();
             assert_eq!(addr_2_tier_info.epoch_tx_count, addr_2_tx_count);
             assert_eq!(addr_2_tier_info.epoch_slice_tx_count, 0);
             assert_eq!(addr_2_tier_info.tier, Some("Power User".to_string()));
         }
-        
+
         // incr epoch (11 -> 12, epoch slice reset)
         {
             user_db.update_on_epoch_changes(epoch + 1, EpochSlice::from(0));
-            let addr_1_tier_info = user_db.user_tier_info(&addr_1).await.unwrap();
+            let addr_1_tier_info = user_db.user_tier_info(&ADDR_1).await.unwrap();
             assert_eq!(addr_1_tier_info.epoch_tx_count, 0);
             assert_eq!(addr_1_tier_info.epoch_slice_tx_count, 0);
             assert_eq!(addr_1_tier_info.tier, Some("Basic".to_string()));
 
-            let addr_2_tier_info = user_db.user_tier_info(&addr_2).await.unwrap();
+            let addr_2_tier_info = user_db.user_tier_info(&ADDR_2).await.unwrap();
             assert_eq!(addr_2_tier_info.epoch_tx_count, 0);
             assert_eq!(addr_2_tier_info.epoch_slice_tx_count, 0);
             assert_eq!(addr_2_tier_info.tier, Some("Power User".to_string()));

@@ -1,5 +1,4 @@
 // std
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,7 +10,6 @@ use bytesize::ByteSize;
 use futures::TryFutureExt;
 use http::Method;
 use tokio::sync::{
-    RwLock,
     broadcast,
     // broadcast::{Receiver, Sender},
     mpsc,
@@ -32,12 +30,9 @@ use tracing::{
     // info
 };
 // internal
-use crate::{
-    error::{
-        AppError,
-        // RegistrationError
-    },
-    registry::UserRegistry,
+use crate::error::{
+    AppError,
+    // RegistrationError
 };
 
 pub mod prover_proto {
@@ -49,6 +44,7 @@ pub mod prover_proto {
         tonic::include_file_descriptor_set!("prover_descriptor");
 }
 use crate::grpc_service::prover_proto::{GetUserTierInfoReply, GetUserTierInfoRequest};
+use crate::user_db::{TxRegistry, UserRegistry};
 use prover_proto::{
     RegisterUserReply, RegisterUserRequest, RlnProof, RlnProofFilter, SendTransactionReply,
     SendTransactionRequest,
@@ -78,14 +74,11 @@ const PROVER_SPAM_LIMIT: u64 = 10_000;
 #[derive(Debug)]
 pub struct ProverService {
     proof_sender: Sender<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
-    registry: UserRegistry,
+    user_registry: Arc<UserRegistry>,
+    tx_registry: Arc<TxRegistry>,
     rln_identifier: Arc<RlnIdentifier>,
-    message_counters: RwLock<HashMap<Address, u64>>,
     spam_limit: u64,
-    broadcast_channel: (
-        tokio::sync::broadcast::Sender<Vec<u8>>,
-        tokio::sync::broadcast::Receiver<Vec<u8>>,
-    ),
+    broadcast_channel: (broadcast::Sender<Vec<u8>>, broadcast::Receiver<Vec<u8>>),
 }
 
 #[tonic::async_trait]
@@ -107,23 +100,18 @@ impl RlnProver for ProverService {
             return Err(Status::invalid_argument("No sender address"));
         };
 
-        // Update the counter as soon as possible (should help to prevent spamming...)
-        let mut message_counter_guard = self.message_counters.write().await;
-        let counter = *message_counter_guard
-            .entry(sender)
-            .and_modify(|e| *e += 1)
-            .or_insert(1);
-        drop(message_counter_guard);
-
-        let user_id = if let Some(id) = self.registry.get(&sender) {
-            *id
+        let user_id = if let Some(id) = self.user_registry.get(&sender) {
+            id.clone()
         } else {
             return Err(Status::not_found("Sender not registered"));
         };
 
+        // Update the counter as soon as possible (should help to prevent spamming...)
+        let counter = self.tx_registry.incr_counter(&sender, None).unwrap_or(0);
+
         let user_identity = RlnUserIdentity {
-            secret_hash: user_id.0,
-            commitment: user_id.1,
+            secret_hash: user_id.secret_hash,
+            commitment: user_id.commitment,
             user_limit: Fr::from(self.spam_limit),
         };
 
@@ -185,36 +173,40 @@ impl RlnProver for ProverService {
 }
 
 pub(crate) struct GrpcProverService {
-    proof_sender: Sender<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
-    broadcast_channel: (broadcast::Sender<Vec<u8>>, broadcast::Receiver<Vec<u8>>),
-    addr: SocketAddr,
-    rln_identifier: RlnIdentifier,
-    // epoch_counter: Arc<AtomicI64>,
+    pub proof_sender: Sender<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
+    pub broadcast_channel: (broadcast::Sender<Vec<u8>>, broadcast::Receiver<Vec<u8>>),
+    pub addr: SocketAddr,
+    pub rln_identifier: RlnIdentifier,
+    pub user_registry: Arc<UserRegistry>,
+    pub tx_registry: Arc<TxRegistry>,
 }
 
 impl GrpcProverService {
+    /*
     pub(crate) fn new(
         proof_sender: Sender<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
         broadcast_channel: (broadcast::Sender<Vec<u8>>, broadcast::Receiver<Vec<u8>>),
         addr: SocketAddr,
         rln_identifier: RlnIdentifier,
-        /* epoch_counter: Arc<AtomicI64> */
+
     ) -> Self {
         Self {
             proof_sender,
             broadcast_channel,
             addr,
             rln_identifier,
-            // epoch_counter,
+            user_registry: Arc::new(Default::default()),
+            tx_registry: Arc::new(Default::default()),
         }
     }
+    */
 
     pub(crate) async fn serve(&self) -> Result<(), AppError> {
         let prover_service = ProverService {
             proof_sender: self.proof_sender.clone(),
-            registry: Default::default(),
+            user_registry: self.user_registry.clone(),
+            tx_registry: self.tx_registry.clone(),
             rln_identifier: Arc::new(self.rln_identifier.clone()),
-            message_counters: Default::default(),
             spam_limit: PROVER_SPAM_LIMIT,
             broadcast_channel: (
                 self.broadcast_channel.0.clone(),

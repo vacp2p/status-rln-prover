@@ -1,9 +1,10 @@
-use alloy::primitives::Address;
-use ark_bn254::Fr;
-use dashmap::DashMap;
-use dashmap::mapref::one::Ref;
-use rln::protocol::keygen;
+// use alloy::primitives::Address;
+// use ark_bn254::Fr;
+// use dashmap::DashMap;
+// use dashmap::mapref::one::Ref;
+// use rln::protocol::keygen;
 
+/*
 #[derive(Debug)]
 pub(crate) struct UserRegistry {
     inner: DashMap<Address, (Fr, Fr)>,
@@ -47,3 +48,4 @@ mod tests {
         assert!(reg.get(&address).is_some());
     }
 }
+*/
