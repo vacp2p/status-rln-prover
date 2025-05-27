@@ -6,18 +6,13 @@ mod grpc_service;
 mod proof_service;
 mod registry;
 mod registry_listener;
-mod user_db;
+mod user_db_service;
 
 // std
 use std::net::SocketAddr;
 use std::time::Duration;
 // third-party
-use alloy::primitives::{Address, U256};
 use chrono::{DateTime, Utc};
-// use chrono::{
-//     DateTime,
-//     Utc
-// };
 use clap::Parser;
 use rln_proof::RlnIdentifier;
 use tokio::task::JoinSet;
@@ -33,7 +28,7 @@ use crate::args::AppArgs;
 use crate::epoch_service::EpochService;
 use crate::grpc_service::GrpcProverService;
 use crate::proof_service::ProofService;
-use crate::user_db::{KarmaAmountExt, UserDb};
+use crate::user_db_service::UserDbService;
 
 const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
 const PROOF_SERVICE_COUNT: u8 = 8;
@@ -63,15 +58,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let epoch_service = EpochService::try_from((Duration::from_secs(60 * 2), GENESIS))
         .expect("Failed to create epoch service");
 
-    // User db
-    struct MockKarmaSc {}
-    impl KarmaAmountExt for MockKarmaSc {
-        async fn karma_amount(&self, _address: &Address) -> U256 {
-            U256::from(10)
-        }
-    }
-    let mut user_db_service = UserDb::new(
-        MockKarmaSc {},
+    // User db service
+    let user_db_service = UserDbService::new(
         epoch_service.epoch_changes.clone(),
         epoch_service.current_epoch.clone(),
     );
@@ -87,13 +75,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rln_identifier = RlnIdentifier::new(RLN_IDENTIFIER_NAME);
     let addr = SocketAddr::new(app_args.ip, app_args.port);
     debug!("Listening on: {}", addr);
-    let prover_service = GrpcProverService {
+    let prover_grpc_service = GrpcProverService {
         proof_sender,
         broadcast_channel: (tx.clone(), rx),
         addr,
         rln_identifier,
-        user_registry: user_db_service.user_registry_db(),
-        tx_registry: user_db_service.tx_registry_db(),
+        user_db: user_db_service.get_user_db(),
     };
 
     let mut set = JoinSet::new();
@@ -110,7 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // set.spawn(async move { registry_listener.listen().await });
     set.spawn(async move { epoch_service.listen_for_new_epoch().await });
     set.spawn(async move { user_db_service.listen_for_epoch_changes().await });
-    set.spawn(async move { prover_service.serve().await });
+    set.spawn(async move { prover_grpc_service.serve().await });
 
     let _ = set.join_all().await;
     Ok(())

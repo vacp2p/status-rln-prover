@@ -9,11 +9,7 @@ use async_channel::Sender;
 use bytesize::ByteSize;
 use futures::TryFutureExt;
 use http::Method;
-use tokio::sync::{
-    broadcast,
-    // broadcast::{Receiver, Sender},
-    mpsc,
-};
+use tokio::sync::{broadcast, mpsc};
 use tonic::{
     Request,
     Response,
@@ -34,6 +30,8 @@ use crate::error::{
     AppError,
     // RegistrationError
 };
+use crate::user_db_service::UserDb;
+use rln_proof::{RlnIdentifier, RlnUserIdentity};
 
 pub mod prover_proto {
 
@@ -43,19 +41,10 @@ pub mod prover_proto {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
         tonic::include_file_descriptor_set!("prover_descriptor");
 }
-use crate::grpc_service::prover_proto::{GetUserTierInfoReply, GetUserTierInfoRequest};
-use crate::user_db::{TxRegistry, UserRegistry};
 use prover_proto::{
-    RegisterUserReply, RegisterUserRequest, RlnProof, RlnProofFilter, SendTransactionReply,
-    SendTransactionRequest,
+    GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply, RegisterUserRequest, RlnProof,
+    RlnProofFilter, SendTransactionReply, SendTransactionRequest,
     rln_prover_server::{RlnProver, RlnProverServer},
-};
-use rln_proof::{
-    // RlnData,
-    RlnIdentifier,
-    RlnUserIdentity,
-    // ZerokitMerkleTree,
-    // compute_rln_proof_and_values,
 };
 
 const PROVER_SERVICE_LIMIT_PER_CONNECTION: usize = 16;
@@ -74,8 +63,7 @@ const PROVER_SPAM_LIMIT: u64 = 10_000;
 #[derive(Debug)]
 pub struct ProverService {
     proof_sender: Sender<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
-    user_registry: Arc<UserRegistry>,
-    tx_registry: Arc<TxRegistry>,
+    user_db: UserDb,
     rln_identifier: Arc<RlnIdentifier>,
     spam_limit: u64,
     broadcast_channel: (broadcast::Sender<Vec<u8>>, broadcast::Receiver<Vec<u8>>),
@@ -100,14 +88,14 @@ impl RlnProver for ProverService {
             return Err(Status::invalid_argument("No sender address"));
         };
 
-        let user_id = if let Some(id) = self.user_registry.get(&sender) {
+        let user_id = if let Some(id) = self.user_db.get_user(&sender) {
             id.clone()
         } else {
             return Err(Status::not_found("Sender not registered"));
         };
 
         // Update the counter as soon as possible (should help to prevent spamming...)
-        let counter = self.tx_registry.incr_counter(&sender, None).unwrap_or(0);
+        let counter = self.user_db.on_new_tx(&sender).unwrap_or(0);
 
         let user_identity = RlnUserIdentity {
             secret_hash: user_id.secret_hash,
@@ -177,35 +165,14 @@ pub(crate) struct GrpcProverService {
     pub broadcast_channel: (broadcast::Sender<Vec<u8>>, broadcast::Receiver<Vec<u8>>),
     pub addr: SocketAddr,
     pub rln_identifier: RlnIdentifier,
-    pub user_registry: Arc<UserRegistry>,
-    pub tx_registry: Arc<TxRegistry>,
+    pub user_db: UserDb,
 }
 
 impl GrpcProverService {
-    /*
-    pub(crate) fn new(
-        proof_sender: Sender<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
-        broadcast_channel: (broadcast::Sender<Vec<u8>>, broadcast::Receiver<Vec<u8>>),
-        addr: SocketAddr,
-        rln_identifier: RlnIdentifier,
-
-    ) -> Self {
-        Self {
-            proof_sender,
-            broadcast_channel,
-            addr,
-            rln_identifier,
-            user_registry: Arc::new(Default::default()),
-            tx_registry: Arc::new(Default::default()),
-        }
-    }
-    */
-
     pub(crate) async fn serve(&self) -> Result<(), AppError> {
         let prover_service = ProverService {
             proof_sender: self.proof_sender.clone(),
-            user_registry: self.user_registry.clone(),
-            tx_registry: self.tx_registry.clone(),
+            user_db: self.user_db.clone(),
             rln_identifier: Arc::new(self.rln_identifier.clone()),
             spam_limit: PROVER_SPAM_LIMIT,
             broadcast_channel: (

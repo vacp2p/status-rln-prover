@@ -492,7 +492,7 @@ mod tests {
                     loop {
                         notifier.notified().await;
                         debug!("[Notified] Epoch update...");
-                        let v = counter.fetch_add(1, Ordering::SeqCst);
+                        let _v = counter.fetch_add(1, Ordering::SeqCst);
                     }
                     Ok::<(), AppErrorExt>(())
                 }
