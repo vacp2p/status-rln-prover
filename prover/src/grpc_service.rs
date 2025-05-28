@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 // std
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -45,8 +46,10 @@ use prover_proto::{
     GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply, RegisterUserRequest, RlnProof,
     RlnProofFilter, SendTransactionReply, SendTransactionRequest,
     rln_prover_server::{RlnProver, RlnProverServer},
-    UserTierInfoError, UserTierInfoResult, get_user_tier_info_reply::Resp, Tier
+    UserTierInfoError, UserTierInfoResult, get_user_tier_info_reply::Resp, Tier,
+    SetTierLimitsRequest, SetTierLimitsReply,
 };
+use crate::tier::{KarmaAmount, TierLimit, TierName};
 
 const PROVER_SERVICE_LIMIT_PER_CONNECTION: usize = 16;
 // Timeout for all handlers of a request
@@ -195,6 +198,40 @@ impl RlnProver for ProverService {
             }
         }
     }
+    
+    async fn set_tier_limits(&self, request: Request<SetTierLimitsRequest>) -> Result<Response<SetTierLimitsReply>, Status> {
+        debug!("request: {:?}", request);
+        
+        let request = request.into_inner();
+        let tier_limits: BTreeMap<KarmaAmount, (TierLimit, TierName)> = request
+            .karma_amounts
+            .iter()
+            .zip(request.tiers)
+            .map(|(k, tier)| {
+                // FIXME: from_le_slice can panic - use try_from_le_slice?
+                let karma_amount = KarmaAmount::from(U256::from_le_slice(k.value.as_slice()));
+                let tier_info = (TierLimit::from(tier.quota), TierName::from(tier.name.clone()));
+                (karma_amount, tier_info)
+            })
+            .collect();
+        
+        let reply = match self.user_db.on_new_tier_limits(tier_limits) {
+            Ok(_) => {
+                SetTierLimitsReply {
+                    status: true,
+                    error: "".to_string(),
+                }
+            }
+            Err(e) => {
+                SetTierLimitsReply {
+                    status: false,
+                    error: e.to_string(),
+                }
+            }
+        };
+        Ok(Response::new(reply))
+    }
+    
 }
 
 pub(crate) struct GrpcProverService {

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::ops::Bound::Included;
 use std::ops::Deref;
 use std::sync::{Arc};
@@ -93,6 +93,7 @@ pub struct UserDb {
     user_registry: Arc<UserRegistry>,
     tx_registry: Arc<TxRegistry>,
     tier_limits: Arc<RwLock<BTreeMap<KarmaAmount, (TierLimit, TierName)>>>,
+    tier_limits_next: Arc<RwLock<BTreeMap<KarmaAmount, (TierLimit, TierName)>>>,
     epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
 }
 
@@ -106,6 +107,15 @@ impl UserDb {
             *v = (v.0, 0);
             true
         });
+        
+        let tier_limits_updated = self.tier_limits_next.read().len() != 0;
+        if tier_limits_updated {
+            let mut guard = self.tier_limits.write();
+            // mem::take will clear the BTreeMap in tier_limits_next
+            let new_tier_limits = std::mem::take(&mut *guard);
+            debug!("Installing new tier limits: {:?}", new_tier_limits);
+            *self.tier_limits.write() = new_tier_limits;
+        }
     }
 
     pub fn get_user(&self, address: &Address) -> Option<RlnUserIdentity> {
@@ -118,6 +128,43 @@ impl UserDb {
         } else {
             None
         }
+    }
+    
+    pub(crate) fn on_new_tier_limits(&self, tier_limits: BTreeMap<KarmaAmount, (TierLimit, TierName)>) -> Result<(), SetTierLimitsError> {
+        
+        #[derive(Default)]
+        struct Context<'a> {
+            tier_names: HashSet<TierName>,
+            prev_karma_amount: Option<&'a KarmaAmount>,
+            prev_tier_limit: Option<&'a TierLimit>,
+            i: usize,
+        }
+        
+        let _context = tier_limits
+            .iter()
+            .try_fold(Context::default(), |mut state, (k, (tl, tn))| {
+                
+                if k <= state.prev_karma_amount.unwrap_or(&KarmaAmount::ZERO) {
+                    return Err(SetTierLimitsError::InvalidKarmaAmount); 
+                }
+                
+                if tl <= state.prev_tier_limit.unwrap_or(&TierLimit::from(0)) {
+                    return Err(SetTierLimitsError::InvalidTierLimit);
+                }
+
+                if state.tier_names.contains(tn) {
+                    return Err(SetTierLimitsError::NonUniqueTierName)
+                }
+                
+                state.prev_karma_amount = Some(k);
+                state.prev_tier_limit = Some(tl);
+                state.tier_names.insert(tn.clone());
+                state.i += 1;
+                Ok(state)
+            })?;
+        
+        *self.tier_limits_next.write() = tier_limits;
+        Ok(())
     }
 
     /// Get user tier info
@@ -168,6 +215,16 @@ impl UserDb {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum SetTierLimitsError {
+    #[error("Invalid Karma amount (must be increasing)")]
+    InvalidKarmaAmount,
+    #[error("Invalid Tier limit (must be increasing)")]
+    InvalidTierLimit,
+    #[error("Non unique Tier name")]
+    NonUniqueTierName,
+}
+
 #[derive(Debug)]
 pub struct UserDbService {
     user_db: UserDb,
@@ -184,6 +241,7 @@ impl UserDbService {
                 user_registry: Default::default(),
                 tx_registry: Default::default(),
                 tier_limits: Arc::new(RwLock::new(TIER_LIMITS.clone())),
+                tier_limits_next: Arc::new(Default::default()),
                 epoch_store,
             },
             epoch_changes: epoch_changes_notifier,
@@ -268,6 +326,7 @@ mod tests {
             user_registry: Default::default(),
             tx_registry: Default::default(),
             tier_limits: Arc::new(RwLock::new(TIER_LIMITS.clone())),
+            tier_limits_next: Arc::new(Default::default()),
             epoch_store: Arc::new(RwLock::new(Default::default())),
         };
         let addr = Address::new([0; 20]);

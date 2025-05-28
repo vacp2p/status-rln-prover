@@ -15,7 +15,7 @@ service RlnProver {
   rpc GetProofs(RlnProofFilter) returns (stream RlnProof);
 
   rpc GetUserTierInfo(GetUserTierInfoRequest) returns (GetUserTierInfoReply);
-
+  rpc SetTierLimits(SetTierLimitsRequest) returns (SetTierLimitsReply);
 }
 
 // TransactionType: https://github.com/Consensys/linea-besu/blob/09cbed1142cfe4d29b50ecf2f156639a4bc8c854/datatypes/src/main/java/org/hyperledger/besu/datatypes/TransactionType.java#L22
@@ -171,4 +171,14 @@ message UserTierInfoResult {
 message Tier {
   string name = 1;
   uint64 quota = 2;
+}
+
+message SetTierLimitsRequest {
+  repeated U256 karmaAmounts = 1;
+  repeated Tier tiers = 2;
+}
+
+message SetTierLimitsReply {
+  bool status = 1;
+  string error = 2;
 }

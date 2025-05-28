@@ -16,8 +16,14 @@ impl From<U256> for KarmaAmount {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct TierLimit(u64);
+
+impl From<u64> for TierLimit {
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
+}
 
 impl From<TierLimit> for u64 {
     fn from(value: TierLimit) -> Self {
@@ -25,12 +31,18 @@ impl From<TierLimit> for u64 {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct TierName(pub(crate) String);
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TierName(String);
 
 impl From<&str> for TierName {
     fn from(value: &str) -> Self {
         Self(value.to_string())
+    }
+}
+
+impl From<String> for TierName {
+    fn from(value: String) -> Self {
+        Self(value)
     }
 }
 
