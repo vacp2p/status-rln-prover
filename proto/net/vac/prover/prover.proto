@@ -165,7 +165,7 @@ message UserTierInfoResult {
   sint64 current_epoch = 1;
   sint64 current_epoch_slice = 2;
   uint64 tx_count = 3;
-  Tier tier = 4;
+  optional Tier tier = 4;
 }
 
 message Tier {

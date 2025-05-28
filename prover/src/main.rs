@@ -7,6 +7,7 @@ mod proof_service;
 mod registry;
 mod registry_listener;
 mod user_db_service;
+mod tier;
 
 // std
 use std::net::SocketAddr;
@@ -22,7 +23,7 @@ use tracing::{
     // error,
     // info
 };
-use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 // internal
 use crate::args::AppArgs;
 use crate::epoch_service::EpochService;

@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 // third-party
-use alloy::primitives::Address;
+use alloy::primitives::{Address, U256};
 use ark_bn254::Fr;
 use async_channel::Sender;
 use bytesize::ByteSize;
@@ -30,7 +30,7 @@ use crate::error::{
     AppError,
     // RegistrationError
 };
-use crate::user_db_service::UserDb;
+use crate::user_db_service::{KarmaAmountExt, UserDb, UserTierInfo};
 use rln_proof::{RlnIdentifier, RlnUserIdentity};
 
 pub mod prover_proto {
@@ -45,6 +45,7 @@ use prover_proto::{
     GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply, RegisterUserRequest, RlnProof,
     RlnProofFilter, SendTransactionReply, SendTransactionRequest,
     rln_prover_server::{RlnProver, RlnProverServer},
+    UserTierInfoError, UserTierInfoResult, get_user_tier_info_reply::Resp, Tier
 };
 
 const PROVER_SERVICE_LIMIT_PER_CONNECTION: usize = 16;
@@ -156,7 +157,43 @@ impl RlnProver for ProverService {
         request: Request<GetUserTierInfoRequest>,
     ) -> Result<Response<GetUserTierInfoReply>, Status> {
         debug!("request: {:?}", request);
-        todo!()
+
+        let req = request.into_inner();
+
+        let user = if let Some(user) = req.user {
+            if let Ok(user) = Address::try_from(user.value.as_slice()) {
+                user
+            } else {
+                return Err(Status::invalid_argument("Invalid user address"));
+            }
+        } else {
+            return Err(Status::invalid_argument("No user address"));
+        };
+
+        // TODO: SC call
+        struct MockKarmaSc {}
+
+        impl KarmaAmountExt for MockKarmaSc {
+            async fn karma_amount(&self, _address: &Address) -> U256 {
+                U256::from(10)
+            }
+        }
+        let tier_info = self.user_db.user_tier_info(&user, MockKarmaSc {}).await;
+
+        match tier_info {
+            Ok(tier_info) => {
+                Ok(Response::new(GetUserTierInfoReply {
+                    resp: Some(Resp::Res(
+                        tier_info.into()
+                    )),
+                }))
+            },
+            Err(e) => {
+                Ok(Response::new(GetUserTierInfoReply {
+                    resp: Some(Resp::Error(e.into()))
+                }))
+            }
+        }
     }
 }
 
@@ -227,6 +264,34 @@ impl GrpcProverService {
             .serve(self.addr)
             .map_err(AppError::from)
             .await
+    }
+}
+
+impl From<UserTierInfo> for UserTierInfoResult {
+    fn from(tier_info: UserTierInfo) -> Self {
+        let mut res = UserTierInfoResult {
+            current_epoch: tier_info.current_epoch.into(),
+            current_epoch_slice: tier_info.current_epoch_slice.into(),
+            tx_count: tier_info.epoch_tx_count,
+            tier: None,
+        };
+
+        if tier_info.tier_name.is_some() && tier_info.tier_limit.is_some() {
+            res.tier = Some(Tier {
+                name: tier_info.tier_name.unwrap().into(),
+                quota: tier_info.tier_limit.unwrap().into(),
+            })
+        }
+
+        res
+    }
+}
+
+impl From<crate::user_db_service::UserTierInfoError> for UserTierInfoError {
+    fn from(value: crate::user_db_service::UserTierInfoError) -> Self {
+        UserTierInfoError {
+            message: value.to_string(),
+        }
     }
 }
 

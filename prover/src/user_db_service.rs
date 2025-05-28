@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::ops::Bound::Included;
 use std::ops::Deref;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc};
 // third-party
 use alloy::primitives::{Address, U256};
 use parking_lot::RwLock;
@@ -12,55 +12,8 @@ use tracing::debug;
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::AppError;
+use crate::tier::{TierName, TierLimit, TIER_LIMITS, KarmaAmount};
 use rln_proof::RlnUserIdentity;
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-struct KarmaAmount(U256);
-
-impl KarmaAmount {
-    const ZERO: KarmaAmount = KarmaAmount(U256::ZERO);
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct TierLimit(u64);
-
-#[derive(Debug, Clone, PartialEq)]
-struct TierName(String);
-
-impl From<&str> for TierName {
-    fn from(value: &str) -> Self {
-        Self(value.to_string())
-    }
-}
-
-static TIER_LIMITS: LazyLock<BTreeMap<KarmaAmount, (TierLimit, TierName)>> = LazyLock::new(|| {
-    BTreeMap::from([
-        (
-            KarmaAmount(U256::from(10)),
-            (TierLimit(6), TierName::from("Basic")),
-        ),
-        (
-            KarmaAmount(U256::from(50)),
-            (TierLimit(120), TierName::from("Active")),
-        ),
-        (
-            KarmaAmount(U256::from(100)),
-            (TierLimit(720), TierName::from("Regular")),
-        ),
-        (
-            KarmaAmount(U256::from(500)),
-            (TierLimit(14440), TierName::from("Regular")),
-        ),
-        (
-            KarmaAmount(U256::from(1000)),
-            (TierLimit(86400), TierName::from("Power User")),
-        ),
-        (
-            KarmaAmount(U256::from(5000)),
-            (TierLimit(432000), TierName::from("S-Tier")),
-        ),
-    ])
-});
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct UserRegistry {
@@ -115,14 +68,20 @@ impl TxRegistry {
 }
 
 #[derive(Debug, PartialEq)]
-struct UserTierInfo {
-    current_epoch: Epoch,
-    current_epoch_slice: EpochSlice,
-    epoch_tx_count: u64,
-    epoch_slice_tx_count: u64,
+pub struct UserTierInfo {
+    pub(crate) current_epoch: Epoch,
+    pub(crate) current_epoch_slice: EpochSlice,
+    pub(crate) epoch_tx_count: u64,
+    pub(crate) epoch_slice_tx_count: u64,
     karma_amount: U256,
-    tier: Option<TierName>,
-    tier_limit: Option<TierLimit>,
+    pub(crate) tier_name: Option<TierName>,
+    pub(crate) tier_limit: Option<TierLimit>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum UserTierInfoError {
+    #[error("User {0} not registered")]
+    NotRegistered(Address)
 }
 
 pub trait KarmaAmountExt {
@@ -162,11 +121,11 @@ impl UserDb {
     }
 
     /// Get user tier info
-    async fn user_tier_info<KSC: KarmaAmountExt>(
+    pub(crate) async fn user_tier_info<KSC: KarmaAmountExt>(
         &self,
         address: &Address,
         karma_sc: KSC,
-    ) -> Option<UserTierInfo> {
+    ) -> Result<UserTierInfo, UserTierInfoError> {
         if self.user_registry.has_user(address) {
             let (epoch_tx_count, epoch_slice_tx_count) = self
                 .tx_registry
@@ -178,7 +137,7 @@ impl UserDb {
             let guard = self.tier_limits.read();
             let range_res = guard.range((
                 Included(&KarmaAmount::ZERO),
-                Included(&KarmaAmount(karma_amount)),
+                Included(&KarmaAmount::from(karma_amount)),
             ));
             let tier_info: Option<(TierLimit, TierName)> =
                 range_res.into_iter().last().map(|o| o.1.clone());
@@ -192,19 +151,19 @@ impl UserDb {
                     epoch_tx_count,
                     epoch_slice_tx_count,
                     karma_amount,
-                    tier: None,
+                    tier_name: None,
                     tier_limit: None,
                 };
                 if let Some((tier_limit, tier_name)) = tier_info {
-                    t.tier = Some(tier_name);
+                    t.tier_name = Some(tier_name);
                     t.tier_limit = Some(tier_limit);
                 }
                 t
             };
 
-            Some(user_tier_info)
+            Ok(user_tier_info)
         } else {
-            None
+            Err(UserTierInfoError::NotRegistered(*address))
         }
     }
 }
@@ -317,7 +276,7 @@ mod tests {
         assert_eq!(user_db.on_new_tx(&addr), None);
         let tier_info = user_db.user_tier_info(&addr, MockKarmaSc {}).await;
         // User is not registered -> no tier info
-        assert_eq!(tier_info, None);
+        assert!(matches!(tier_info, Err(UserTierInfoError::NotRegistered(_))));
         // Register user + update tx counter
         user_db.user_registry.register(addr);
         assert_eq!(user_db.on_new_tx(&addr), Some(1));
@@ -361,7 +320,7 @@ mod tests {
                 .unwrap();
             assert_eq!(addr_1_tier_info.epoch_tx_count, addr_1_tx_count);
             assert_eq!(addr_1_tier_info.epoch_slice_tx_count, 0);
-            assert_eq!(addr_1_tier_info.tier, Some(TierName::from("Basic")));
+            assert_eq!(addr_1_tier_info.tier_name, Some(TierName::from("Basic")));
 
             let addr_2_tier_info = user_db
                 .user_tier_info(&ADDR_2, MockKarmaSc2 {})
@@ -369,7 +328,7 @@ mod tests {
                 .unwrap();
             assert_eq!(addr_2_tier_info.epoch_tx_count, addr_2_tx_count);
             assert_eq!(addr_2_tier_info.epoch_slice_tx_count, 0);
-            assert_eq!(addr_2_tier_info.tier, Some(TierName::from("Power User")));
+            assert_eq!(addr_2_tier_info.tier_name, Some(TierName::from("Power User")));
         }
 
         // incr epoch (11 -> 12, epoch slice reset)
@@ -388,7 +347,7 @@ mod tests {
                 .unwrap();
             assert_eq!(addr_1_tier_info.epoch_tx_count, 0);
             assert_eq!(addr_1_tier_info.epoch_slice_tx_count, 0);
-            assert_eq!(addr_1_tier_info.tier, Some(TierName::from("Basic")));
+            assert_eq!(addr_1_tier_info.tier_name, Some(TierName::from("Basic")));
 
             let addr_2_tier_info = user_db
                 .user_tier_info(&ADDR_2, MockKarmaSc2 {})
@@ -396,7 +355,7 @@ mod tests {
                 .unwrap();
             assert_eq!(addr_2_tier_info.epoch_tx_count, 0);
             assert_eq!(addr_2_tier_info.epoch_slice_tx_count, 0);
-            assert_eq!(addr_2_tier_info.tier, Some(TierName::from("Power User")));
+            assert_eq!(addr_2_tier_info.tier_name, Some(TierName::from("Power User")));
         }
     }
 }
