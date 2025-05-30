@@ -28,11 +28,11 @@ enum ProofGenerationError {
 }
 
 /// A service to generate a RLN proof (and then to broadcast it)
-#[derive(Debug)]
 pub struct ProofService {
     receiver: Receiver<ProofGenerationData>,
     broadcast_sender: tokio::sync::broadcast::Sender<Vec<u8>>,
     current_epoch: Arc<RwLock<(Epoch, EpochSlice)>>,
+    merkle_tree: Arc<RwLock<PmTree>>,
 }
 
 impl ProofService {
@@ -40,11 +40,13 @@ impl ProofService {
         receiver: Receiver<ProofGenerationData>,
         broadcast_sender: tokio::sync::broadcast::Sender<Vec<u8>>,
         current_epoch: Arc<RwLock<(Epoch, EpochSlice)>>,
+        merkle_tree: Arc<RwLock<PmTree>>,
     ) -> Self {
         Self {
             receiver,
             broadcast_sender,
             current_epoch,
+            merkle_tree,
         }
     }
 
@@ -66,6 +68,7 @@ impl ProofService {
             } = received.unwrap();
 
             let (current_epoch, current_epoch_slice) = *self.current_epoch.read();
+            let merkle_tree = self.merkle_tree.clone();
 
             // Move to a task (as generating the proof can take quite some time)
             let blocking_task = tokio::task::spawn_blocking(move || {
@@ -81,13 +84,7 @@ impl ProofService {
                 };
                 let epoch = hash_to_field(epoch_bytes.as_slice());
 
-                // FIXME: maintain tree in Prover or query RLN Reg SC ?
-                // Merkle tree
-                let tree_height = 20;
-                let mut tree = PmTree::new(tree_height, Fr::from(0), Default::default())
-                    .map_err(|e| ProofGenerationError::Misc(e.to_string()))?;
-
-                // let mut tree = OptimalMerkleTree::new(tree_height, Fr::from(0), Default::default()).unwrap();
+                let mut tree = merkle_tree.write();
                 let rate_commit =
                     poseidon_hash(&[user_identity.commitment, user_identity.user_limit]);
                 tree.set(0, rate_commit)
@@ -95,6 +92,8 @@ impl ProofService {
                 let merkle_proof = tree
                     .proof(0)
                     .map_err(|e| ProofGenerationError::Misc(e.to_string()))?;
+                // drop write mutex as soon as possible
+                drop(tree);
 
                 let (proof, proof_values) = compute_rln_proof_and_values(
                     &user_identity,

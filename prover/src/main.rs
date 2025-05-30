@@ -12,11 +12,14 @@ mod user_db_service;
 
 // std
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 // third-party
 use chrono::{DateTime, Utc};
 use clap::Parser;
-use rln_proof::RlnIdentifier;
+use parking_lot::RwLock;
+use rln::pm_tree_adapter::PmTree;
+use rln_proof::{RlnIdentifier, ZerokitMerkleTree};
 use tokio::task::JoinSet;
 use tracing::level_filters::LevelFilter;
 use tracing::{
@@ -34,6 +37,7 @@ use crate::user_db_service::UserDbService;
 
 const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
 const PROOF_SERVICE_COUNT: u8 = 8;
+const MERKLE_TREE_HEIGHT: usize = 20;
 const GENESIS: DateTime<Utc> = DateTime::from_timestamp(1431648000, 0).unwrap();
 
 #[tokio::main]
@@ -75,6 +79,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // grpc
 
     let rln_identifier = RlnIdentifier::new(RLN_IDENTIFIER_NAME);
+    let merkle_tree = Arc::new(RwLock::new(PmTree::new(
+        MERKLE_TREE_HEIGHT,
+        Default::default(),
+        Default::default(),
+    )?));
     let addr = SocketAddr::new(app_args.ip, app_args.port);
     debug!("Listening on: {}", addr);
     let prover_grpc_service = GrpcProverService {
@@ -90,9 +99,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let proof_recv = proof_receiver.clone();
         let broadcast_sender = tx.clone();
         let current_epoch = epoch_service.current_epoch.clone();
+        let tree = merkle_tree.clone();
 
         set.spawn(async {
-            let proof_service = ProofService::new(proof_recv, broadcast_sender, current_epoch);
+            let proof_service =
+                ProofService::new(proof_recv, broadcast_sender, current_epoch, tree);
             proof_service.serve().await
         });
     }
