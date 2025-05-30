@@ -1,14 +1,14 @@
 use std::collections::{BTreeMap, HashSet};
 use std::ops::Bound::Included;
-use std::ops::{Add, Deref};
+use std::ops::Deref;
 use std::sync::Arc;
 // third-party
 use alloy::primitives::{Address, U256};
+use derive_more::{Add, From, Into};
 use parking_lot::RwLock;
 use rln::protocol::keygen;
 use scc::HashMap;
 use tokio::sync::Notify;
-use derive_more::{Add, From, Into};
 use tracing::debug;
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
@@ -40,12 +40,10 @@ impl UserRegistry {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, From, Into)]
-#[derive(Add)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, From, Into, Add)]
 pub(crate) struct EpochCounter(u64);
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, From, Into)]
-#[derive(Add)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, From, Into, Add)]
 pub(crate) struct EpochSliceCounter(u64);
 
 #[derive(Debug, Default, Clone)]
@@ -71,7 +69,10 @@ impl TxRegistry {
     pub fn incr_counter(&self, address: &Address, incr_value: Option<u64>) -> EpochSliceCounter {
         let incr_value = incr_value.unwrap_or(1);
         let mut entry = self.inner.entry(*address).or_default();
-        *entry = (entry.0 + EpochCounter(incr_value), entry.1 + EpochSliceCounter(incr_value));
+        *entry = (
+            entry.0 + EpochCounter(incr_value),
+            entry.1 + EpochSliceCounter(incr_value),
+        );
         entry.1
     }
 }
@@ -444,7 +445,6 @@ mod tests {
     #[test]
     #[tracing_test::traced_test]
     fn test_set_tier_limits() {
-
         // Check if we can update tier limits (and it updates after an epoch slice change)
 
         let mut epoch = Epoch::from(11);
@@ -453,11 +453,20 @@ mod tests {
         let user_db_service = UserDbService::new(Default::default(), epoch_store);
         let user_db = user_db_service.get_user_db();
         let tier_limits_original = user_db.tier_limits.read().clone();
-        
+
         let tier_limits = BTreeMap::from([
-            (KarmaAmount::from(100), (TierLimit::from(100), TierName::from("Basic"))),
-            (KarmaAmount::from(200), (TierLimit::from(200), TierName::from("Power User"))),
-            (KarmaAmount::from(300), (TierLimit::from(300), TierName::from("Elite User"))),
+            (
+                KarmaAmount::from(100),
+                (TierLimit::from(100), TierName::from("Basic")),
+            ),
+            (
+                KarmaAmount::from(200),
+                (TierLimit::from(200), TierName::from("Power User")),
+            ),
+            (
+                KarmaAmount::from(300),
+                (TierLimit::from(300), TierName::from("Elite User")),
+            ),
         ]);
 
         user_db.on_new_tier_limits(tier_limits.clone()).unwrap();
@@ -484,7 +493,6 @@ mod tests {
     #[test]
     #[tracing_test::traced_test]
     fn test_set_invalid_tier_limits() {
-
         // Check we cannot update with invalid tier limits
 
         let epoch = Epoch::from(11);
@@ -497,9 +505,18 @@ mod tests {
 
         {
             let tier_limits = BTreeMap::from([
-                (KarmaAmount::from(100), (TierLimit::from(100), TierName::from("Basic"))),
-                (KarmaAmount::from(200), (TierLimit::from(200), TierName::from("Power User"))),
-                (KarmaAmount::from(199), (TierLimit::from(300), TierName::from("Elite User"))),
+                (
+                    KarmaAmount::from(100),
+                    (TierLimit::from(100), TierName::from("Basic")),
+                ),
+                (
+                    KarmaAmount::from(200),
+                    (TierLimit::from(200), TierName::from("Power User")),
+                ),
+                (
+                    KarmaAmount::from(199),
+                    (TierLimit::from(300), TierName::from("Elite User")),
+                ),
             ]);
 
             assert_err!(user_db.on_new_tier_limits(tier_limits.clone()));
@@ -508,16 +525,22 @@ mod tests {
 
         {
             let tier_limits = BTreeMap::from([
-                (KarmaAmount::from(100), (TierLimit::from(100), TierName::from("Basic"))),
-                (KarmaAmount::from(200), (TierLimit::from(200), TierName::from("Power User"))),
-                (KarmaAmount::from(300), (TierLimit::from(300), TierName::from("Basic"))),
+                (
+                    KarmaAmount::from(100),
+                    (TierLimit::from(100), TierName::from("Basic")),
+                ),
+                (
+                    KarmaAmount::from(200),
+                    (TierLimit::from(200), TierName::from("Power User")),
+                ),
+                (
+                    KarmaAmount::from(300),
+                    (TierLimit::from(300), TierName::from("Basic")),
+                ),
             ]);
 
             assert_err!(user_db.on_new_tier_limits(tier_limits.clone()));
             assert_eq!(*user_db.tier_limits.read(), tier_limits_original);
         }
-
-
     }
-
 }
