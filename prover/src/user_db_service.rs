@@ -118,8 +118,8 @@ impl UserDb {
             true
         });
 
-        let tier_limits_updated = self.tier_limits_next.read().is_empty();
-        if tier_limits_updated {
+        let tier_limits_next_has_updates = !self.tier_limits_next.read().is_empty();
+        if tier_limits_next_has_updates {
             let mut guard = self.tier_limits_next.write();
             // mem::take will clear the BTreeMap in tier_limits_next
             let new_tier_limits = std::mem::take(&mut *guard);
@@ -452,7 +452,8 @@ mod tests {
         let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
         let user_db_service = UserDbService::new(Default::default(), epoch_store);
         let user_db = user_db_service.get_user_db();
-
+        let tier_limits_original = user_db.tier_limits.read().clone();
+        
         let tier_limits = BTreeMap::from([
             (KarmaAmount::from(100), (TierLimit::from(100), TierName::from("Basic"))),
             (KarmaAmount::from(200), (TierLimit::from(200), TierName::from("Power User"))),
@@ -462,6 +463,7 @@ mod tests {
         user_db.on_new_tier_limits(tier_limits.clone()).unwrap();
         // Check it is not yet installed
         assert_ne!(*user_db.tier_limits.read(), tier_limits);
+        assert_eq!(*user_db.tier_limits.read(), tier_limits_original);
         assert_eq!(*user_db.tier_limits_next.read(), tier_limits);
 
         let new_epoch = epoch;
