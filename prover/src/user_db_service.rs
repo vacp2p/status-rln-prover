@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 use std::ops::Bound::Included;
-use std::ops::Deref;
+use std::ops::{Add, Deref};
 use std::sync::Arc;
 // third-party
 use alloy::primitives::{Address, U256};
@@ -8,6 +8,7 @@ use parking_lot::RwLock;
 use rln::protocol::keygen;
 use scc::HashMap;
 use tokio::sync::Notify;
+use derive_more::{Add, From, Into};
 use tracing::debug;
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
@@ -39,13 +40,21 @@ impl UserRegistry {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, From, Into)]
+#[derive(Add)]
+pub(crate) struct EpochCounter(u64);
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, From, Into)]
+#[derive(Add)]
+pub(crate) struct EpochSliceCounter(u64);
+
 #[derive(Debug, Default, Clone)]
 pub(crate) struct TxRegistry {
-    inner: HashMap<Address, (u64, u64)>,
+    inner: HashMap<Address, (EpochCounter, EpochSliceCounter)>,
 }
 
 impl Deref for TxRegistry {
-    type Target = HashMap<Address, (u64, u64)>;
+    type Target = HashMap<Address, (EpochCounter, EpochSliceCounter)>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -59,11 +68,11 @@ impl TxRegistry {
     /// If incr_value is Some(x), the counter will be incremented by x
     ///
     /// Returns the new value of the counter
-    pub fn incr_counter(&self, address: &Address, incr_value: Option<u64>) -> u64 {
+    pub fn incr_counter(&self, address: &Address, incr_value: Option<u64>) -> EpochSliceCounter {
         let incr_value = incr_value.unwrap_or(1);
-        let mut entry = self.inner.entry(*address).or_insert((0, 0));
-        *entry = (entry.0 + incr_value, entry.1 + incr_value);
-        entry.0
+        let mut entry = self.inner.entry(*address).or_default();
+        *entry = (entry.0 + EpochCounter(incr_value), entry.1 + EpochSliceCounter(incr_value));
+        entry.1
     }
 }
 
@@ -104,11 +113,11 @@ impl UserDb {
 
     fn on_new_epoch_slice(&self) {
         self.tx_registry.retain(|_a, v| {
-            *v = (v.0, 0);
+            *v = (v.0, Default::default());
             true
         });
 
-        let tier_limits_updated = self.tier_limits_next.read().len() != 0;
+        let tier_limits_updated = self.tier_limits_next.read().is_empty();
         if tier_limits_updated {
             let mut guard = self.tier_limits_next.write();
             // mem::take will clear the BTreeMap in tier_limits_next
@@ -122,7 +131,7 @@ impl UserDb {
         self.user_registry.get_user(address)
     }
 
-    pub(crate) fn on_new_tx(&self, address: &Address) -> Option<u64> {
+    pub(crate) fn on_new_tx(&self, address: &Address) -> Option<EpochSliceCounter> {
         if self.user_registry.has_user(address) {
             Some(self.tx_registry.incr_counter(address, None))
         } else {
@@ -180,7 +189,7 @@ impl UserDb {
                 .tx_registry
                 .get(address)
                 .map(|ref_v| (ref_v.0, ref_v.1))
-                .unwrap_or((0, 0));
+                .unwrap_or_default();
 
             let karma_amount = karma_sc.karma_amount(address).await;
             let guard = self.tier_limits.read();
@@ -197,8 +206,8 @@ impl UserDb {
                 let mut t = UserTierInfo {
                     current_epoch,
                     current_epoch_slice,
-                    epoch_tx_count,
-                    epoch_slice_tx_count,
+                    epoch_tx_count: epoch_tx_count.into(),
+                    epoch_slice_tx_count: epoch_slice_tx_count.into(),
                     karma_amount,
                     tier_name: None,
                     tier_limit: None,
@@ -344,7 +353,7 @@ mod tests {
         ));
         // Register user + update tx counter
         user_db.user_registry.register(addr);
-        assert_eq!(user_db.on_new_tx(&addr), Some(1));
+        assert_eq!(user_db.on_new_tx(&addr), Some(EpochSliceCounter(1)));
         let tier_info = user_db.user_tier_info(&addr, MockKarmaSc {}).await.unwrap();
         assert_eq!(tier_info.epoch_tx_count, 1);
         assert_eq!(tier_info.epoch_slice_tx_count, 1);
@@ -434,6 +443,8 @@ mod tests {
     #[tracing_test::traced_test]
     fn test_set_tier_limits() {
 
+        // Check if we can update tier limits (and it updates after a epoch slice change)
+
         let mut epoch = Epoch::from(11);
         let mut epoch_slice = EpochSlice::from(42);
         let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
@@ -469,11 +480,16 @@ mod tests {
     #[test]
     #[tracing_test::traced_test]
     fn test_set_invalid_tier_limits() {
-        let mut epoch = Epoch::from(11);
-        let mut epoch_slice = EpochSlice::from(42);
+
+        // Check we cannot update with invalid tier limits
+
+        let epoch = Epoch::from(11);
+        let epoch_slice = EpochSlice::from(42);
         let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
         let user_db_service = UserDbService::new(Default::default(), epoch_store);
         let user_db = user_db_service.get_user_db();
+
+        let tier_limits_original = user_db.tier_limits.read().clone();
 
         {
             let tier_limits = BTreeMap::from([
@@ -483,6 +499,7 @@ mod tests {
             ]);
 
             assert_err!(user_db.on_new_tier_limits(tier_limits.clone()));
+            assert_eq!(*user_db.tier_limits.read(), tier_limits_original);
         }
 
         {
@@ -493,7 +510,10 @@ mod tests {
             ]);
 
             assert_err!(user_db.on_new_tier_limits(tier_limits.clone()));
+            assert_eq!(*user_db.tier_limits.read(), tier_limits_original);
         }
+
+
     }
 
 }

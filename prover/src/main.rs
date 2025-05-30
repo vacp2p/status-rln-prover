@@ -37,6 +37,7 @@ const GENESIS: DateTime<Utc> = DateTime::from_timestamp(1431648000, 0).unwrap();
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    
     let filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy();

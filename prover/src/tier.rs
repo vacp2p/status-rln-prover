@@ -2,8 +2,9 @@ use std::collections::BTreeMap;
 use std::sync::LazyLock;
 // third-party
 use alloy::primitives::U256;
+use derive_more::{From, Into};
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, From)]
 pub struct KarmaAmount(U256);
 
 impl KarmaAmount {
@@ -16,45 +17,15 @@ impl From<u64> for KarmaAmount {
     }
 }
 
-impl From<U256> for KarmaAmount {
-    fn from(value: U256) -> Self {
-        Self(value)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, From, Into)]
 pub struct TierLimit(u64);
 
-impl From<u64> for TierLimit {
-    fn from(value: u64) -> Self {
-        Self(value)
-    }
-}
-
-impl From<TierLimit> for u64 {
-    fn from(value: TierLimit) -> Self {
-        value.0
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, From, Into)]
 pub struct TierName(String);
 
 impl From<&str> for TierName {
     fn from(value: &str) -> Self {
         Self(value.to_string())
-    }
-}
-
-impl From<String> for TierName {
-    fn from(value: String) -> Self {
-        Self(value)
-    }
-}
-
-impl From<TierName> for String {
-    fn from(value: TierName) -> Self {
-        value.0
     }
 }
 

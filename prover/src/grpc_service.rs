@@ -99,7 +99,7 @@ impl RlnProver for ProverService {
         };
 
         // Update the counter as soon as possible (should help to prevent spamming...)
-        let counter = self.user_db.on_new_tx(&sender).unwrap_or(0);
+        let counter = self.user_db.on_new_tx(&sender).unwrap_or_default();
 
         let user_identity = RlnUserIdentity {
             secret_hash: user_id.secret_hash,
@@ -112,7 +112,7 @@ impl RlnProver for ProverService {
 
         // Send some data to one of the proof services
         self.proof_sender
-            .send((user_identity, rln_identifier, counter))
+            .send((user_identity, rln_identifier, counter.into()))
             .await
             .map_err(|e| Status::from_error(Box::new(e)))?;
 
