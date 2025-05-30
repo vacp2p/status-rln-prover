@@ -97,6 +97,7 @@ pub trait KarmaAmountExt {
     async fn karma_amount(&self, address: &Address) -> U256;
 }
 
+/// User registration + tx counters + tier limits storage
 #[derive(Debug, Clone)]
 pub struct UserDb {
     user_registry: Arc<UserRegistry>,
@@ -236,6 +237,7 @@ pub enum SetTierLimitsError {
     NonUniqueTierName,
 }
 
+/// Async service to update a UserDb on epoch changes
 #[derive(Debug)]
 pub struct UserDbService {
     user_db: UserDb,
@@ -443,7 +445,7 @@ mod tests {
     #[tracing_test::traced_test]
     fn test_set_tier_limits() {
 
-        // Check if we can update tier limits (and it updates after a epoch slice change)
+        // Check if we can update tier limits (and it updates after an epoch slice change)
 
         let mut epoch = Epoch::from(11);
         let mut epoch_slice = EpochSlice::from(42);

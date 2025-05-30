@@ -33,27 +33,27 @@ pub static TIER_LIMITS: LazyLock<BTreeMap<KarmaAmount, (TierLimit, TierName)>> =
     LazyLock::new(|| {
         BTreeMap::from([
             (
-                KarmaAmount(U256::from(10)),
+                KarmaAmount::from(10),
                 (TierLimit(6), TierName::from("Basic")),
             ),
             (
-                KarmaAmount(U256::from(50)),
+                KarmaAmount::from(50),
                 (TierLimit(120), TierName::from("Active")),
             ),
             (
-                KarmaAmount(U256::from(100)),
+                KarmaAmount::from(100),
                 (TierLimit(720), TierName::from("Regular")),
             ),
             (
-                KarmaAmount(U256::from(500)),
+                KarmaAmount::from(500),
                 (TierLimit(14440), TierName::from("Regular")),
             ),
             (
-                KarmaAmount(U256::from(1000)),
+                KarmaAmount::from(1000),
                 (TierLimit(86400), TierName::from("Power User")),
             ),
             (
-                KarmaAmount(U256::from(5000)),
+                KarmaAmount::from(5000),
                 (TierLimit(432000), TierName::from("S-Tier")),
             ),
         ])

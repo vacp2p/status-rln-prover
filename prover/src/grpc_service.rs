@@ -304,6 +304,7 @@ impl GrpcProverService {
     }
 }
 
+/// UserTierInfo to UserTierInfoResult (Grpc message) conversion
 impl From<UserTierInfo> for UserTierInfoResult {
     fn from(tier_info: UserTierInfo) -> Self {
         let mut res = UserTierInfoResult {
@@ -324,6 +325,7 @@ impl From<UserTierInfo> for UserTierInfoResult {
     }
 }
 
+/// UserTierInfoError to UserTierInfoError (Grpc message) conversion
 impl From<crate::user_db_service::UserTierInfoError> for UserTierInfoError {
     fn from(value: crate::user_db_service::UserTierInfoError) -> Self {
         UserTierInfoError {
