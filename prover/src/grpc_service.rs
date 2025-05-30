@@ -1,5 +1,5 @@
-use std::collections::BTreeMap;
 // std
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,25 +12,14 @@ use futures::TryFutureExt;
 use http::Method;
 use tokio::sync::{broadcast, mpsc};
 use tonic::{
-    Request,
-    Response,
-    Status,
-    codegen::tokio_stream::wrappers::ReceiverStream,
-    transport::Server,
-    // codec::CompressionEncoding
+    Request, Response, Status, codegen::tokio_stream::wrappers::ReceiverStream, transport::Server,
 };
 use tonic_web::GrpcWebLayer;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{
-    debug,
-    // error,
-    // info
-};
+use tracing::debug;
 // internal
-use crate::error::{
-    AppError,
-    // RegistrationError
-};
+use crate::error::AppError;
+use crate::tier::{KarmaAmount, TierLimit, TierName};
 use crate::user_db_service::{KarmaAmountExt, UserDb, UserTierInfo};
 use rln_proof::{RlnIdentifier, RlnUserIdentity};
 
@@ -42,7 +31,7 @@ pub mod prover_proto {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
         tonic::include_file_descriptor_set!("prover_descriptor");
 }
-use crate::tier::{KarmaAmount, TierLimit, TierName};
+use crate::proof_generation::ProofGenerationData;
 use prover_proto::{
     GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply, RegisterUserRequest, RlnProof,
     RlnProofFilter, SendTransactionReply, SendTransactionRequest, SetTierLimitsReply,
@@ -66,7 +55,7 @@ const PROVER_SPAM_LIMIT: u64 = 10_000;
 
 #[derive(Debug)]
 pub struct ProverService {
-    proof_sender: Sender<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
+    proof_sender: Sender<ProofGenerationData>,
     user_db: UserDb,
     rln_identifier: Arc<RlnIdentifier>,
     spam_limit: u64,
@@ -101,6 +90,12 @@ impl RlnProver for ProverService {
         // Update the counter as soon as possible (should help to prevent spamming...)
         let counter = self.user_db.on_new_tx(&sender).unwrap_or_default();
 
+        if req.transaction_hash.len() != 32 {
+            return Err(Status::invalid_argument(
+                "Invalid transaction hash (should be 32 bytes)",
+            ));
+        }
+
         let user_identity = RlnUserIdentity {
             secret_hash: user_id.secret_hash,
             commitment: user_id.commitment,
@@ -110,9 +105,23 @@ impl RlnProver for ProverService {
         // Inexpensive clone (behind Arc ptr)
         let rln_identifier = self.rln_identifier.clone();
 
+        let proof_data = ProofGenerationData::from((
+            user_identity,
+            rln_identifier,
+            counter.into(),
+            sender,
+            req.transaction_hash,
+        ));
+
         // Send some data to one of the proof services
+        /*
         self.proof_sender
             .send((user_identity, rln_identifier, counter.into()))
+            .await
+            .map_err(|e| Status::from_error(Box::new(e)))?;
+        */
+        self.proof_sender
+            .send(proof_data)
             .await
             .map_err(|e| Status::from_error(Box::new(e)))?;
 
@@ -235,7 +244,7 @@ impl RlnProver for ProverService {
 }
 
 pub(crate) struct GrpcProverService {
-    pub proof_sender: Sender<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
+    pub proof_sender: Sender<ProofGenerationData>,
     pub broadcast_channel: (broadcast::Sender<Vec<u8>>, broadcast::Receiver<Vec<u8>>),
     pub addr: SocketAddr,
     pub rln_identifier: RlnIdentifier,

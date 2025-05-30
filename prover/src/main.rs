@@ -3,6 +3,7 @@ mod args;
 mod epoch_service;
 mod error;
 mod grpc_service;
+mod proof_generation;
 mod proof_service;
 mod registry;
 mod registry_listener;

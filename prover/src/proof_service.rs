@@ -12,9 +12,8 @@ use tracing::debug;
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::AppError;
-use rln_proof::{
-    RlnData, RlnIdentifier, RlnUserIdentity, ZerokitMerkleTree, compute_rln_proof_and_values,
-};
+use crate::proof_generation::ProofGenerationData;
+use rln_proof::{RlnData, ZerokitMerkleTree, compute_rln_proof_and_values};
 
 #[derive(thiserror::Error, Debug)]
 enum ProofGenerationError {
@@ -31,14 +30,14 @@ enum ProofGenerationError {
 /// A service to generate a RLN proof (and then to broadcast it)
 #[derive(Debug)]
 pub struct ProofService {
-    receiver: Receiver<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
+    receiver: Receiver<ProofGenerationData>,
     broadcast_sender: tokio::sync::broadcast::Sender<Vec<u8>>,
     current_epoch: Arc<RwLock<(Epoch, EpochSlice)>>,
 }
 
 impl ProofService {
     pub(crate) fn new(
-        receiver: Receiver<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
+        receiver: Receiver<ProofGenerationData>,
         broadcast_sender: tokio::sync::broadcast::Sender<Vec<u8>>,
         current_epoch: Arc<RwLock<(Epoch, EpochSlice)>>,
     ) -> Self {
@@ -57,16 +56,22 @@ impl ProofService {
                 debug!("Stopping proof generation service: {}", e);
                 break;
             }
-            let (user_identity, rln_identifier, counter) = received.unwrap();
+
+            let ProofGenerationData {
+                user_identity,
+                rln_identifier,
+                tx_counter,
+                tx_sender: _tx_sender,
+                tx_hash,
+            } = received.unwrap();
 
             let (current_epoch, current_epoch_slice) = *self.current_epoch.read();
 
             // Move to a task (as generating the proof can take quite some time)
             let blocking_task = tokio::task::spawn_blocking(move || {
                 let rln_data = RlnData {
-                    message_id: Fr::from(counter),
-                    // TODO: tx hash to field
-                    data: hash_to_field(b"RLN is awesome"),
+                    message_id: Fr::from(tx_counter),
+                    data: hash_to_field(tx_hash.as_slice()),
                 };
 
                 let epoch_bytes = {
