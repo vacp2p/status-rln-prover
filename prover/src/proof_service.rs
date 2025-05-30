@@ -12,9 +12,8 @@ use tracing::debug;
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::AppError;
-use rln_proof::{
-    RlnData, RlnIdentifier, RlnUserIdentity, ZerokitMerkleTree, compute_rln_proof_and_values,
-};
+use crate::proof_generation::{ProofGenerationData, ProofSendingData};
+use rln_proof::{RlnData, ZerokitMerkleTree, compute_rln_proof_and_values};
 
 #[derive(thiserror::Error, Debug)]
 enum ProofGenerationError {
@@ -29,27 +28,30 @@ enum ProofGenerationError {
 }
 
 /// A service to generate a RLN proof (and then to broadcast it)
-#[derive(Debug)]
 pub struct ProofService {
-    receiver: Receiver<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
-    broadcast_sender: tokio::sync::broadcast::Sender<Vec<u8>>,
+    receiver: Receiver<ProofGenerationData>,
+    broadcast_sender: tokio::sync::broadcast::Sender<ProofSendingData>,
     current_epoch: Arc<RwLock<(Epoch, EpochSlice)>>,
+    merkle_tree: Arc<RwLock<PmTree>>,
 }
 
 impl ProofService {
     pub(crate) fn new(
-        receiver: Receiver<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
-        broadcast_sender: tokio::sync::broadcast::Sender<Vec<u8>>,
+        receiver: Receiver<ProofGenerationData>,
+        broadcast_sender: tokio::sync::broadcast::Sender<ProofSendingData>,
         current_epoch: Arc<RwLock<(Epoch, EpochSlice)>>,
+        merkle_tree: Arc<RwLock<PmTree>>,
     ) -> Self {
         Self {
             receiver,
             broadcast_sender,
             current_epoch,
+            merkle_tree,
         }
     }
 
     pub(crate) async fn serve(&self) -> Result<(), AppError> {
+        
         loop {
             let received = self.receiver.recv().await;
 
@@ -57,16 +59,26 @@ impl ProofService {
                 debug!("Stopping proof generation service: {}", e);
                 break;
             }
-            let (user_identity, rln_identifier, counter) = received.unwrap();
 
+            let proof_generation_data = received.unwrap();
+            
             let (current_epoch, current_epoch_slice) = *self.current_epoch.read();
+            let merkle_tree = self.merkle_tree.clone();
+            // FIXME / TODO: destructure proof_generation_data or not? 
+            let proof_generation_data_ = proof_generation_data.clone();
+            let ProofGenerationData {
+                user_identity,
+                rln_identifier,
+                tx_counter,
+                tx_sender: _tx_sender,
+                tx_hash,
+            } = proof_generation_data;
 
             // Move to a task (as generating the proof can take quite some time)
             let blocking_task = tokio::task::spawn_blocking(move || {
                 let rln_data = RlnData {
-                    message_id: Fr::from(counter),
-                    // TODO: tx hash to field
-                    data: hash_to_field(b"RLN is awesome"),
+                    message_id: Fr::from(tx_counter),
+                    data: hash_to_field(tx_hash.as_slice()),
                 };
 
                 let epoch_bytes = {
@@ -76,20 +88,17 @@ impl ProofService {
                 };
                 let epoch = hash_to_field(epoch_bytes.as_slice());
 
-                // FIXME: maintain tree in Prover or query RLN Reg SC ?
-                // Merkle tree
-                let tree_height = 20;
-                let mut tree = PmTree::new(tree_height, Fr::from(0), Default::default())
-                    .map_err(|e| ProofGenerationError::Misc(e.to_string()))?;
-
-                // let mut tree = OptimalMerkleTree::new(tree_height, Fr::from(0), Default::default()).unwrap();
-                let rate_commit =
-                    poseidon_hash(&[user_identity.commitment, user_identity.user_limit]);
-                tree.set(0, rate_commit)
-                    .map_err(|e| ProofGenerationError::Misc(e.to_string()))?;
+                let tree = merkle_tree.read();
+                // let rate_commit =
+                //     poseidon_hash(&[user_identity.commitment, user_identity.user_limit]);
+                // TODO: should be done at registration time
+                // tree.set(0, rate_commit)
+                //     .map_err(|e| ProofGenerationError::Misc(e.to_string()))?;
                 let merkle_proof = tree
                     .proof(0)
                     .map_err(|e| ProofGenerationError::Misc(e.to_string()))?;
+                // drop write mutex as soon as possible
+                drop(tree);
 
                 let (proof, proof_values) = compute_rln_proof_and_values(
                     &user_identity,
@@ -121,9 +130,15 @@ impl ProofService {
             // Result (1st) is a JoinError (and should not happen)
             // Result (2nd) is a ProofGenerationError
             let result = result.unwrap().unwrap();
+            let proof_sending_data = ProofSendingData {
+                tx_hash: proof_generation_data_.tx_hash,
+                tx_sender: proof_generation_data_.tx_sender,
+                proof: result,
+            };
+
             // TODO: no unwrap()
             // FIXME: send proof + other info
-            self.broadcast_sender.send(result).unwrap();
+            self.broadcast_sender.send(proof_sending_data).unwrap();
         }
 
         Ok(())

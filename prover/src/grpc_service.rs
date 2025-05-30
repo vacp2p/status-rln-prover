@@ -1,5 +1,5 @@
-use std::collections::BTreeMap;
 // std
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,25 +12,14 @@ use futures::TryFutureExt;
 use http::Method;
 use tokio::sync::{broadcast, mpsc};
 use tonic::{
-    Request,
-    Response,
-    Status,
-    codegen::tokio_stream::wrappers::ReceiverStream,
-    transport::Server,
-    // codec::CompressionEncoding
+    Request, Response, Status, codegen::tokio_stream::wrappers::ReceiverStream, transport::Server,
 };
 use tonic_web::GrpcWebLayer;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{
-    debug,
-    // error,
-    // info
-};
+use tracing::debug;
 // internal
-use crate::error::{
-    AppError,
-    // RegistrationError
-};
+use crate::error::AppError;
+use crate::tier::{KarmaAmount, TierLimit, TierName};
 use crate::user_db_service::{KarmaAmountExt, UserDb, UserTierInfo};
 use rln_proof::{RlnIdentifier, RlnUserIdentity};
 
@@ -42,9 +31,10 @@ pub mod prover_proto {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
         tonic::include_file_descriptor_set!("prover_descriptor");
 }
-use crate::tier::{KarmaAmount, TierLimit, TierName};
+use crate::proof_generation::{ProofGenerationData, ProofSendingData};
 use prover_proto::{
-    GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply, RegisterUserRequest, RlnProof,
+    GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply, RegisterUserRequest, 
+    RlnProofReply, RlnProof, rln_proof_reply::Resp as GetProofsResp,
     RlnProofFilter, SendTransactionReply, SendTransactionRequest, SetTierLimitsReply,
     SetTierLimitsRequest, Tier, UserTierInfoError, UserTierInfoResult,
     get_user_tier_info_reply::Resp,
@@ -66,11 +56,11 @@ const PROVER_SPAM_LIMIT: u64 = 10_000;
 
 #[derive(Debug)]
 pub struct ProverService {
-    proof_sender: Sender<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
+    proof_sender: Sender<ProofGenerationData>,
     user_db: UserDb,
     rln_identifier: Arc<RlnIdentifier>,
     spam_limit: u64,
-    broadcast_channel: (broadcast::Sender<Vec<u8>>, broadcast::Receiver<Vec<u8>>),
+    broadcast_channel: (broadcast::Sender<ProofSendingData>, broadcast::Receiver<ProofSendingData>),
 }
 
 #[tonic::async_trait]
@@ -101,6 +91,12 @@ impl RlnProver for ProverService {
         // Update the counter as soon as possible (should help to prevent spamming...)
         let counter = self.user_db.on_new_tx(&sender).unwrap_or_default();
 
+        if req.transaction_hash.len() != 32 {
+            return Err(Status::invalid_argument(
+                "Invalid transaction hash (should be 32 bytes)",
+            ));
+        }
+
         let user_identity = RlnUserIdentity {
             secret_hash: user_id.secret_hash,
             commitment: user_id.commitment,
@@ -110,9 +106,23 @@ impl RlnProver for ProverService {
         // Inexpensive clone (behind Arc ptr)
         let rln_identifier = self.rln_identifier.clone();
 
+        let proof_data = ProofGenerationData::from((
+            user_identity,
+            rln_identifier,
+            counter.into(),
+            sender,
+            req.transaction_hash,
+        ));
+
         // Send some data to one of the proof services
+        /*
         self.proof_sender
             .send((user_identity, rln_identifier, counter.into()))
+            .await
+            .map_err(|e| Status::from_error(Box::new(e)))?;
+        */
+        self.proof_sender
+            .send(proof_data)
             .await
             .map_err(|e| Status::from_error(Box::new(e)))?;
 
@@ -128,7 +138,7 @@ impl RlnProver for ProverService {
         Ok(Response::new(reply))
     }
 
-    type GetProofsStream = ReceiverStream<Result<RlnProof, Status>>;
+    type GetProofsStream = ReceiverStream<Result<RlnProofReply, Status>>;
 
     async fn get_proofs(
         &self,
@@ -140,12 +150,26 @@ impl RlnProver for ProverService {
         let mut rx2 = self.broadcast_channel.0.subscribe();
         tokio::spawn(async move {
             while let Ok(data) = rx2.recv().await {
+                // TODO
                 let rln_proof = RlnProof {
-                    sender: "0xAA".to_string(),
-                    id_commitment: "1".to_string(),
-                    proof: data,
+                    sender: data.tx_sender.to_vec(),
+                    tx_hash: data.tx_hash,
+                    proof: data.proof,
+                    internal_nullifier: vec![],
+                    x: vec![],
+                    y: vec![],
+                    rln_identifier: vec![],
+                    merkle_proof_root: vec![],
+                    epoch: vec![],
                 };
-                if let Err(e) = tx.send(Ok(rln_proof)).await {
+                
+                let resp = RlnProofReply {
+                    resp: Some(GetProofsResp::Proof(
+                        rln_proof
+                    )),
+                };
+                
+                if let Err(e) = tx.send(Ok(resp)).await {
                     debug!("Done: sending dummy rln proofs: {}", e);
                     break;
                 };
@@ -235,8 +259,8 @@ impl RlnProver for ProverService {
 }
 
 pub(crate) struct GrpcProverService {
-    pub proof_sender: Sender<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
-    pub broadcast_channel: (broadcast::Sender<Vec<u8>>, broadcast::Receiver<Vec<u8>>),
+    pub proof_sender: Sender<ProofGenerationData>,
+    pub broadcast_channel: (broadcast::Sender<ProofSendingData>, broadcast::Receiver<ProofSendingData>),
     pub addr: SocketAddr,
     pub rln_identifier: RlnIdentifier,
     pub user_db: UserDb,
