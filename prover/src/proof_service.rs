@@ -28,6 +28,7 @@ enum ProofGenerationError {
     Misc(String),
 }
 
+/// A service to generate a RLN proof (and then to broadcast it)
 #[derive(Debug)]
 pub struct ProofService {
     receiver: Receiver<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,

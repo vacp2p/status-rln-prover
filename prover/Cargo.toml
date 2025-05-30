@@ -13,14 +13,14 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 tracing = "0.1.41"
 tracing-test = "0.2.5"
-alloy = { version = "0.15", features = ["full"] }
+alloy = { version = "0.15", features = ["full", "getrandom"] }
 thiserror = "2.0"
 futures = "0.3"
 rln = { git = "https://github.com/vacp2p/zerokit" }
 ark-bn254 = { version = "0.5", features = ["std"] }
 ark-serialize = "0.5.0"
-serde_json = "1.0"
 dashmap = "6.1.0"
+scc = "2.3"
 bytesize = "2.0.1"
 rln_proof = { path = "../rln_proof" }
 chrono = "0.4.41"
@@ -28,6 +28,16 @@ parking_lot = "0.12.3"
 tower-http = { version = "0.6.4", features = ["cors"] }
 http = "*"
 async-channel = "2.3.1"
+rand = "0.8.5"
+derive_more = "2.0.1"
 
 [build-dependencies]
 tonic-build = "*"
+
+[dev-dependencies]
+criterion = "0.6.0"
+claims = "0.8"
+
+[[bench]]
+name = "user_db_heavy_write"
+harness = false

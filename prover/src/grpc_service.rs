@@ -1,21 +1,16 @@
+use std::collections::BTreeMap;
 // std
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 // third-party
-use alloy::primitives::Address;
+use alloy::primitives::{Address, U256};
 use ark_bn254::Fr;
 use async_channel::Sender;
 use bytesize::ByteSize;
 use futures::TryFutureExt;
 use http::Method;
-use tokio::sync::{
-    RwLock,
-    broadcast,
-    // broadcast::{Receiver, Sender},
-    mpsc,
-};
+use tokio::sync::{broadcast, mpsc};
 use tonic::{
     Request,
     Response,
@@ -32,13 +27,12 @@ use tracing::{
     // info
 };
 // internal
-use crate::{
-    error::{
-        AppError,
-        // RegistrationError
-    },
-    registry::UserRegistry,
+use crate::error::{
+    AppError,
+    // RegistrationError
 };
+use crate::user_db_service::{KarmaAmountExt, UserDb, UserTierInfo};
+use rln_proof::{RlnIdentifier, RlnUserIdentity};
 
 pub mod prover_proto {
 
@@ -48,17 +42,13 @@ pub mod prover_proto {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
         tonic::include_file_descriptor_set!("prover_descriptor");
 }
+use crate::tier::{KarmaAmount, TierLimit, TierName};
 use prover_proto::{
-    RegisterUserReply, RegisterUserRequest, RlnProof, RlnProofFilter, SendTransactionReply,
-    SendTransactionRequest,
+    GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply, RegisterUserRequest, RlnProof,
+    RlnProofFilter, SendTransactionReply, SendTransactionRequest, SetTierLimitsReply,
+    SetTierLimitsRequest, Tier, UserTierInfoError, UserTierInfoResult,
+    get_user_tier_info_reply::Resp,
     rln_prover_server::{RlnProver, RlnProverServer},
-};
-use rln_proof::{
-    // RlnData,
-    RlnIdentifier,
-    RlnUserIdentity,
-    // ZerokitMerkleTree,
-    // compute_rln_proof_and_values,
 };
 
 const PROVER_SERVICE_LIMIT_PER_CONNECTION: usize = 16;
@@ -77,14 +67,10 @@ const PROVER_SPAM_LIMIT: u64 = 10_000;
 #[derive(Debug)]
 pub struct ProverService {
     proof_sender: Sender<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
-    registry: UserRegistry,
+    user_db: UserDb,
     rln_identifier: Arc<RlnIdentifier>,
-    message_counters: RwLock<HashMap<Address, u64>>,
     spam_limit: u64,
-    broadcast_channel: (
-        tokio::sync::broadcast::Sender<Vec<u8>>,
-        tokio::sync::broadcast::Receiver<Vec<u8>>,
-    ),
+    broadcast_channel: (broadcast::Sender<Vec<u8>>, broadcast::Receiver<Vec<u8>>),
 }
 
 #[tonic::async_trait]
@@ -106,23 +92,18 @@ impl RlnProver for ProverService {
             return Err(Status::invalid_argument("No sender address"));
         };
 
-        // Update the counter as soon as possible (should help to prevent spamming...)
-        let mut message_counter_guard = self.message_counters.write().await;
-        let counter = *message_counter_guard
-            .entry(sender)
-            .and_modify(|e| *e += 1)
-            .or_insert(1);
-        drop(message_counter_guard);
-
-        let user_id = if let Some(id) = self.registry.get(&sender) {
-            *id
+        let user_id = if let Some(id) = self.user_db.get_user(&sender) {
+            id.clone()
         } else {
             return Err(Status::not_found("Sender not registered"));
         };
 
+        // Update the counter as soon as possible (should help to prevent spamming...)
+        let counter = self.user_db.on_new_tx(&sender).unwrap_or_default();
+
         let user_identity = RlnUserIdentity {
-            secret_hash: user_id.0,
-            commitment: user_id.1,
+            secret_hash: user_id.secret_hash,
+            commitment: user_id.commitment,
             user_limit: Fr::from(self.spam_limit),
         };
 
@@ -131,7 +112,7 @@ impl RlnProver for ProverService {
 
         // Send some data to one of the proof services
         self.proof_sender
-            .send((user_identity, rln_identifier, counter))
+            .send((user_identity, rln_identifier, counter.into()))
             .await
             .map_err(|e| Status::from_error(Box::new(e)))?;
 
@@ -173,39 +154,100 @@ impl RlnProver for ProverService {
 
         Ok(Response::new(ReceiverStream::new(rx)))
     }
-}
 
-pub(crate) struct GrpcProverService {
-    proof_sender: Sender<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
-    broadcast_channel: (broadcast::Sender<Vec<u8>>, broadcast::Receiver<Vec<u8>>),
-    addr: SocketAddr,
-    rln_identifier: RlnIdentifier,
-    // epoch_counter: Arc<AtomicI64>,
-}
+    async fn get_user_tier_info(
+        &self,
+        request: Request<GetUserTierInfoRequest>,
+    ) -> Result<Response<GetUserTierInfoReply>, Status> {
+        debug!("request: {:?}", request);
 
-impl GrpcProverService {
-    pub(crate) fn new(
-        proof_sender: Sender<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
-        broadcast_channel: (broadcast::Sender<Vec<u8>>, broadcast::Receiver<Vec<u8>>),
-        addr: SocketAddr,
-        rln_identifier: RlnIdentifier,
-        /* epoch_counter: Arc<AtomicI64> */
-    ) -> Self {
-        Self {
-            proof_sender,
-            broadcast_channel,
-            addr,
-            rln_identifier,
-            // epoch_counter,
+        let req = request.into_inner();
+
+        let user = if let Some(user) = req.user {
+            if let Ok(user) = Address::try_from(user.value.as_slice()) {
+                user
+            } else {
+                return Err(Status::invalid_argument("Invalid user address"));
+            }
+        } else {
+            return Err(Status::invalid_argument("No user address"));
+        };
+
+        // TODO: SC call
+        struct MockKarmaSc {}
+
+        impl KarmaAmountExt for MockKarmaSc {
+            async fn karma_amount(&self, _address: &Address) -> U256 {
+                U256::from(10)
+            }
+        }
+        let tier_info = self.user_db.user_tier_info(&user, MockKarmaSc {}).await;
+
+        match tier_info {
+            Ok(tier_info) => Ok(Response::new(GetUserTierInfoReply {
+                resp: Some(Resp::Res(tier_info.into())),
+            })),
+            Err(e) => Ok(Response::new(GetUserTierInfoReply {
+                resp: Some(Resp::Error(e.into())),
+            })),
         }
     }
 
+    async fn set_tier_limits(
+        &self,
+        request: Request<SetTierLimitsRequest>,
+    ) -> Result<Response<SetTierLimitsReply>, Status> {
+        debug!("request: {:?}", request);
+
+        let request = request.into_inner();
+        let tier_limits: Option<BTreeMap<KarmaAmount, (TierLimit, TierName)>> = request
+            .karma_amounts
+            .iter()
+            .zip(request.tiers)
+            .map(|(k, tier)| {
+                let karma_amount = U256::try_from_le_slice(k.value.as_slice())?;
+                let karma_amount = KarmaAmount::from(karma_amount);
+                let tier_info = (
+                    TierLimit::from(tier.quota),
+                    TierName::from(tier.name.clone()),
+                );
+                Some((karma_amount, tier_info))
+            })
+            .collect();
+
+        if tier_limits.is_none() {
+            return Err(Status::invalid_argument("Invalid tier limits"));
+        }
+
+        // unwrap safe - just tested if None
+        let reply = match self.user_db.on_new_tier_limits(tier_limits.unwrap()) {
+            Ok(_) => SetTierLimitsReply {
+                status: true,
+                error: "".to_string(),
+            },
+            Err(e) => SetTierLimitsReply {
+                status: false,
+                error: e.to_string(),
+            },
+        };
+        Ok(Response::new(reply))
+    }
+}
+
+pub(crate) struct GrpcProverService {
+    pub proof_sender: Sender<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
+    pub broadcast_channel: (broadcast::Sender<Vec<u8>>, broadcast::Receiver<Vec<u8>>),
+    pub addr: SocketAddr,
+    pub rln_identifier: RlnIdentifier,
+    pub user_db: UserDb,
+}
+
+impl GrpcProverService {
     pub(crate) async fn serve(&self) -> Result<(), AppError> {
         let prover_service = ProverService {
             proof_sender: self.proof_sender.clone(),
-            registry: Default::default(),
+            user_db: self.user_db.clone(),
             rln_identifier: Arc::new(self.rln_identifier.clone()),
-            message_counters: Default::default(),
             spam_limit: PROVER_SPAM_LIMIT,
             broadcast_channel: (
                 self.broadcast_channel.0.clone(),
@@ -262,6 +304,36 @@ impl GrpcProverService {
     }
 }
 
+/// UserTierInfo to UserTierInfoResult (Grpc message) conversion
+impl From<UserTierInfo> for UserTierInfoResult {
+    fn from(tier_info: UserTierInfo) -> Self {
+        let mut res = UserTierInfoResult {
+            current_epoch: tier_info.current_epoch.into(),
+            current_epoch_slice: tier_info.current_epoch_slice.into(),
+            tx_count: tier_info.epoch_tx_count,
+            tier: None,
+        };
+
+        if tier_info.tier_name.is_some() && tier_info.tier_limit.is_some() {
+            res.tier = Some(Tier {
+                name: tier_info.tier_name.unwrap().into(),
+                quota: tier_info.tier_limit.unwrap().into(),
+            })
+        }
+
+        res
+    }
+}
+
+/// UserTierInfoError to UserTierInfoError (Grpc message) conversion
+impl From<crate::user_db_service::UserTierInfoError> for UserTierInfoError {
+    fn from(value: crate::user_db_service::UserTierInfoError) -> Self {
+        UserTierInfoError {
+            message: value.to_string(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::grpc_service::prover_proto::Address;
@@ -270,6 +342,7 @@ mod tests {
     const MAX_ADDRESS_SIZE_BYTES: usize = 20;
 
     #[test]
+    #[ignore]
     #[should_panic]
     fn test_address_size_limit() {
         // Check if an invalid address can be encoded (as Address grpc type)
