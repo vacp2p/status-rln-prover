@@ -1,7 +1,10 @@
-use alloy::primitives::Address;
-use rln_proof::{RlnIdentifier, RlnUserIdentity};
 use std::sync::Arc;
+// third-party
+use alloy::primitives::Address;
+// internal
+use rln_proof::{RlnIdentifier, RlnUserIdentity};
 
+#[derive(Debug, Clone)]
 pub(crate) struct ProofGenerationData {
     pub(crate) user_identity: RlnUserIdentity,
     pub(crate) rln_identifier: Arc<RlnIdentifier>,
@@ -30,4 +33,11 @@ impl From<(RlnUserIdentity, Arc<RlnIdentifier>, u64, Address, Vec<u8>)> for Proo
             tx_hash,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ProofSendingData {
+    pub(crate) tx_hash: Vec<u8>,
+    pub(crate) tx_sender: Address,
+    pub(crate) proof: Vec<u8>,
 }

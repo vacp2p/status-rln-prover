@@ -31,9 +31,10 @@ pub mod prover_proto {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
         tonic::include_file_descriptor_set!("prover_descriptor");
 }
-use crate::proof_generation::ProofGenerationData;
+use crate::proof_generation::{ProofGenerationData, ProofSendingData};
 use prover_proto::{
-    GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply, RegisterUserRequest, RlnProof,
+    GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply, RegisterUserRequest, 
+    RlnProofReply, RlnProof, rln_proof_reply::Resp as GetProofsResp,
     RlnProofFilter, SendTransactionReply, SendTransactionRequest, SetTierLimitsReply,
     SetTierLimitsRequest, Tier, UserTierInfoError, UserTierInfoResult,
     get_user_tier_info_reply::Resp,
@@ -59,7 +60,7 @@ pub struct ProverService {
     user_db: UserDb,
     rln_identifier: Arc<RlnIdentifier>,
     spam_limit: u64,
-    broadcast_channel: (broadcast::Sender<Vec<u8>>, broadcast::Receiver<Vec<u8>>),
+    broadcast_channel: (broadcast::Sender<ProofSendingData>, broadcast::Receiver<ProofSendingData>),
 }
 
 #[tonic::async_trait]
@@ -137,7 +138,7 @@ impl RlnProver for ProverService {
         Ok(Response::new(reply))
     }
 
-    type GetProofsStream = ReceiverStream<Result<RlnProof, Status>>;
+    type GetProofsStream = ReceiverStream<Result<RlnProofReply, Status>>;
 
     async fn get_proofs(
         &self,
@@ -149,12 +150,26 @@ impl RlnProver for ProverService {
         let mut rx2 = self.broadcast_channel.0.subscribe();
         tokio::spawn(async move {
             while let Ok(data) = rx2.recv().await {
+                // TODO
                 let rln_proof = RlnProof {
-                    sender: "0xAA".to_string(),
-                    id_commitment: "1".to_string(),
-                    proof: data,
+                    sender: data.tx_sender.to_vec(),
+                    tx_hash: data.tx_hash,
+                    proof: data.proof,
+                    internal_nullifier: vec![],
+                    x: vec![],
+                    y: vec![],
+                    rln_identifier: vec![],
+                    merkle_proof_root: vec![],
+                    epoch: vec![],
                 };
-                if let Err(e) = tx.send(Ok(rln_proof)).await {
+                
+                let resp = RlnProofReply {
+                    resp: Some(GetProofsResp::Proof(
+                        rln_proof
+                    )),
+                };
+                
+                if let Err(e) = tx.send(Ok(resp)).await {
                     debug!("Done: sending dummy rln proofs: {}", e);
                     break;
                 };
@@ -245,7 +260,7 @@ impl RlnProver for ProverService {
 
 pub(crate) struct GrpcProverService {
     pub proof_sender: Sender<ProofGenerationData>,
-    pub broadcast_channel: (broadcast::Sender<Vec<u8>>, broadcast::Receiver<Vec<u8>>),
+    pub broadcast_channel: (broadcast::Sender<ProofSendingData>, broadcast::Receiver<ProofSendingData>),
     pub addr: SocketAddr,
     pub rln_identifier: RlnIdentifier,
     pub user_db: UserDb,

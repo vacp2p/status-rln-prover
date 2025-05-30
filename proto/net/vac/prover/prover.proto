@@ -12,7 +12,7 @@ service RlnProver {
   rpc SendTransaction (SendTransactionRequest) returns (SendTransactionReply);
   rpc RegisterUser (RegisterUserRequest) returns (RegisterUserReply);
   // Server side streaming RPC: 1 request -> X responses (stream)
-  rpc GetProofs(RlnProofFilter) returns (stream RlnProof);
+  rpc GetProofs(RlnProofFilter) returns (stream RlnProofReply);
 
   rpc GetUserTierInfo(GetUserTierInfoRequest) returns (GetUserTierInfoReply);
   rpc SetTierLimits(SetTierLimitsRequest) returns (SetTierLimitsReply);
@@ -139,17 +139,36 @@ message SendTransactionRequest {
 
 message SendTransactionReply {
   bool result = 1;
-  // string message = 2;
 }
 
 message RlnProofFilter {
   optional string address = 1;
 }
 
+message RlnProofReply {
+  oneof resp {
+    // variant for success
+    RlnProof proof = 1;
+    // variant for error
+    RlnProofError error = 2;
+  }
+}
+
 message RlnProof {
-  string sender = 1;
-  string id_commitment = 2;
-  bytes proof = 3;
+  // From https://rfc.vac.dev/vac/32/rln-v1#sending-the-output-message
+  bytes sender = 1;
+  bytes tx_hash = 2;              // Transaction hash for the proof (non hash signal)
+  bytes proof = 3;                // The RLN proof itself, hex encoded
+  bytes internal_nullifier = 4;
+  bytes x = 5;                    // signal hash
+  bytes y = 6;
+  bytes rln_identifier = 7;
+  bytes merkle_proof_root = 8;
+  bytes epoch = 9;
+}
+
+message RlnProofError {
+  string error = 2;
 }
 
 message RegisterUserRequest {
