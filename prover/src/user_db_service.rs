@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::ops::Bound::Included;
 use std::ops::Deref;
-use std::sync::{Arc};
+use std::sync::Arc;
 // third-party
 use alloy::primitives::{Address, U256};
 use parking_lot::RwLock;
@@ -12,7 +12,7 @@ use tracing::debug;
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::AppError;
-use crate::tier::{TierName, TierLimit, TIER_LIMITS, KarmaAmount};
+use crate::tier::{KarmaAmount, TIER_LIMITS, TierLimit, TierName};
 use rln_proof::RlnUserIdentity;
 
 #[derive(Debug, Default, Clone)]
@@ -81,7 +81,7 @@ pub struct UserTierInfo {
 #[derive(Debug, thiserror::Error)]
 pub enum UserTierInfoError {
     #[error("User {0} not registered")]
-    NotRegistered(Address)
+    NotRegistered(Address),
 }
 
 pub trait KarmaAmountExt {
@@ -107,10 +107,10 @@ impl UserDb {
             *v = (v.0, 0);
             true
         });
-        
+
         let tier_limits_updated = self.tier_limits_next.read().len() != 0;
         if tier_limits_updated {
-            let mut guard = self.tier_limits.write();
+            let mut guard = self.tier_limits_next.write();
             // mem::take will clear the BTreeMap in tier_limits_next
             let new_tier_limits = std::mem::take(&mut *guard);
             debug!("Installing new tier limits: {:?}", new_tier_limits);
@@ -129,9 +129,11 @@ impl UserDb {
             None
         }
     }
-    
-    pub(crate) fn on_new_tier_limits(&self, tier_limits: BTreeMap<KarmaAmount, (TierLimit, TierName)>) -> Result<(), SetTierLimitsError> {
-        
+
+    pub(crate) fn on_new_tier_limits(
+        &self,
+        tier_limits: BTreeMap<KarmaAmount, (TierLimit, TierName)>,
+    ) -> Result<(), SetTierLimitsError> {
         #[derive(Default)]
         struct Context<'a> {
             tier_names: HashSet<TierName>,
@@ -139,30 +141,30 @@ impl UserDb {
             prev_tier_limit: Option<&'a TierLimit>,
             i: usize,
         }
-        
-        let _context = tier_limits
-            .iter()
-            .try_fold(Context::default(), |mut state, (k, (tl, tn))| {
-                
-                if k <= state.prev_karma_amount.unwrap_or(&KarmaAmount::ZERO) {
-                    return Err(SetTierLimitsError::InvalidKarmaAmount); 
+
+        let _context = tier_limits.iter().try_fold(
+            Context::default(),
+            |mut state, (karma_amount, (tier_limit, tier_name))| {
+                if karma_amount <= state.prev_karma_amount.unwrap_or(&KarmaAmount::ZERO) {
+                    return Err(SetTierLimitsError::InvalidKarmaAmount);
                 }
-                
-                if tl <= state.prev_tier_limit.unwrap_or(&TierLimit::from(0)) {
+
+                if tier_limit <= state.prev_tier_limit.unwrap_or(&TierLimit::from(0)) {
                     return Err(SetTierLimitsError::InvalidTierLimit);
                 }
 
-                if state.tier_names.contains(tn) {
-                    return Err(SetTierLimitsError::NonUniqueTierName)
+                if state.tier_names.contains(tier_name) {
+                    return Err(SetTierLimitsError::NonUniqueTierName);
                 }
-                
-                state.prev_karma_amount = Some(k);
-                state.prev_tier_limit = Some(tl);
-                state.tier_names.insert(tn.clone());
+
+                state.prev_karma_amount = Some(karma_amount);
+                state.prev_tier_limit = Some(tier_limit);
+                state.tier_names.insert(tier_name.clone());
                 state.i += 1;
                 Ok(state)
-            })?;
-        
+            },
+        )?;
+
         *self.tier_limits_next.write() = tier_limits;
         Ok(())
     }
@@ -294,6 +296,7 @@ impl UserDbService {
 mod tests {
     use super::*;
     use alloy::primitives::address;
+    use claims::assert_err;
 
     struct MockKarmaSc {}
 
@@ -335,7 +338,10 @@ mod tests {
         assert_eq!(user_db.on_new_tx(&addr), None);
         let tier_info = user_db.user_tier_info(&addr, MockKarmaSc {}).await;
         // User is not registered -> no tier info
-        assert!(matches!(tier_info, Err(UserTierInfoError::NotRegistered(_))));
+        assert!(matches!(
+            tier_info,
+            Err(UserTierInfoError::NotRegistered(_))
+        ));
         // Register user + update tx counter
         user_db.user_registry.register(addr);
         assert_eq!(user_db.on_new_tx(&addr), Some(1));
@@ -387,7 +393,10 @@ mod tests {
                 .unwrap();
             assert_eq!(addr_2_tier_info.epoch_tx_count, addr_2_tx_count);
             assert_eq!(addr_2_tier_info.epoch_slice_tx_count, 0);
-            assert_eq!(addr_2_tier_info.tier_name, Some(TierName::from("Power User")));
+            assert_eq!(
+                addr_2_tier_info.tier_name,
+                Some(TierName::from("Power User"))
+            );
         }
 
         // incr epoch (11 -> 12, epoch slice reset)
@@ -414,7 +423,77 @@ mod tests {
                 .unwrap();
             assert_eq!(addr_2_tier_info.epoch_tx_count, 0);
             assert_eq!(addr_2_tier_info.epoch_slice_tx_count, 0);
-            assert_eq!(addr_2_tier_info.tier_name, Some(TierName::from("Power User")));
+            assert_eq!(
+                addr_2_tier_info.tier_name,
+                Some(TierName::from("Power User"))
+            );
         }
     }
+
+    #[test]
+    #[tracing_test::traced_test]
+    fn test_set_tier_limits() {
+
+        let mut epoch = Epoch::from(11);
+        let mut epoch_slice = EpochSlice::from(42);
+        let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
+        let user_db_service = UserDbService::new(Default::default(), epoch_store);
+        let user_db = user_db_service.get_user_db();
+
+        let tier_limits = BTreeMap::from([
+            (KarmaAmount::from(100), (TierLimit::from(100), TierName::from("Basic"))),
+            (KarmaAmount::from(200), (TierLimit::from(200), TierName::from("Power User"))),
+            (KarmaAmount::from(300), (TierLimit::from(300), TierName::from("Elite User"))),
+        ]);
+
+        user_db.on_new_tier_limits(tier_limits.clone()).unwrap();
+        // Check it is not yet installed
+        assert_ne!(*user_db.tier_limits.read(), tier_limits);
+        assert_eq!(*user_db.tier_limits_next.read(), tier_limits);
+
+        let new_epoch = epoch;
+        let new_epoch_slice = epoch_slice + 1;
+        user_db_service.update_on_epoch_changes(
+            &mut epoch,
+            new_epoch,
+            &mut epoch_slice,
+            new_epoch_slice,
+        );
+
+        // Should be installed now
+        assert_eq!(*user_db.tier_limits.read(), tier_limits);
+        // And the tier_limits_next field is expected to be empty
+        assert_eq!(*user_db.tier_limits_next.read(), BTreeMap::new());
+    }
+
+    #[test]
+    #[tracing_test::traced_test]
+    fn test_set_invalid_tier_limits() {
+        let mut epoch = Epoch::from(11);
+        let mut epoch_slice = EpochSlice::from(42);
+        let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
+        let user_db_service = UserDbService::new(Default::default(), epoch_store);
+        let user_db = user_db_service.get_user_db();
+
+        {
+            let tier_limits = BTreeMap::from([
+                (KarmaAmount::from(100), (TierLimit::from(100), TierName::from("Basic"))),
+                (KarmaAmount::from(200), (TierLimit::from(200), TierName::from("Power User"))),
+                (KarmaAmount::from(199), (TierLimit::from(300), TierName::from("Elite User"))),
+            ]);
+
+            assert_err!(user_db.on_new_tier_limits(tier_limits.clone()));
+        }
+
+        {
+            let tier_limits = BTreeMap::from([
+                (KarmaAmount::from(100), (TierLimit::from(100), TierName::from("Basic"))),
+                (KarmaAmount::from(200), (TierLimit::from(200), TierName::from("Power User"))),
+                (KarmaAmount::from(300), (TierLimit::from(300), TierName::from("Basic"))),
+            ]);
+
+            assert_err!(user_db.on_new_tier_limits(tier_limits.clone()));
+        }
+    }
+
 }

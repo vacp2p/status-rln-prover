@@ -35,6 +35,7 @@ tonic-build = "*"
 
 [dev-dependencies]
 criterion = "0.6.0"
+claims = "0.8"
 
 [[bench]]
 name = "user_db_heavy_write"

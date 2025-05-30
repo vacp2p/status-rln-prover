@@ -42,14 +42,14 @@ pub mod prover_proto {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
         tonic::include_file_descriptor_set!("prover_descriptor");
 }
+use crate::tier::{KarmaAmount, TierLimit, TierName};
 use prover_proto::{
     GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply, RegisterUserRequest, RlnProof,
-    RlnProofFilter, SendTransactionReply, SendTransactionRequest,
+    RlnProofFilter, SendTransactionReply, SendTransactionRequest, SetTierLimitsReply,
+    SetTierLimitsRequest, Tier, UserTierInfoError, UserTierInfoResult,
+    get_user_tier_info_reply::Resp,
     rln_prover_server::{RlnProver, RlnProverServer},
-    UserTierInfoError, UserTierInfoResult, get_user_tier_info_reply::Resp, Tier,
-    SetTierLimitsRequest, SetTierLimitsReply,
 };
-use crate::tier::{KarmaAmount, TierLimit, TierName};
 
 const PROVER_SERVICE_LIMIT_PER_CONNECTION: usize = 16;
 // Timeout for all handlers of a request
@@ -184,54 +184,54 @@ impl RlnProver for ProverService {
         let tier_info = self.user_db.user_tier_info(&user, MockKarmaSc {}).await;
 
         match tier_info {
-            Ok(tier_info) => {
-                Ok(Response::new(GetUserTierInfoReply {
-                    resp: Some(Resp::Res(
-                        tier_info.into()
-                    )),
-                }))
-            },
-            Err(e) => {
-                Ok(Response::new(GetUserTierInfoReply {
-                    resp: Some(Resp::Error(e.into()))
-                }))
-            }
+            Ok(tier_info) => Ok(Response::new(GetUserTierInfoReply {
+                resp: Some(Resp::Res(tier_info.into())),
+            })),
+            Err(e) => Ok(Response::new(GetUserTierInfoReply {
+                resp: Some(Resp::Error(e.into())),
+            })),
         }
     }
-    
-    async fn set_tier_limits(&self, request: Request<SetTierLimitsRequest>) -> Result<Response<SetTierLimitsReply>, Status> {
+
+    async fn set_tier_limits(
+        &self,
+        request: Request<SetTierLimitsRequest>,
+    ) -> Result<Response<SetTierLimitsReply>, Status> {
         debug!("request: {:?}", request);
-        
+
         let request = request.into_inner();
-        let tier_limits: BTreeMap<KarmaAmount, (TierLimit, TierName)> = request
+        let tier_limits: Option<BTreeMap<KarmaAmount, (TierLimit, TierName)>> = request
             .karma_amounts
             .iter()
             .zip(request.tiers)
             .map(|(k, tier)| {
-                // FIXME: from_le_slice can panic - use try_from_le_slice?
-                let karma_amount = KarmaAmount::from(U256::from_le_slice(k.value.as_slice()));
-                let tier_info = (TierLimit::from(tier.quota), TierName::from(tier.name.clone()));
-                (karma_amount, tier_info)
+                let karma_amount = U256::try_from_le_slice(k.value.as_slice())?;
+                let karma_amount = KarmaAmount::from(karma_amount);
+                let tier_info = (
+                    TierLimit::from(tier.quota),
+                    TierName::from(tier.name.clone()),
+                );
+                Some((karma_amount, tier_info))
             })
             .collect();
-        
-        let reply = match self.user_db.on_new_tier_limits(tier_limits) {
-            Ok(_) => {
-                SetTierLimitsReply {
-                    status: true,
-                    error: "".to_string(),
-                }
-            }
-            Err(e) => {
-                SetTierLimitsReply {
-                    status: false,
-                    error: e.to_string(),
-                }
-            }
+
+        if tier_limits.is_none() {
+            return Err(Status::invalid_argument("Invalid tier limits"));
+        }
+
+        // unwrap safe - just tested if None
+        let reply = match self.user_db.on_new_tier_limits(tier_limits.unwrap()) {
+            Ok(_) => SetTierLimitsReply {
+                status: true,
+                error: "".to_string(),
+            },
+            Err(e) => SetTierLimitsReply {
+                status: false,
+                error: e.to_string(),
+            },
         };
         Ok(Response::new(reply))
     }
-    
 }
 
 pub(crate) struct GrpcProverService {
