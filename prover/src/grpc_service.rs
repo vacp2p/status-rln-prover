@@ -18,7 +18,8 @@ use tonic_web::GrpcWebLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::debug;
 // internal
-use crate::error::AppError;
+use crate::error::{AppError, RegisterError};
+use crate::proof_generation::{ProofGenerationData, ProofSendingData};
 use crate::tier::{KarmaAmount, TierLimit, TierName};
 use crate::user_db_service::{KarmaAmountExt, UserDb, UserTierInfo};
 use rln_proof::{RlnIdentifier, RlnUserIdentity};
@@ -31,13 +32,13 @@ pub mod prover_proto {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
         tonic::include_file_descriptor_set!("prover_descriptor");
 }
-use crate::proof_generation::{ProofGenerationData, ProofSendingData};
 use prover_proto::{
-    GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply, RegisterUserRequest, 
-    RlnProofReply, RlnProof, rln_proof_reply::Resp as GetProofsResp,
-    RlnProofFilter, SendTransactionReply, SendTransactionRequest, SetTierLimitsReply,
-    SetTierLimitsRequest, Tier, UserTierInfoError, UserTierInfoResult,
+    GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply, RegisterUserRequest,
+    RegistrationStatus, RlnProof, RlnProofFilter, RlnProofReply, SendTransactionReply,
+    SendTransactionRequest, SetTierLimitsReply, SetTierLimitsRequest, Tier, UserTierInfoError,
+    UserTierInfoResult,
     get_user_tier_info_reply::Resp,
+    rln_proof_reply::Resp as GetProofsResp,
     rln_prover_server::{RlnProver, RlnProverServer},
 };
 
@@ -60,7 +61,10 @@ pub struct ProverService {
     user_db: UserDb,
     rln_identifier: Arc<RlnIdentifier>,
     spam_limit: u64,
-    broadcast_channel: (broadcast::Sender<ProofSendingData>, broadcast::Receiver<ProofSendingData>),
+    broadcast_channel: (
+        broadcast::Sender<ProofSendingData>,
+        broadcast::Receiver<ProofSendingData>,
+    ),
 }
 
 #[tonic::async_trait]
@@ -132,9 +136,32 @@ impl RlnProver for ProverService {
 
     async fn register_user(
         &self,
-        _request: Request<RegisterUserRequest>,
+        request: Request<RegisterUserRequest>,
     ) -> Result<Response<RegisterUserReply>, Status> {
-        let reply = RegisterUserReply { status: 0 };
+        debug!("register_user request: {:?}", request);
+
+        let req = request.into_inner();
+        let user = if let Some(user) = req.user {
+            if let Ok(user) = Address::try_from(user.value.as_slice()) {
+                user
+            } else {
+                return Err(Status::invalid_argument("Invalid sender address"));
+            }
+        } else {
+            return Err(Status::invalid_argument("No sender address"));
+        };
+
+        let result = self.user_db.on_new_user(user);
+
+        let status = match result {
+            Ok(_) => RegistrationStatus::Success,
+            Err(RegisterError::AlreadyRegistered(_a)) => RegistrationStatus::AlreadyRegistered,
+            _ => RegistrationStatus::Failure,
+        };
+
+        let reply = RegisterUserReply {
+            status: status.into(),
+        };
         Ok(Response::new(reply))
     }
 
@@ -162,13 +189,11 @@ impl RlnProver for ProverService {
                     merkle_proof_root: vec![],
                     epoch: vec![],
                 };
-                
+
                 let resp = RlnProofReply {
-                    resp: Some(GetProofsResp::Proof(
-                        rln_proof
-                    )),
+                    resp: Some(GetProofsResp::Proof(rln_proof)),
                 };
-                
+
                 if let Err(e) = tx.send(Ok(resp)).await {
                     debug!("Done: sending dummy rln proofs: {}", e);
                     break;
@@ -260,7 +285,10 @@ impl RlnProver for ProverService {
 
 pub(crate) struct GrpcProverService {
     pub proof_sender: Sender<ProofGenerationData>,
-    pub broadcast_channel: (broadcast::Sender<ProofSendingData>, broadcast::Receiver<ProofSendingData>),
+    pub broadcast_channel: (
+        broadcast::Sender<ProofSendingData>,
+        broadcast::Receiver<ProofSendingData>,
+    ),
     pub addr: SocketAddr,
     pub rln_identifier: RlnIdentifier,
     pub user_db: UserDb,

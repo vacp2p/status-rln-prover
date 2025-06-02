@@ -3,6 +3,8 @@ use alloy::{
     primitives::Address,
     transports::{RpcError, TransportErrorKind},
 };
+use ark_serialize::SerializationError;
+use rln::protocol::ProofError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum AppError {
@@ -18,6 +20,7 @@ pub enum AppError {
     EpochError(#[from] WaitUntilError),
 }
 
+/*
 #[derive(thiserror::Error, Debug)]
 pub enum RegistrationError {
     #[error("Transaction has no sender address")]
@@ -26,4 +29,33 @@ pub enum RegistrationError {
     InvalidAddress(Vec<u8>),
     #[error("Cannot find id_commitment for address: {0:?}")]
     NotFound(Address),
+}
+*/
+
+#[derive(thiserror::Error, Debug)]
+pub enum ProofGenerationError {
+    #[error("Proof generation failed: {0}")]
+    Proof(#[from] ProofError),
+    #[error("Proof serialization failed: {0}")]
+    Serialization(#[from] SerializationError),
+    #[error("Proof serialization failed: {0}")]
+    SerializationWrite(#[from] std::io::Error),
+    #[error(transparent)]
+    MerkleProofError(#[from] GetMerkleTreeProofError),
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum RegisterError {
+    #[error("User (address: {0:?}) has already been registered")]
+    AlreadyRegistered(Address),
+    #[error("Merkle tree error: {0}")]
+    TreeError(String),
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetMerkleTreeProofError {
+    #[error("User not registered")]
+    NotRegistered,
+    #[error("Merkle tree error: {0}")]
+    TreeError(String),
 }

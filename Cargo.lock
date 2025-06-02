@@ -4407,6 +4407,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "ark-bn254",
+ "ark-groth16",
  "ark-serialize 0.5.0",
  "async-channel",
  "bytesize",

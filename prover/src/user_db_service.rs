@@ -4,31 +4,70 @@ use std::ops::Deref;
 use std::sync::Arc;
 // third-party
 use alloy::primitives::{Address, U256};
+use ark_bn254::Fr;
 use derive_more::{Add, From, Into};
 use parking_lot::RwLock;
+use rln::hashers::poseidon_hash;
+use rln::pm_tree_adapter::{PmTree, PmTreeProof};
 use rln::protocol::keygen;
 use scc::HashMap;
 use tokio::sync::Notify;
 use tracing::debug;
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
-use crate::error::AppError;
+use crate::error::{AppError, GetMerkleTreeProofError, RegisterError};
 use crate::tier::{KarmaAmount, TIER_LIMITS, TierLimit, TierName};
-use rln_proof::RlnUserIdentity;
+use rln_proof::{RlnUserIdentity, ZerokitMerkleTree};
 
-#[derive(Debug, Default, Clone)]
+const MERKLE_TREE_HEIGHT: usize = 20;
+
+#[derive(Clone)]
 pub(crate) struct UserRegistry {
-    inner: HashMap<Address, RlnUserIdentity>,
+    inner: HashMap<Address, (RlnUserIdentity, usize)>,
+    tree: Arc<RwLock<PmTree>>,
+    spam_limit: u64,
 }
+
+impl std::fmt::Debug for UserRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "UserRegistry {{ inner: {:?} }}", self.inner)
+    }
+}
+
+impl Default for UserRegistry {
+    fn default() -> Self {
+        Self {
+            inner: Default::default(),
+            // unwrap safe - no config
+            tree: Arc::new(RwLock::new(
+                PmTree::new(MERKLE_TREE_HEIGHT, Default::default(), Default::default()).unwrap(),
+            )),
+            spam_limit: 0,
+        }
+    }
+}
+
 impl UserRegistry {
-    fn register(&self, address: Address) -> bool {
+    fn register(&self, address: Address) -> Result<(), RegisterError> {
         let (identity_secret_hash, id_commitment) = keygen();
-        self.inner
+        let index = self.inner.len();
+        let res = self
+            .inner
             .insert(
                 address,
-                RlnUserIdentity::from((identity_secret_hash, id_commitment)),
+                (
+                    RlnUserIdentity::from((identity_secret_hash, id_commitment)),
+                    index,
+                ),
             )
-            .is_ok()
+            .map_err(|_e| RegisterError::AlreadyRegistered(address));
+
+        let rate_commit = poseidon_hash(&[id_commitment, Fr::from(self.spam_limit)]);
+        self.tree
+            .write()
+            .set(index, rate_commit)
+            .map_err(|e| RegisterError::TreeError(e.to_string()))?;
+        res
     }
 
     fn has_user(&self, address: &Address) -> bool {
@@ -36,7 +75,19 @@ impl UserRegistry {
     }
 
     fn get_user(&self, address: &Address) -> Option<RlnUserIdentity> {
-        self.inner.get(address).map(|entry| entry.clone())
+        self.inner.get(address).map(|entry| entry.0.clone())
+    }
+
+    fn get_merkle_proof(&self, address: &Address) -> Result<PmTreeProof, GetMerkleTreeProofError> {
+        let index = self
+            .inner
+            .get(address)
+            .map(|entry| entry.1)
+            .ok_or(GetMerkleTreeProofError::NotRegistered)?;
+        self.tree
+            .read()
+            .proof(index)
+            .map_err(|e| GetMerkleTreeProofError::TreeError(e.to_string()))
     }
 }
 
@@ -129,8 +180,19 @@ impl UserDb {
         }
     }
 
+    pub fn on_new_user(&self, address: Address) -> Result<(), RegisterError> {
+        self.user_registry.register(address)
+    }
+
     pub fn get_user(&self, address: &Address) -> Option<RlnUserIdentity> {
         self.user_registry.get_user(address)
+    }
+
+    pub fn get_merkle_proof(
+        &self,
+        address: &Address,
+    ) -> Result<PmTreeProof, GetMerkleTreeProofError> {
+        self.user_registry.get_merkle_proof(address)
     }
 
     pub(crate) fn on_new_tx(&self, address: &Address) -> Option<EpochSliceCounter> {
@@ -308,7 +370,7 @@ impl UserDbService {
 mod tests {
     use super::*;
     use alloy::primitives::address;
-    use claims::assert_err;
+    use claims::{assert_err, assert_matches};
 
     struct MockKarmaSc {}
 
@@ -335,6 +397,23 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_user_register() {
+        let user_db = UserDb {
+            user_registry: Default::default(),
+            tx_registry: Default::default(),
+            tier_limits: Arc::new(RwLock::new(TIER_LIMITS.clone())),
+            tier_limits_next: Arc::new(Default::default()),
+            epoch_store: Arc::new(RwLock::new(Default::default())),
+        };
+        let addr = Address::new([0; 20]);
+        user_db.user_registry.register(addr).unwrap();
+        assert_matches!(
+            user_db.user_registry.register(addr),
+            Err(RegisterError::AlreadyRegistered(_))
+        );
+    }
+
     #[tokio::test]
     async fn test_incr_tx_counter() {
         let user_db = UserDb {
@@ -354,8 +433,9 @@ mod tests {
             tier_info,
             Err(UserTierInfoError::NotRegistered(_))
         ));
-        // Register user + update tx counter
-        user_db.user_registry.register(addr);
+        // Register user
+        user_db.user_registry.register(addr).unwrap();
+        // Now update user tx counter
         assert_eq!(user_db.on_new_tx(&addr), Some(EpochSliceCounter(1)));
         let tier_info = user_db.user_tier_info(&addr, MockKarmaSc {}).await.unwrap();
         assert_eq!(tier_info.epoch_tx_count, 1);
@@ -372,11 +452,11 @@ mod tests {
 
         let addr_1_tx_count = 2;
         let addr_2_tx_count = 820;
-        user_db.user_registry.register(ADDR_1);
+        user_db.user_registry.register(ADDR_1).unwrap();
         user_db
             .tx_registry
             .incr_counter(&ADDR_1, Some(addr_1_tx_count));
-        user_db.user_registry.register(ADDR_2);
+        user_db.user_registry.register(ADDR_2).unwrap();
         user_db
             .tx_registry
             .incr_counter(&ADDR_2, Some(addr_2_tx_count));
