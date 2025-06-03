@@ -19,12 +19,12 @@ pub struct RlnUserIdentity {
     pub user_limit: Fr,
 }
 
-impl From<(Fr, Fr)> for RlnUserIdentity {
-    fn from((commitment, secret_hash): (Fr, Fr)) -> Self {
+impl From<(Fr, Fr, Fr)> for RlnUserIdentity {
+    fn from((commitment, secret_hash, user_limit): (Fr, Fr, Fr)) -> Self {
         Self {
             commitment,
             secret_hash,
-            user_limit: Fr::from(0),
+            user_limit,
         }
     }
 }
@@ -70,8 +70,10 @@ pub fn compute_rln_proof_and_values(
     epoch: Fr,
     merkle_proof: &rln::poseidon_tree::MerkleProof,
 ) -> Result<(Proof<Bn254>, RLNProofValues), ProofError> {
+    
     let external_nullifier = poseidon_hash(&[rln_identifier.identifier, epoch]);
 
+    println!("user identity secret hash: {}", user_identity.secret_hash);
     let witness = rln_witness_from_values(
         user_identity.secret_hash,
         merkle_proof,

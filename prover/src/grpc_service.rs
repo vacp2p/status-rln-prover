@@ -101,17 +101,11 @@ impl RlnProver for ProverService {
             ));
         }
 
-        let user_identity = RlnUserIdentity {
-            secret_hash: user_id.secret_hash,
-            commitment: user_id.commitment,
-            user_limit: Fr::from(self.spam_limit),
-        };
-
         // Inexpensive clone (behind Arc ptr)
         let rln_identifier = self.rln_identifier.clone();
 
         let proof_data = ProofGenerationData::from((
-            user_identity,
+            user_id,
             rln_identifier,
             counter.into(),
             sender,
@@ -119,12 +113,6 @@ impl RlnProver for ProverService {
         ));
 
         // Send some data to one of the proof services
-        /*
-        self.proof_sender
-            .send((user_identity, rln_identifier, counter.into()))
-            .await
-            .map_err(|e| Status::from_error(Box::new(e)))?;
-        */
         self.proof_sender
             .send(proof_data)
             .await

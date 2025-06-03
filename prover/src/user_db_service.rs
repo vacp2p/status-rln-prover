@@ -33,6 +33,12 @@ impl RateLimit {
     }
 }
 
+impl From<RateLimit> for Fr {
+    fn from(rate_limit: RateLimit) -> Self {
+        Fr::from(rate_limit.0)
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct UserRegistry {
     inner: HashMap<Address, (RlnUserIdentity, MerkleTreeIndex)>,
@@ -81,7 +87,9 @@ impl UserRegistry {
             .insert(
                 address,
                 (
-                    RlnUserIdentity::from((identity_secret_hash, id_commitment)),
+                    RlnUserIdentity::from(
+                        (identity_secret_hash, id_commitment, Fr::from(self.rate_limit))
+                    ),
                     MerkleTreeIndex(index),
                 ),
             )
