@@ -44,6 +44,36 @@ pub enum ProofGenerationError {
     MerkleProofError(#[from] GetMerkleTreeProofError),
 }
 
+/// Same as ProofGenerationError but can be Cloned (can be used in Tokio broadcast channels)
+#[derive(thiserror::Error, Debug, Clone)]
+pub enum ProofGenerationStringError {
+    #[error("Proof generation failed: {0}")]
+    Proof(String),
+    #[error("Proof serialization failed: {0}")]
+    Serialization(String),
+    #[error("Proof serialization failed: {0}")]
+    SerializationWrite(String),
+    #[error(transparent)]
+    MerkleProofError(#[from] GetMerkleTreeProofError),
+}
+
+impl From<ProofGenerationError> for ProofGenerationStringError {
+    fn from(value: ProofGenerationError) -> Self {
+        match value {
+            ProofGenerationError::Proof(e) => ProofGenerationStringError::Proof(e.to_string()),
+            ProofGenerationError::Serialization(e) => {
+                ProofGenerationStringError::Serialization(e.to_string())
+            }
+            ProofGenerationError::SerializationWrite(e) => {
+                ProofGenerationStringError::SerializationWrite(e.to_string())
+            }
+            ProofGenerationError::MerkleProofError(e) => {
+                ProofGenerationStringError::MerkleProofError(e)
+            }
+        }
+    }
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum RegisterError {
     #[error("User (address: {0:?}) has already been registered")]
@@ -52,7 +82,7 @@ pub enum RegisterError {
     TreeError(String),
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Clone)]
 pub enum GetMerkleTreeProofError {
     #[error("User not registered")]
     NotRegistered,

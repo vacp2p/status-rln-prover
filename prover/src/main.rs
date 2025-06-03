@@ -5,7 +5,6 @@ mod error;
 mod grpc_service;
 mod proof_generation;
 mod proof_service;
-mod registry;
 mod registry_listener;
 mod tier;
 mod user_db_service;
@@ -30,9 +29,10 @@ use crate::args::AppArgs;
 use crate::epoch_service::EpochService;
 use crate::grpc_service::GrpcProverService;
 use crate::proof_service::ProofService;
-use crate::user_db_service::UserDbService;
+use crate::user_db_service::{RateLimit, UserDbService};
 
 const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
+const RLN_SPAM_LIMIT: RateLimit = RateLimit::new(10_000u64);
 const PROOF_SERVICE_COUNT: u8 = 8;
 const GENESIS: DateTime<Utc> = DateTime::from_timestamp(1431648000, 0).unwrap();
 
@@ -64,6 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let user_db_service = UserDbService::new(
         epoch_service.epoch_changes.clone(),
         epoch_service.current_epoch.clone(),
+        RLN_SPAM_LIMIT,
     );
 
     // proof service
@@ -77,6 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rln_identifier = RlnIdentifier::new(RLN_IDENTIFIER_NAME);
     let addr = SocketAddr::new(app_args.ip, app_args.port);
     debug!("Listening on: {}", addr);
+    // TODO: broadcast subscribe?
     let prover_grpc_service = GrpcProverService {
         proof_sender,
         broadcast_channel: (tx.clone(), rx),

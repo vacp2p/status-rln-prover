@@ -18,7 +18,7 @@ use tonic_web::GrpcWebLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::debug;
 // internal
-use crate::error::{AppError, RegisterError};
+use crate::error::{AppError, ProofGenerationStringError, RegisterError};
 use crate::proof_generation::{ProofGenerationData, ProofSendingData};
 use crate::tier::{KarmaAmount, TierLimit, TierName};
 use crate::user_db_service::{KarmaAmountExt, UserDb, UserTierInfo};
@@ -62,8 +62,8 @@ pub struct ProverService {
     rln_identifier: Arc<RlnIdentifier>,
     spam_limit: u64,
     broadcast_channel: (
-        broadcast::Sender<ProofSendingData>,
-        broadcast::Receiver<ProofSendingData>,
+        broadcast::Sender<Result<ProofSendingData, ProofGenerationStringError>>,
+        broadcast::Receiver<Result<ProofSendingData, ProofGenerationStringError>>,
     ),
 }
 
@@ -176,18 +176,12 @@ impl RlnProver for ProverService {
         let (tx, rx) = mpsc::channel(100);
         let mut rx2 = self.broadcast_channel.0.subscribe();
         tokio::spawn(async move {
-            while let Ok(data) = rx2.recv().await {
-                // TODO
+            // FIXME: Should we send the error here?
+            while let Ok(Ok(data)) = rx2.recv().await {
                 let rln_proof = RlnProof {
                     sender: data.tx_sender.to_vec(),
                     tx_hash: data.tx_hash,
                     proof: data.proof,
-                    internal_nullifier: vec![],
-                    x: vec![],
-                    y: vec![],
-                    rln_identifier: vec![],
-                    merkle_proof_root: vec![],
-                    epoch: vec![],
                 };
 
                 let resp = RlnProofReply {
@@ -286,8 +280,8 @@ impl RlnProver for ProverService {
 pub(crate) struct GrpcProverService {
     pub proof_sender: Sender<ProofGenerationData>,
     pub broadcast_channel: (
-        broadcast::Sender<ProofSendingData>,
-        broadcast::Receiver<ProofSendingData>,
+        broadcast::Sender<Result<ProofSendingData, ProofGenerationStringError>>,
+        broadcast::Receiver<Result<ProofSendingData, ProofGenerationStringError>>,
     ),
     pub addr: SocketAddr,
     pub rln_identifier: RlnIdentifier,

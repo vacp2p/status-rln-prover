@@ -21,11 +21,23 @@ use rln_proof::{RlnUserIdentity, ZerokitMerkleTree};
 
 const MERKLE_TREE_HEIGHT: usize = 20;
 
+#[derive(Debug, Clone, Copy, From, Into)]
+struct MerkleTreeIndex(usize);
+
+#[derive(Debug, Clone, Copy, Default, From, Into)]
+pub struct RateLimit(u64);
+
+impl RateLimit {
+    pub(crate) const fn new(value: u64) -> Self {
+        Self(value)
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct UserRegistry {
-    inner: HashMap<Address, (RlnUserIdentity, usize)>,
+    inner: HashMap<Address, (RlnUserIdentity, MerkleTreeIndex)>,
     tree: Arc<RwLock<PmTree>>,
-    spam_limit: u64,
+    rate_limit: RateLimit,
 }
 
 impl std::fmt::Debug for UserRegistry {
@@ -42,7 +54,20 @@ impl Default for UserRegistry {
             tree: Arc::new(RwLock::new(
                 PmTree::new(MERKLE_TREE_HEIGHT, Default::default(), Default::default()).unwrap(),
             )),
-            spam_limit: 0,
+            rate_limit: Default::default(),
+        }
+    }
+}
+
+impl From<RateLimit> for UserRegistry {
+    fn from(rate_limit: RateLimit) -> Self {
+        Self {
+            inner: Default::default(),
+            // unwrap safe - no config
+            tree: Arc::new(RwLock::new(
+                PmTree::new(MERKLE_TREE_HEIGHT, Default::default(), Default::default()).unwrap(),
+            )),
+            rate_limit,
         }
     }
 }
@@ -57,12 +82,12 @@ impl UserRegistry {
                 address,
                 (
                     RlnUserIdentity::from((identity_secret_hash, id_commitment)),
-                    index,
+                    MerkleTreeIndex(index),
                 ),
             )
             .map_err(|_e| RegisterError::AlreadyRegistered(address));
 
-        let rate_commit = poseidon_hash(&[id_commitment, Fr::from(self.spam_limit)]);
+        let rate_commit = poseidon_hash(&[id_commitment, Fr::from(u64::from(self.rate_limit))]);
         self.tree
             .write()
             .set(index, rate_commit)
@@ -86,7 +111,7 @@ impl UserRegistry {
             .ok_or(GetMerkleTreeProofError::NotRegistered)?;
         self.tree
             .read()
-            .proof(index)
+            .proof(index.into())
             .map_err(|e| GetMerkleTreeProofError::TreeError(e.to_string()))
     }
 }
@@ -311,10 +336,11 @@ impl UserDbService {
     pub(crate) fn new(
         epoch_changes_notifier: Arc<Notify>,
         epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
+        rate_limit: RateLimit,
     ) -> Self {
         Self {
             user_db: UserDb {
-                user_registry: Default::default(),
+                user_registry: Arc::new(UserRegistry::from(rate_limit)),
                 tx_registry: Default::default(),
                 tier_limits: Arc::new(RwLock::new(TIER_LIMITS.clone())),
                 tier_limits_next: Arc::new(Default::default()),
@@ -447,7 +473,7 @@ mod tests {
         let mut epoch = Epoch::from(11);
         let mut epoch_slice = EpochSlice::from(42);
         let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
-        let user_db_service = UserDbService::new(Default::default(), epoch_store);
+        let user_db_service = UserDbService::new(Default::default(), epoch_store, 10.into());
         let user_db = user_db_service.get_user_db();
 
         let addr_1_tx_count = 2;
@@ -530,7 +556,7 @@ mod tests {
         let mut epoch = Epoch::from(11);
         let mut epoch_slice = EpochSlice::from(42);
         let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
-        let user_db_service = UserDbService::new(Default::default(), epoch_store);
+        let user_db_service = UserDbService::new(Default::default(), epoch_store, 10.into());
         let user_db = user_db_service.get_user_db();
         let tier_limits_original = user_db.tier_limits.read().clone();
 
@@ -578,7 +604,7 @@ mod tests {
         let epoch = Epoch::from(11);
         let epoch_slice = EpochSlice::from(42);
         let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
-        let user_db_service = UserDbService::new(Default::default(), epoch_store);
+        let user_db_service = UserDbService::new(Default::default(), epoch_store, 10.into());
         let user_db = user_db_service.get_user_db();
 
         let tier_limits_original = user_db.tier_limits.read().clone();
