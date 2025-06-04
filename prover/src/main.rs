@@ -32,7 +32,7 @@ use crate::proof_service::ProofService;
 use crate::user_db_service::{RateLimit, UserDbService};
 
 const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
-const RLN_SPAM_LIMIT: RateLimit = RateLimit::new(10_000u64);
+const PROVER_SPAM_LIMIT: RateLimit = RateLimit::new(10_000u64);
 const PROOF_SERVICE_COUNT: u8 = 8;
 const GENESIS: DateTime<Utc> = DateTime::from_timestamp(1431648000, 0).unwrap();
 
@@ -64,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let user_db_service = UserDbService::new(
         epoch_service.epoch_changes.clone(),
         epoch_service.current_epoch.clone(),
-        RLN_SPAM_LIMIT,
+        PROVER_SPAM_LIMIT,
     );
 
     // proof service

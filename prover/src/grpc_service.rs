@@ -5,7 +5,6 @@ use std::sync::Arc;
 use std::time::Duration;
 // third-party
 use alloy::primitives::{Address, U256};
-use ark_bn254::Fr;
 use async_channel::Sender;
 use bytesize::ByteSize;
 use futures::TryFutureExt;
@@ -22,7 +21,7 @@ use crate::error::{AppError, ProofGenerationStringError, RegisterError};
 use crate::proof_generation::{ProofGenerationData, ProofSendingData};
 use crate::tier::{KarmaAmount, TierLimit, TierName};
 use crate::user_db_service::{KarmaAmountExt, UserDb, UserTierInfo};
-use rln_proof::{RlnIdentifier, RlnUserIdentity};
+use rln_proof::RlnIdentifier;
 
 pub mod prover_proto {
 
@@ -53,14 +52,12 @@ const PROVER_SERVICE_HTTP2_MAX_FRAME_SIZE: ByteSize = ByteSize::kib(16);
 const PROVER_SERVICE_MESSAGE_DECODING_MAX_SIZE: ByteSize = ByteSize::mib(5);
 // Max size for Message (encoding, e.g., 5 Mb)
 const PROVER_SERVICE_MESSAGE_ENCODING_MAX_SIZE: ByteSize = ByteSize::mib(5);
-const PROVER_SPAM_LIMIT: u64 = 10_000;
 
 #[derive(Debug)]
 pub struct ProverService {
     proof_sender: Sender<ProofGenerationData>,
     user_db: UserDb,
     rln_identifier: Arc<RlnIdentifier>,
-    spam_limit: u64,
     broadcast_channel: (
         broadcast::Sender<Result<ProofSendingData, ProofGenerationStringError>>,
         broadcast::Receiver<Result<ProofSendingData, ProofGenerationStringError>>,
@@ -282,7 +279,6 @@ impl GrpcProverService {
             proof_sender: self.proof_sender.clone(),
             user_db: self.user_db.clone(),
             rln_identifier: Arc::new(self.rln_identifier.clone()),
-            spam_limit: PROVER_SPAM_LIMIT,
             broadcast_channel: (
                 self.broadcast_channel.0.clone(),
                 self.broadcast_channel.0.subscribe(),
