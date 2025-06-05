@@ -12,6 +12,7 @@ mod user_db_service;
 // std
 use std::net::SocketAddr;
 use std::time::Duration;
+use alloy::primitives::{address, U256};
 // third-party
 use chrono::{DateTime, Utc};
 use clap::Parser;
@@ -29,12 +30,15 @@ use crate::args::AppArgs;
 use crate::epoch_service::EpochService;
 use crate::grpc_service::GrpcProverService;
 use crate::proof_service::ProofService;
+use crate::registry_listener::RegistryListener;
 use crate::user_db_service::{RateLimit, UserDbService};
 
 const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
 const PROVER_SPAM_LIMIT: RateLimit = RateLimit::new(10_000u64);
 const PROOF_SERVICE_COUNT: u8 = 8;
 const GENESIS: DateTime<Utc> = DateTime::from_timestamp(1431648000, 0).unwrap();
+const PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION: U256 = U256::from_le_slice(10u64.to_le_bytes().as_slice());
+
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -49,13 +53,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_args = AppArgs::parse();
     debug!("Arguments: {:?}", app_args);
 
-    // Smart contract
-
-    // let uniswap_token_address = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
-    // let event = "Transfer(address,address,uint256)";
-    // let registry_listener =
-    //     RegistryListener::new(app_args.rpc_url.as_str(), uniswap_token_address, event);
-
     // Epoch
     let epoch_service = EpochService::try_from((Duration::from_secs(60 * 2), GENESIS))
         .expect("Failed to create epoch service");
@@ -66,6 +63,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         epoch_service.current_epoch.clone(),
         PROVER_SPAM_LIMIT,
     );
+
+    // Smart contract
+
+    let karma_sc_address = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
+    let registry_listener =
+        RegistryListener::new(app_args.rpc_url.as_str(), karma_sc_address, user_db_service.get_user_db(), PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION);
 
     // proof service
     // FIXME: bound
@@ -105,7 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             proof_service.serve().await
         });
     }
-    // set.spawn(async move { registry_listener.listen().await });
+    set.spawn(async move { registry_listener.listen().await });
     set.spawn(async move { epoch_service.listen_for_new_epoch().await });
     set.spawn(async move { user_db_service.listen_for_epoch_changes().await });
     set.spawn(async move { prover_grpc_service.serve().await });

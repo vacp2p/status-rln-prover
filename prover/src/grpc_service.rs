@@ -200,15 +200,19 @@ impl RlnProver for ProverService {
         } else {
             return Err(Status::invalid_argument("No user address"));
         };
-
+        
         // TODO: SC call
         struct MockKarmaSc {}
 
         impl KarmaAmountExt for MockKarmaSc {
-            async fn karma_amount(&self, _address: &Address) -> U256 {
-                U256::from(10)
+            
+            type Error = alloy::contract::Error;
+            
+            async fn karma_amount(&self, _address: &Address) -> Result<U256, Self::Error> {
+                Ok(U256::from(10))
             }
         }
+            
         let tier_info = self.user_db.user_tier_info(&user, MockKarmaSc {}).await;
 
         match tier_info {
@@ -356,8 +360,8 @@ impl From<UserTierInfo> for UserTierInfoResult {
 }
 
 /// UserTierInfoError to UserTierInfoError (Grpc message) conversion
-impl From<crate::user_db_service::UserTierInfoError> for UserTierInfoError {
-    fn from(value: crate::user_db_service::UserTierInfoError) -> Self {
+impl<E> From<crate::user_db_service::UserTierInfoError<E>> for UserTierInfoError where E: std::error::Error {
+    fn from(value: crate::user_db_service::UserTierInfoError<E>) -> Self {
         UserTierInfoError {
             message: value.to_string(),
         }

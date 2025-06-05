@@ -150,7 +150,7 @@ mod tests {
     use tokio::sync::broadcast;
     use tracing::info;
     // third-party: zerokit
-    use rln::protocol::{compute_id_secret, deserialize_proof_values, keygen, verify_proof};
+    use rln::protocol::{compute_id_secret, deserialize_proof_values, verify_proof};
     // internal
     use crate::user_db_service::UserDbService;
     use rln_proof::RlnIdentifier;
@@ -343,7 +343,7 @@ mod tests {
         broadcast_receiver: &mut broadcast::Receiver<
             Result<ProofSendingData, ProofGenerationStringError>,
         >,
-        verifying_key: &VerifyingKey<Curve>,
+        // verifying_key: &VerifyingKey<Curve>,
     ) -> Result<(), AppErrorExt> {
         // used by test_user_spamming unit test
 
@@ -361,7 +361,7 @@ mod tests {
             let res = res.unwrap();
             let res = res?;
             let mut proof_cursor = Cursor::new(&res.proof);
-            let proof: Proof<Curve> = ArkProof::deserialize_compressed(&mut proof_cursor).unwrap();
+            let _proof: Proof<Curve> = ArkProof::deserialize_compressed(&mut proof_cursor).unwrap();
             let position = proof_cursor.position() as usize;
             let proof_cursor_2 = &proof_cursor.get_ref().as_slice()[position..];
             let (proof_values, _) = deserialize_proof_values(proof_cursor_2);
@@ -471,14 +471,10 @@ mod tests {
             rate_limit,
         );
 
-        // Verification
-        let proving_key = zkey_from_folder();
-        let verification_key = &proving_key.0.vk;
-
         info!("Starting...");
         let res = tokio::try_join!(
             proof_service.serve().map_err(AppErrorExt::AppError),
-            proof_reveal_secret(&mut broadcast_receiver, verification_key),
+            proof_reveal_secret(&mut broadcast_receiver),
             proof_sender_2(
                 &mut proof_tx,
                 rln_identifier.clone(),
@@ -537,14 +533,10 @@ mod tests {
             rate_limit,
         );
 
-        // Verification
-        let proving_key = zkey_from_folder();
-        let verification_key = &proving_key.0.vk;
-
         info!("Starting...");
         let res = tokio::try_join!(
             proof_service.serve().map_err(AppErrorExt::AppError),
-            proof_reveal_secret(&mut broadcast_receiver, verification_key),
+            proof_reveal_secret(&mut broadcast_receiver),
             proof_sender_2(
                 &mut proof_tx,
                 rln_identifier.clone(),

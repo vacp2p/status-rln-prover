@@ -177,13 +177,18 @@ pub struct UserTierInfo {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum UserTierInfoError {
+pub enum UserTierInfoError<E: std::error::Error> {
     #[error("User {0} not registered")]
     NotRegistered(Address),
+    #[error(transparent)]
+    Contract(E)
 }
 
 pub trait KarmaAmountExt {
-    async fn karma_amount(&self, address: &Address) -> U256;
+
+    type Error;
+    
+    async fn karma_amount(&self, address: &Address) -> Result<U256, Self::Error>;
 }
 
 /// User registration + tx counters + tier limits storage
@@ -280,11 +285,11 @@ impl UserDb {
     }
 
     /// Get user tier info
-    pub(crate) async fn user_tier_info<KSC: KarmaAmountExt>(
+    pub(crate) async fn user_tier_info<E: std::error::Error, KSC: KarmaAmountExt<Error = E>>(
         &self,
         address: &Address,
         karma_sc: KSC,
-    ) -> Result<UserTierInfo, UserTierInfoError> {
+    ) -> Result<UserTierInfo, UserTierInfoError<E>> {
         if self.user_registry.has_user(address) {
             let (epoch_tx_count, epoch_slice_tx_count) = self
                 .tx_registry
@@ -292,7 +297,8 @@ impl UserDb {
                 .map(|ref_v| (ref_v.0, ref_v.1))
                 .unwrap_or_default();
 
-            let karma_amount = karma_sc.karma_amount(address).await;
+            let karma_amount = karma_sc.karma_amount(address).await
+                .map_err(|e| UserTierInfoError::Contract(e))?;
             let guard = self.tier_limits.read();
             let range_res = guard.range((
                 Included(&KarmaAmount::ZERO),
@@ -409,12 +415,19 @@ mod tests {
     use super::*;
     use alloy::primitives::address;
     use claims::{assert_err, assert_matches};
+    use derive_more::Display;
 
+    #[derive(Debug, Display, thiserror::Error)]
+    struct DummyError();
+    
     struct MockKarmaSc {}
 
     impl KarmaAmountExt for MockKarmaSc {
-        async fn karma_amount(&self, _address: &Address) -> U256 {
-            U256::from(10)
+        
+        type Error = DummyError;
+        
+        async fn karma_amount(&self, _address: &Address) -> Result<U256, Self::Error> {
+            Ok(U256::from(10))
         }
     }
 
@@ -424,13 +437,16 @@ mod tests {
     struct MockKarmaSc2 {}
 
     impl KarmaAmountExt for MockKarmaSc2 {
-        async fn karma_amount(&self, address: &Address) -> U256 {
+        
+        type Error = DummyError;
+        
+        async fn karma_amount(&self, address: &Address) -> Result<U256, Self::Error> {
             if address == &ADDR_1 {
-                U256::from(10)
+                Ok(U256::from(10))
             } else if address == &ADDR_2 {
-                U256::from(2000)
+                Ok(U256::from(2000))
             } else {
-                U256::ZERO
+                Ok(U256::ZERO)
             }
         }
     }

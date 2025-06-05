@@ -13,7 +13,8 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 tracing = "0.1.41"
 tracing-test = "0.2.5"
-alloy = { version = "0.15", features = ["full", "getrandom"] }
+alloy = { version = "0.15", features = ["full", "getrandom", "sol-types", "contract"] }
+# alloy-sol-types = "1.2.0"
 thiserror = "2.0"
 futures = "0.3"
 rln = { git = "https://github.com/vacp2p/zerokit" }
