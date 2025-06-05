@@ -12,7 +12,7 @@ use tracing::{debug, info};
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::{AppError, ProofGenerationError, ProofGenerationStringError};
 use crate::proof_generation::{ProofGenerationData, ProofSendingData};
-use crate::user_db_service::UserDb;
+use crate::user_db_service::{RateLimit, UserDb};
 use rln_proof::{RlnData, compute_rln_proof_and_values};
 
 const PROOF_SIZE: usize = 512;
@@ -24,6 +24,7 @@ pub struct ProofService {
         tokio::sync::broadcast::Sender<Result<ProofSendingData, ProofGenerationStringError>>,
     current_epoch: Arc<RwLock<(Epoch, EpochSlice)>>,
     user_db: UserDb,
+    rate_limit: RateLimit,
 }
 
 impl ProofService {
@@ -34,12 +35,15 @@ impl ProofService {
         >,
         current_epoch: Arc<RwLock<(Epoch, EpochSlice)>>,
         user_db: UserDb,
+        rate_limit: RateLimit,
     ) -> Self {
+        debug_assert!(rate_limit > RateLimit::ZERO);
         Self {
             receiver,
             broadcast_sender,
             current_epoch,
             user_db,
+            rate_limit,
         }
     }
 
@@ -57,11 +61,23 @@ impl ProofService {
             let (current_epoch, current_epoch_slice) = *self.current_epoch.read();
             let user_db = self.user_db.clone();
             let proof_generation_data_ = proof_generation_data.clone();
+            let rate_limit = self.rate_limit;
 
             // Move to a task (as generating the proof can take quite some time)
             let blocking_task = tokio::task::spawn_blocking(move || {
+                let message_id = {
+                    let mut m_id = proof_generation_data.tx_counter;
+                    // Note: Zerokit can only recover user secret hash with 2 messages with the
+                    //       same message_id so here we force to use the previous message_id
+                    //       so the Verifier could recover the secret hash
+                    if RateLimit::from(m_id) == rate_limit {
+                        m_id -= 1;
+                    }
+                    m_id
+                };
+
                 let rln_data = RlnData {
-                    message_id: Fr::from(proof_generation_data.tx_counter),
+                    message_id: Fr::from(message_id),
                     data: hash_to_field(proof_generation_data.tx_hash.as_slice()),
                 };
 
@@ -134,7 +150,7 @@ mod tests {
     use tokio::sync::broadcast;
     use tracing::info;
     // third-party: zerokit
-    use rln::protocol::{compute_id_secret, deserialize_proof_values, verify_proof};
+    use rln::protocol::{compute_id_secret, deserialize_proof_values, keygen, verify_proof};
     // internal
     use crate::user_db_service::UserDbService;
     use rln_proof::RlnIdentifier;
@@ -247,8 +263,13 @@ mod tests {
         let rln_identifier = Arc::new(RlnIdentifier::new(b"foo bar baz"));
 
         // Proof service
-        let proof_service =
-            ProofService::new(proof_rx, broadcast_sender, epoch_store, user_db.clone());
+        let proof_service = ProofService::new(
+            proof_rx,
+            broadcast_sender,
+            epoch_store,
+            user_db.clone(),
+            RateLimit::from(10),
+        );
 
         // Verification
         let proving_key = zkey_from_folder();
@@ -290,8 +311,13 @@ mod tests {
         let rln_identifier = Arc::new(RlnIdentifier::new(b"foo bar baz"));
 
         // Proof service
-        let proof_service =
-            ProofService::new(proof_rx, broadcast_sender, epoch_store, user_db.clone());
+        let proof_service = ProofService::new(
+            proof_rx,
+            broadcast_sender,
+            epoch_store,
+            user_db.clone(),
+            RateLimit::from(10),
+        );
 
         // Verification
         let proving_key = zkey_from_folder();
@@ -331,6 +357,7 @@ mod tests {
                 tokio::time::timeout(std::time::Duration::from_secs(5), broadcast_receiver.recv())
                     .await
                     .map_err(|_e| AppErrorExt::Elapsed)?;
+
             let res = res.unwrap();
             let res = res?;
             let mut proof_cursor = Cursor::new(&res.proof);
@@ -351,7 +378,7 @@ mod tests {
         println!("proof_values_1: {:?}", proof_values_1);
         let share1 = (proof_values_0.x, proof_values_0.y);
         let share2 = (proof_values_1.x, proof_values_1.y);
-        
+
         // TODO: should we check external nullifier as well?
         let recovered_identity_secret_hash = compute_id_secret(share1, share2).unwrap();
 
@@ -410,7 +437,6 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_user_spamming() {
-        
         // Recover secret from a user spamming the system
 
         // Queues
@@ -423,8 +449,12 @@ mod tests {
         let epoch_slice = EpochSlice::from(42);
         let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
 
+        // Limits
+        let rate_limit = RateLimit::from(1);
+
         // User db
-        let user_db_service = UserDbService::new(Default::default(), epoch_store.clone(), 2.into());
+        let user_db_service =
+            UserDbService::new(Default::default(), epoch_store.clone(), rate_limit);
         let user_db = user_db_service.get_user_db();
         user_db.on_new_user(ADDR_1).unwrap();
         let user_addr_1 = user_db.get_user(&ADDR_1).unwrap();
@@ -433,8 +463,13 @@ mod tests {
         let rln_identifier = Arc::new(RlnIdentifier::new(b"foo bar baz"));
 
         // Proof service
-        let proof_service =
-            ProofService::new(proof_rx, broadcast_sender, epoch_store, user_db.clone());
+        let proof_service = ProofService::new(
+            proof_rx,
+            broadcast_sender,
+            epoch_store,
+            user_db.clone(),
+            rate_limit,
+        );
 
         // Verification
         let proving_key = zkey_from_folder();
@@ -444,23 +479,29 @@ mod tests {
         let res = tokio::try_join!(
             proof_service.serve().map_err(AppErrorExt::AppError),
             proof_reveal_secret(&mut broadcast_receiver, verification_key),
-            proof_sender_2(&mut proof_tx, rln_identifier.clone(), &user_db, ADDR_1, (TX_HASH_1, TX_HASH_1_2)),
+            proof_sender_2(
+                &mut proof_tx,
+                rln_identifier.clone(),
+                &user_db,
+                ADDR_1,
+                (TX_HASH_1, TX_HASH_1_2)
+            ),
         );
 
         match res {
             Err(AppErrorExt::RecoveredSecret(secret_hash)) => {
                 assert_eq!(secret_hash, user_addr_1.secret_hash);
-            },
+            }
             _ => {
                 panic!("Unexpected result");
             }
         }
     }
-    
+
     #[tokio::test]
+    #[ignore]
     #[tracing_test::traced_test]
     async fn test_user_spamming_same_signal() {
-
         // Recover secret from a user spamming the system
 
         // Queues
@@ -473,8 +514,12 @@ mod tests {
         let epoch_slice = EpochSlice::from(42);
         let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
 
-        // User db
-        let user_db_service = UserDbService::new(Default::default(), epoch_store.clone(), 2.into());
+        // Limits
+        let rate_limit = RateLimit::from(1);
+
+        // User db - limit is 1 message per epoch
+        let user_db_service =
+            UserDbService::new(Default::default(), epoch_store.clone(), rate_limit.into());
         let user_db = user_db_service.get_user_db();
         user_db.on_new_user(ADDR_1).unwrap();
         let user_addr_1 = user_db.get_user(&ADDR_1).unwrap();
@@ -484,8 +529,13 @@ mod tests {
         let rln_identifier = Arc::new(RlnIdentifier::new(b"foo bar baz"));
 
         // Proof service
-        let proof_service =
-            ProofService::new(proof_rx, broadcast_sender, epoch_store, user_db.clone());
+        let proof_service = ProofService::new(
+            proof_rx,
+            broadcast_sender,
+            epoch_store,
+            user_db.clone(),
+            rate_limit,
+        );
 
         // Verification
         let proving_key = zkey_from_folder();
@@ -495,10 +545,16 @@ mod tests {
         let res = tokio::try_join!(
             proof_service.serve().map_err(AppErrorExt::AppError),
             proof_reveal_secret(&mut broadcast_receiver, verification_key),
-            proof_sender_2(&mut proof_tx, rln_identifier.clone(), &user_db, ADDR_1, (TX_HASH_1, TX_HASH_1)),
+            proof_sender_2(
+                &mut proof_tx,
+                rln_identifier.clone(),
+                &user_db,
+                ADDR_1,
+                (TX_HASH_1, TX_HASH_1)
+            ),
         );
 
-        // TODO
+        // TODO: wait for Zerokit 0.8
         // assert_matches!(res, Err(AppErrorExt::Exit));
     }
 }

@@ -95,8 +95,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let user_db = user_db_service.get_user_db();
 
         set.spawn(async {
-            let proof_service =
-                ProofService::new(proof_recv, broadcast_sender, current_epoch, user_db);
+            let proof_service = ProofService::new(
+                proof_recv,
+                broadcast_sender,
+                current_epoch,
+                user_db,
+                PROVER_SPAM_LIMIT,
+            );
             proof_service.serve().await
         });
     }
