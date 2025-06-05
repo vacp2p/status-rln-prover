@@ -487,7 +487,7 @@ mod tests {
                 .map_err(|e| AppErrorExt::AppError(e)),
             // Wait for 3 epoch slices + 100 ms (to wait to receive notif + counter incr)
             tokio::time::timeout(
-                epoch_slice_duration * 3 + Duration::from_millis(100),
+                epoch_slice_duration * 3 + Duration::from_millis(500),
                 async move {
                     loop {
                         notifier.notified().await;

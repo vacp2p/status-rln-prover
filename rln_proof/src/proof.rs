@@ -7,8 +7,10 @@ use ark_relations::r1cs::ConstraintMatrices;
 use rln::circuit::ZKEY_BYTES;
 use rln::circuit::zkey::read_zkey;
 use rln::hashers::{hash_to_field, poseidon_hash};
+use rln::pm_tree_adapter::PmTree;
 use rln::protocol::{
-    ProofError, RLNProofValues, generate_proof, proof_values_from_witness, rln_witness_from_values,
+    ProofError, RLNProofValues, compute_id_secret, generate_proof, keygen,
+    proof_values_from_witness, rln_witness_from_values,
 };
 
 /// A RLN user identity & limit
@@ -19,12 +21,12 @@ pub struct RlnUserIdentity {
     pub user_limit: Fr,
 }
 
-impl From<(Fr, Fr)> for RlnUserIdentity {
-    fn from((commitment, secret_hash): (Fr, Fr)) -> Self {
+impl From<(Fr, Fr, Fr)> for RlnUserIdentity {
+    fn from((commitment, secret_hash, user_limit): (Fr, Fr, Fr)) -> Self {
         Self {
             commitment,
             secret_hash,
-            user_limit: Fr::from(0),
+            user_limit,
         }
     }
 }
@@ -88,4 +90,62 @@ pub fn compute_rln_proof_and_values(
         rln_identifier.graph.as_slice(),
     )?;
     Ok((proof, proof_values))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zerokit_utils::ZerokitMerkleTree;
+
+    #[test]
+    fn test_recover_secret_hash() {
+        let (user_co, user_sh) = keygen();
+        let epoch = hash_to_field(b"foo");
+        let spam_limit = Fr::from(10);
+
+        let mut tree = PmTree::new(20, Default::default(), Default::default()).unwrap();
+        tree.set(0, spam_limit).unwrap();
+        let m_proof = tree.proof(0).unwrap();
+
+        let rln_identifier = RlnIdentifier::new(b"rln id test");
+
+        let message_id = Fr::from(1);
+
+        let (_proof_0, proof_values_0) = compute_rln_proof_and_values(
+            &RlnUserIdentity {
+                commitment: user_co,
+                secret_hash: user_sh,
+                user_limit: spam_limit,
+            },
+            &rln_identifier,
+            RlnData {
+                message_id,
+                data: hash_to_field(b"sig"),
+            },
+            epoch,
+            &m_proof,
+        )
+        .unwrap();
+
+        let (_proof_1, proof_values_1) = compute_rln_proof_and_values(
+            &RlnUserIdentity {
+                commitment: user_co,
+                secret_hash: user_sh,
+                user_limit: spam_limit,
+            },
+            &rln_identifier,
+            RlnData {
+                message_id,
+                data: hash_to_field(b"sig 2"),
+            },
+            epoch,
+            &m_proof,
+        )
+        .unwrap();
+
+        let share1 = (proof_values_0.x, proof_values_0.y);
+        let share2 = (proof_values_1.x, proof_values_1.y);
+        let recovered_identity_secret_hash = compute_id_secret(share1, share2).unwrap();
+        assert_eq!(user_sh, recovered_identity_secret_hash);
+    }
 }

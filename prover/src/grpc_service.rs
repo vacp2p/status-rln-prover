@@ -1,38 +1,27 @@
-use std::collections::BTreeMap;
 // std
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 // third-party
 use alloy::primitives::{Address, U256};
-use ark_bn254::Fr;
 use async_channel::Sender;
 use bytesize::ByteSize;
 use futures::TryFutureExt;
 use http::Method;
 use tokio::sync::{broadcast, mpsc};
 use tonic::{
-    Request,
-    Response,
-    Status,
-    codegen::tokio_stream::wrappers::ReceiverStream,
-    transport::Server,
-    // codec::CompressionEncoding
+    Request, Response, Status, codegen::tokio_stream::wrappers::ReceiverStream, transport::Server,
 };
 use tonic_web::GrpcWebLayer;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{
-    debug,
-    // error,
-    // info
-};
+use tracing::debug;
 // internal
-use crate::error::{
-    AppError,
-    // RegistrationError
-};
+use crate::error::{AppError, ProofGenerationStringError, RegisterError};
+use crate::proof_generation::{ProofGenerationData, ProofSendingData};
+use crate::tier::{KarmaAmount, TierLimit, TierName};
 use crate::user_db_service::{KarmaAmountExt, UserDb, UserTierInfo};
-use rln_proof::{RlnIdentifier, RlnUserIdentity};
+use rln_proof::RlnIdentifier;
 
 pub mod prover_proto {
 
@@ -42,12 +31,13 @@ pub mod prover_proto {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
         tonic::include_file_descriptor_set!("prover_descriptor");
 }
-use crate::tier::{KarmaAmount, TierLimit, TierName};
 use prover_proto::{
-    GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply, RegisterUserRequest, RlnProof,
-    RlnProofFilter, SendTransactionReply, SendTransactionRequest, SetTierLimitsReply,
-    SetTierLimitsRequest, Tier, UserTierInfoError, UserTierInfoResult,
+    GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply, RegisterUserRequest,
+    RegistrationStatus, RlnProof, RlnProofFilter, RlnProofReply, SendTransactionReply,
+    SendTransactionRequest, SetTierLimitsReply, SetTierLimitsRequest, Tier, UserTierInfoError,
+    UserTierInfoResult,
     get_user_tier_info_reply::Resp,
+    rln_proof_reply::Resp as GetProofsResp,
     rln_prover_server::{RlnProver, RlnProverServer},
 };
 
@@ -62,15 +52,16 @@ const PROVER_SERVICE_HTTP2_MAX_FRAME_SIZE: ByteSize = ByteSize::kib(16);
 const PROVER_SERVICE_MESSAGE_DECODING_MAX_SIZE: ByteSize = ByteSize::mib(5);
 // Max size for Message (encoding, e.g., 5 Mb)
 const PROVER_SERVICE_MESSAGE_ENCODING_MAX_SIZE: ByteSize = ByteSize::mib(5);
-const PROVER_SPAM_LIMIT: u64 = 10_000;
 
 #[derive(Debug)]
 pub struct ProverService {
-    proof_sender: Sender<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
+    proof_sender: Sender<ProofGenerationData>,
     user_db: UserDb,
     rln_identifier: Arc<RlnIdentifier>,
-    spam_limit: u64,
-    broadcast_channel: (broadcast::Sender<Vec<u8>>, broadcast::Receiver<Vec<u8>>),
+    broadcast_channel: (
+        broadcast::Sender<Result<ProofSendingData, ProofGenerationStringError>>,
+        broadcast::Receiver<Result<ProofSendingData, ProofGenerationStringError>>,
+    ),
 }
 
 #[tonic::async_trait]
@@ -101,18 +92,26 @@ impl RlnProver for ProverService {
         // Update the counter as soon as possible (should help to prevent spamming...)
         let counter = self.user_db.on_new_tx(&sender).unwrap_or_default();
 
-        let user_identity = RlnUserIdentity {
-            secret_hash: user_id.secret_hash,
-            commitment: user_id.commitment,
-            user_limit: Fr::from(self.spam_limit),
-        };
+        if req.transaction_hash.len() != 32 {
+            return Err(Status::invalid_argument(
+                "Invalid transaction hash (should be 32 bytes)",
+            ));
+        }
 
         // Inexpensive clone (behind Arc ptr)
         let rln_identifier = self.rln_identifier.clone();
 
+        let proof_data = ProofGenerationData::from((
+            user_id,
+            rln_identifier,
+            counter.into(),
+            sender,
+            req.transaction_hash,
+        ));
+
         // Send some data to one of the proof services
         self.proof_sender
-            .send((user_identity, rln_identifier, counter.into()))
+            .send(proof_data)
             .await
             .map_err(|e| Status::from_error(Box::new(e)))?;
 
@@ -122,13 +121,36 @@ impl RlnProver for ProverService {
 
     async fn register_user(
         &self,
-        _request: Request<RegisterUserRequest>,
+        request: Request<RegisterUserRequest>,
     ) -> Result<Response<RegisterUserReply>, Status> {
-        let reply = RegisterUserReply { status: 0 };
+        debug!("register_user request: {:?}", request);
+
+        let req = request.into_inner();
+        let user = if let Some(user) = req.user {
+            if let Ok(user) = Address::try_from(user.value.as_slice()) {
+                user
+            } else {
+                return Err(Status::invalid_argument("Invalid sender address"));
+            }
+        } else {
+            return Err(Status::invalid_argument("No sender address"));
+        };
+
+        let result = self.user_db.on_new_user(user);
+
+        let status = match result {
+            Ok(_) => RegistrationStatus::Success,
+            Err(RegisterError::AlreadyRegistered(_a)) => RegistrationStatus::AlreadyRegistered,
+            _ => RegistrationStatus::Failure,
+        };
+
+        let reply = RegisterUserReply {
+            status: status.into(),
+        };
         Ok(Response::new(reply))
     }
 
-    type GetProofsStream = ReceiverStream<Result<RlnProof, Status>>;
+    type GetProofsStream = ReceiverStream<Result<RlnProofReply, Status>>;
 
     async fn get_proofs(
         &self,
@@ -139,13 +161,19 @@ impl RlnProver for ProverService {
         let (tx, rx) = mpsc::channel(100);
         let mut rx2 = self.broadcast_channel.0.subscribe();
         tokio::spawn(async move {
-            while let Ok(data) = rx2.recv().await {
+            // FIXME: Should we send the error here?
+            while let Ok(Ok(data)) = rx2.recv().await {
                 let rln_proof = RlnProof {
-                    sender: "0xAA".to_string(),
-                    id_commitment: "1".to_string(),
-                    proof: data,
+                    sender: data.tx_sender.to_vec(),
+                    tx_hash: data.tx_hash,
+                    proof: data.proof,
                 };
-                if let Err(e) = tx.send(Ok(rln_proof)).await {
+
+                let resp = RlnProofReply {
+                    resp: Some(GetProofsResp::Proof(rln_proof)),
+                };
+
+                if let Err(e) = tx.send(Ok(resp)).await {
                     debug!("Done: sending dummy rln proofs: {}", e);
                     break;
                 };
@@ -235,8 +263,11 @@ impl RlnProver for ProverService {
 }
 
 pub(crate) struct GrpcProverService {
-    pub proof_sender: Sender<(RlnUserIdentity, Arc<RlnIdentifier>, u64)>,
-    pub broadcast_channel: (broadcast::Sender<Vec<u8>>, broadcast::Receiver<Vec<u8>>),
+    pub proof_sender: Sender<ProofGenerationData>,
+    pub broadcast_channel: (
+        broadcast::Sender<Result<ProofSendingData, ProofGenerationStringError>>,
+        broadcast::Receiver<Result<ProofSendingData, ProofGenerationStringError>>,
+    ),
     pub addr: SocketAddr,
     pub rln_identifier: RlnIdentifier,
     pub user_db: UserDb,
@@ -248,7 +279,6 @@ impl GrpcProverService {
             proof_sender: self.proof_sender.clone(),
             user_db: self.user_db.clone(),
             rln_identifier: Arc::new(self.rln_identifier.clone()),
-            spam_limit: PROVER_SPAM_LIMIT,
             broadcast_channel: (
                 self.broadcast_channel.0.clone(),
                 self.broadcast_channel.0.subscribe(),

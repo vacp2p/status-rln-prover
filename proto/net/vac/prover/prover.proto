@@ -12,27 +12,29 @@ service RlnProver {
   rpc SendTransaction (SendTransactionRequest) returns (SendTransactionReply);
   rpc RegisterUser (RegisterUserRequest) returns (RegisterUserReply);
   // Server side streaming RPC: 1 request -> X responses (stream)
-  rpc GetProofs(RlnProofFilter) returns (stream RlnProof);
+  rpc GetProofs(RlnProofFilter) returns (stream RlnProofReply);
 
   rpc GetUserTierInfo(GetUserTierInfoRequest) returns (GetUserTierInfoReply);
   rpc SetTierLimits(SetTierLimitsRequest) returns (SetTierLimitsReply);
 }
 
+/*
 // TransactionType: https://github.com/Consensys/linea-besu/blob/09cbed1142cfe4d29b50ecf2f156639a4bc8c854/datatypes/src/main/java/org/hyperledger/besu/datatypes/TransactionType.java#L22
 enum TransactionType {
-  /** The Frontier. */
-  //  FRONTIER(0xf8 /* this is serialized as 0x0 in TransactionCompleteResult */),
+  // The Frontier
+  //  FRONTIER(0xf8),
   // FIXME: is this 0xF8 or 0x00 ?
   FRONTIER = 0;
-  /** Access list transaction type. */
+  // Access list transaction type
   ACCESS_LIST = 1; // 0x01
-  /** Eip1559 transaction type. */
+  // Eip1559 transaction type
   EIP1559 = 2; // 0x02
-  /** Blob transaction type. */
+  // Blob transaction type
   BLOB = 3; // 0x03
-  /** Eip7702 transaction type. */
+  // Eip7702 transaction type
   DELEGATE_CODE = 4; // 0x04
 }
+*/
 
 extend google.protobuf.FieldOptions {
   optional uint32 max_size = 50000;
@@ -53,42 +55,57 @@ message Address {
   bytes value = 1 [(max_size) = 20];
 }
 
+/*
 message SECPSignature {
   // https://github.com/Consensys/linea-besu/blob/zkbesu/crypto/algorithms/src/main/java/org/hyperledger/besu/crypto/SECPSignature.java#L30
   bytes value = 1 [(max_size) = 65];
 }
+*/
 
+/*
 message StorageKey {
   bytes value = 1 [(max_size) = 32];
 }
+*/
 
+/*
 message AccessListEntry {
   Address address = 1;
   repeated StorageKey storageKeys = 2;
 }
+*/
 
+/*
 message AccessListEntries {
   // https://github.com/Consensys/linea-besu/blob/zkbesu/datatypes/src/main/java/org/hyperledger/besu/datatypes/AccessListEntry.java#L31
   repeated AccessListEntry entries = 1;
 }
+*/
 
+/*
 message VersionedHash {
   // https://github.com/Consensys/linea-besu/blob/zkbesu/datatypes/src/main/java/org/hyperledger/besu/datatypes/VersionedHash.java#L28
   bytes value = 1 [(max_size) = 32];
 }
+*/
 
+/*
 message BlobsWithCommitments {
   // https://github.com/Consensys/linea-besu/blob/zkbesu/datatypes/src/main/java/org/hyperledger/besu/datatypes/BlobsWithCommitments.java#L23
   // TODO: need this?
 }
+*/
 
+/*
 message CodeDelegation {
   // https://github.com/Consensys/linea-besu/blob/zkbesu/ethereum/core/src/main/java/org/hyperledger/besu/ethereum/core/CodeDelegation.java#L40
   // TODO: need this?
 }
+*/
 
 // Transaction: https://github.com/Consensys/linea-besu/blob/c99bdbd533707a45fad97017fb964578c3e87fde/ethereum/core/src/main/java/org/hyperledger/besu/ethereum/core/Transaction.java#L168
 message SendTransactionRequest {
+  /*
   bool forCopy = 1;
   TransactionType transactionType = 2;
   // Java long == signed 64-bit integer
@@ -113,21 +130,45 @@ message SendTransactionRequest {
   repeated BlobsWithCommitments blobsWithCommitments = 17;
   repeated CodeDelegation maybeCodeDelegationList = 18;
   optional bytes rawRlp = 19;
+  */
+  optional Wei gasPrice = 1;
+  optional Address sender = 2;
+  optional U256 chainId = 3;
+  bytes transactionHash = 4 [(max_size) = 32];
 }
 
 message SendTransactionReply {
   bool result = 1;
-  // string message = 2;
 }
 
 message RlnProofFilter {
   optional string address = 1;
 }
 
+message RlnProofReply {
+  oneof resp {
+    // variant for success
+    RlnProof proof = 1;
+    // variant for error
+    RlnProofError error = 2;
+  }
+}
+
 message RlnProof {
-  string sender = 1;
-  string id_commitment = 2;
-  bytes proof = 3;
+  // From https://rfc.vac.dev/vac/32/rln-v1#sending-the-output-message
+  bytes sender = 1;
+  bytes tx_hash = 2;              // Transaction hash for the proof (non hash signal)
+  bytes proof = 3;                // The RLN proof itself, hex encoded
+  // bytes internal_nullifier = 4;
+  // bytes x = 5;                    // signal hash
+  // bytes y = 6;
+  // bytes rln_identifier = 7;
+  // bytes merkle_proof_root = 8;
+  // bytes epoch = 9;
+}
+
+message RlnProofError {
+  string error = 2;
 }
 
 message RegisterUserRequest {
