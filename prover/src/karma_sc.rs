@@ -1,4 +1,4 @@
-use crate::sc::AlloyWsProvider;
+// third-party
 use alloy::{
     primitives::{Address, U256},
     providers::{ProviderBuilder, WsConnect},
@@ -6,6 +6,8 @@ use alloy::{
     transports::{RpcError, TransportError},
 };
 use url::Url;
+// internal
+use crate::sc::AlloyWsProvider;
 
 pub trait KarmaAmountExt {
     type Error;

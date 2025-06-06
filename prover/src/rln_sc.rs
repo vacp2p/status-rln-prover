@@ -1,4 +1,4 @@
-use crate::sc::AlloyWsProvider;
+// third-party
 use alloy::{
     primitives::Address,
     providers::{ProviderBuilder, WsConnect},
@@ -6,6 +6,8 @@ use alloy::{
     transports::{RpcError, TransportError},
 };
 use url::Url;
+// internal
+use crate::sc::AlloyWsProvider;
 
 sol! {
     // https://github.com/vacp2p/staking-reward-streamer/pull/220
