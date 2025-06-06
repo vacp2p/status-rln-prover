@@ -4,7 +4,7 @@ use alloy::{
     transports::{RpcError, TransportErrorKind},
 };
 use ark_serialize::SerializationError;
-use rln::protocol::ProofError;
+use rln::error::ProofError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum AppError {
@@ -21,18 +21,6 @@ pub enum AppError {
     #[error(transparent)]
     RegistryError(#[from] HandleTransferError),
 }
-
-/*
-#[derive(thiserror::Error, Debug)]
-pub enum RegistrationError {
-    #[error("Transaction has no sender address")]
-    NoSender,
-    #[error("Transaction sender address is invalid: {0:?}")]
-    InvalidAddress(Vec<u8>),
-    #[error("Cannot find id_commitment for address: {0:?}")]
-    NotFound(Address),
-}
-*/
 
 #[derive(thiserror::Error, Debug)]
 pub enum ProofGenerationError {

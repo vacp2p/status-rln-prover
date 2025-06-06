@@ -4,3 +4,12 @@ members = [
     "rln_proof"
 ]
 resolver = "2"
+
+[workspace.dependencies]
+ark-bn254 = { version = "0.5", features = ["std"] }
+ark-serialize = "0.5"
+ark-groth16 = "0.5"
+# dev
+criterion = "0.6"
+
+
