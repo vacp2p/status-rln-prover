@@ -4,11 +4,13 @@ use std::io::Cursor;
 use ark_bn254::{Bn254, Fr};
 use ark_groth16::{Proof, ProvingKey};
 use ark_relations::r1cs::ConstraintMatrices;
-use rln::circuit::ZKEY_BYTES;
-use rln::circuit::zkey::read_zkey;
-use rln::hashers::{hash_to_field, poseidon_hash};
-use rln::protocol::{
-    ProofError, RLNProofValues, generate_proof, proof_values_from_witness, rln_witness_from_values,
+use rln::{
+    circuit::{ZKEY_BYTES, zkey::read_zkey},
+    error::ProofError,
+    hashers::{hash_to_field, poseidon_hash},
+    protocol::{
+        RLNProofValues, generate_proof, proof_values_from_witness, rln_witness_from_values,
+    },
 };
 
 /// A RLN user identity & limit
