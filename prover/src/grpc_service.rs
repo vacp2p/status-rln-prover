@@ -292,6 +292,7 @@ pub(crate) struct GrpcProverService {
     pub rln_identifier: RlnIdentifier,
     pub user_db: UserDb,
     pub karma_sc_info: (Url, Address),
+    pub rln_sc_info: (Url, Address),
 }
 
 impl GrpcProverService {
@@ -299,7 +300,7 @@ impl GrpcProverService {
         let karma_sc =
             KarmaSCInstance::try_new(self.karma_sc_info.0.clone(), self.karma_sc_info.1).await?;
         let karma_rln_sc =
-            KarmaRLNSCInstance::try_new(self.karma_sc_info.0.clone(), self.karma_sc_info.1).await?;
+            KarmaRLNSCInstance::try_new(self.rln_sc_info.0.clone(), self.rln_sc_info.1).await?;
 
         let prover_service = ProverService {
             proof_sender: self.proof_sender.clone(),

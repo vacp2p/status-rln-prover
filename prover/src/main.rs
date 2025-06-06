@@ -68,7 +68,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Smart contract
-
     // let karma_sc_address = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
     let registry_listener = RegistryListener::new(
         app_args.ws_rpc_url.as_str(),
@@ -95,7 +94,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         addr,
         rln_identifier,
         user_db: user_db_service.get_user_db(),
-        karma_sc_info: (app_args.ws_rpc_url, app_args.ksc_address),
+        karma_sc_info: (app_args.ws_rpc_url.clone(), app_args.ksc_address),
+        rln_sc_info: (app_args.ws_rpc_url, app_args.rlnsc_address),
     };
 
     let mut set = JoinSet::new();

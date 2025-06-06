@@ -17,11 +17,13 @@ pub struct AppArgs {
     )]
     pub(crate) port: u16,
     #[arg(
-        short = 'r',
+        short = 'u',
         long = "ws_rpc_url",
         help = "Websocket rpc url (e.g. wss://eth-mainnet.g.alchemy.com/v2/your-api-key)"
     )]
     pub(crate) ws_rpc_url: Url,
     #[arg(short = 'k', long = "ksc", help = "Karma smart contract address")]
     pub(crate) ksc_address: Address,
+    #[arg(short = 'r', long = "rlnsc", help = "RLN smart contract address")]
+    pub(crate) rlnsc_address: Address,
 }
