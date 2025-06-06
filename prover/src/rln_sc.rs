@@ -5,8 +5,7 @@ use alloy::{
     transports::{RpcError, TransportError},
 };
 use url::Url;
-// FIXME
-use crate::registry_listener::AlloyWsProvider;
+use crate::sc::AlloyWsProvider;
 
 sol! {
     // https://github.com/vacp2p/staking-reward-streamer/pull/220

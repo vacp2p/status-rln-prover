@@ -23,6 +23,9 @@ use crate::error::{AppError, ProofGenerationStringError, RegisterError};
 use crate::proof_generation::{ProofGenerationData, ProofSendingData};
 use crate::tier::{KarmaAmount, TierLimit, TierName};
 use crate::user_db_service::{UserDb, UserTierInfo};
+use crate::sc::AlloyWsProvider;
+use crate::rln_sc::KarmaRLNSC::KarmaRLNSCInstance;
+use crate::karma_sc::KarmaSC::KarmaSCInstance;
 use rln_proof::RlnIdentifier;
 
 pub mod prover_proto {
@@ -33,9 +36,6 @@ pub mod prover_proto {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
         tonic::include_file_descriptor_set!("prover_descriptor");
 }
-use crate::registry_listener::AlloyWsProvider;
-use crate::registry_listener::KarmaSC::KarmaSCInstance;
-use crate::rln_sc::KarmaRLNSC::KarmaRLNSCInstance;
 use prover_proto::{
     GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply, RegisterUserRequest,
     RegistrationStatus, RlnProof, RlnProofFilter, RlnProofReply, SendTransactionReply,
