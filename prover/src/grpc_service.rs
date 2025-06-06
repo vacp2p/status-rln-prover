@@ -9,6 +9,7 @@ use async_channel::Sender;
 use bytesize::ByteSize;
 use futures::TryFutureExt;
 use http::Method;
+use num_bigint::BigUint;
 use tokio::sync::{broadcast, mpsc};
 use tonic::{
     Request, Response, Status, codegen::tokio_stream::wrappers::ReceiverStream, transport::Server,
@@ -17,7 +18,6 @@ use tonic_web::GrpcWebLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::debug;
 use url::Url;
-use num_bigint::{BigInt, BigUint};
 // internal
 use crate::error::{AppError, ProofGenerationStringError, RegisterError};
 use crate::proof_generation::{ProofGenerationData, ProofSendingData};
@@ -33,6 +33,9 @@ pub mod prover_proto {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
         tonic::include_file_descriptor_set!("prover_descriptor");
 }
+use crate::registry_listener::AlloyWsProvider;
+use crate::registry_listener::KarmaSC::KarmaSCInstance;
+use crate::rln_sc::KarmaRLNSC::KarmaRLNSCInstance;
 use prover_proto::{
     GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply, RegisterUserRequest,
     RegistrationStatus, RlnProof, RlnProofFilter, RlnProofReply, SendTransactionReply,
@@ -42,9 +45,6 @@ use prover_proto::{
     rln_proof_reply::Resp as GetProofsResp,
     rln_prover_server::{RlnProver, RlnProverServer},
 };
-use crate::registry_listener::{AlloyWsProvider};
-use crate::registry_listener::KarmaSC::KarmaSCInstance;
-use crate::rln_sc::KarmaRLNSC::KarmaRLNSCInstance;
 
 const PROVER_SERVICE_LIMIT_PER_CONNECTION: usize = 16;
 // Timeout for all handlers of a request
@@ -57,6 +57,8 @@ const PROVER_SERVICE_HTTP2_MAX_FRAME_SIZE: ByteSize = ByteSize::kib(16);
 const PROVER_SERVICE_MESSAGE_DECODING_MAX_SIZE: ByteSize = ByteSize::mib(5);
 // Max size for Message (encoding, e.g., 5 Mb)
 const PROVER_SERVICE_MESSAGE_ENCODING_MAX_SIZE: ByteSize = ByteSize::mib(5);
+
+const PROVER_TX_HASH_BYTESIZE: usize = 32;
 
 #[derive(Debug)]
 pub struct ProverService {
@@ -100,7 +102,7 @@ impl RlnProver for ProverService {
         let counter = self.user_db.on_new_tx(&sender).unwrap_or_default();
 
         // FIXME: hardcoded
-        if req.transaction_hash.len() != 32 {
+        if req.transaction_hash.len() != PROVER_TX_HASH_BYTESIZE {
             return Err(Status::invalid_argument(
                 "Invalid transaction hash (should be 32 bytes)",
             ));
@@ -148,20 +150,18 @@ impl RlnProver for ProverService {
 
         let status = match result {
             Ok(id_commitment) => {
-               
-                let id_co = U256::from_le_slice(
-                    BigUint::from(id_commitment).to_bytes_le().as_slice()
-                );
+                let id_co =
+                    U256::from_le_slice(BigUint::from(id_commitment).to_bytes_le().as_slice());
 
                 // TODO: on error, remove from user_db?
                 self.karma_rln_sc
                     .register(id_co)
-                    .call() 
+                    .call()
                     .await
                     .map_err(|e| Status::from_error(Box::new(e)))?;
 
                 RegistrationStatus::Success
-            },
+            }
             Err(RegisterError::AlreadyRegistered(_a)) => RegistrationStatus::AlreadyRegistered,
             _ => RegistrationStatus::Failure,
         };
@@ -222,11 +222,14 @@ impl RlnProver for ProverService {
         } else {
             return Err(Status::invalid_argument("No user address"));
         };
-        
-        let tier_info = self.user_db.user_tier_info::<alloy::contract::Error, KarmaSCInstance<AlloyWsProvider>>(
-            &user, 
-            &self.karma_sc
-        ).await;
+
+        let tier_info = self
+            .user_db
+            .user_tier_info::<alloy::contract::Error, KarmaSCInstance<AlloyWsProvider>>(
+                &user,
+                &self.karma_sc,
+            )
+            .await;
 
         match tier_info {
             Ok(tier_info) => Ok(Response::new(GetUserTierInfoReply {
@@ -293,14 +296,11 @@ pub(crate) struct GrpcProverService {
 
 impl GrpcProverService {
     pub(crate) async fn serve(&self) -> Result<(), AppError> {
-        
-        let karma_sc = KarmaSCInstance::try_new(
-            self.karma_sc_info.0.clone(), self.karma_sc_info.1)
-            .await?;
-        let karma_rln_sc = KarmaRLNSCInstance::try_new(
-            self.karma_sc_info.0.clone(), self.karma_sc_info.1)
-            .await?;
-        
+        let karma_sc =
+            KarmaSCInstance::try_new(self.karma_sc_info.0.clone(), self.karma_sc_info.1).await?;
+        let karma_rln_sc =
+            KarmaRLNSCInstance::try_new(self.karma_sc_info.0.clone(), self.karma_sc_info.1).await?;
+
         let prover_service = ProverService {
             proof_sender: self.proof_sender.clone(),
             user_db: self.user_db.clone(),
@@ -310,7 +310,7 @@ impl GrpcProverService {
                 self.broadcast_channel.0.subscribe(),
             ),
             karma_sc,
-            karma_rln_sc
+            karma_rln_sc,
         };
 
         let reflection_service = tonic_reflection::server::Builder::configure()
@@ -384,7 +384,10 @@ impl From<UserTierInfo> for UserTierInfoResult {
 }
 
 /// UserTierInfoError to UserTierInfoError (Grpc message) conversion
-impl<E> From<crate::user_db_service::UserTierInfoError<E>> for UserTierInfoError where E: std::error::Error {
+impl<E> From<crate::user_db_service::UserTierInfoError<E>> for UserTierInfoError
+where
+    E: std::error::Error,
+{
     fn from(value: crate::user_db_service::UserTierInfoError<E>) -> Self {
         UserTierInfoError {
             message: value.to_string(),

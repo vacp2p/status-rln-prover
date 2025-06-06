@@ -4,7 +4,7 @@ use alloy::sol;
 use alloy::transports::{RpcError, TransportError};
 use url::Url;
 // FIXME
-use crate::registry_listener::{AlloyWsProvider};
+use crate::registry_listener::AlloyWsProvider;
 use crate::rln_sc::KarmaRLNSC::KarmaRLNSCInstance;
 
 sol! {
@@ -16,10 +16,12 @@ sol! {
 }
 
 impl KarmaRLNSCInstance<AlloyWsProvider> {
-    pub(crate) async fn try_new(rpc_url: Url, address: Address) -> Result<Self, RpcError<TransportError>> {
+    pub(crate) async fn try_new(
+        rpc_url: Url,
+        address: Address,
+    ) -> Result<Self, RpcError<TransportError>> {
         let ws = WsConnect::new(rpc_url.as_str());
         let provider = ProviderBuilder::new().connect_ws(ws).await?;
         Ok(KarmaRLNSC::new(address, provider))
     }
 }
-
