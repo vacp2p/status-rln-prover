@@ -1,16 +1,21 @@
-use crate::error::{AppError, HandleTransferError, RegisterError};
-use crate::registry_listener::KarmaSC::KarmaSCInstance;
-use crate::user_db_service::{KarmaAmountExt, UserDb};
-use alloy::primitives::{Address, U256};
-use alloy::providers::fillers::{
-    BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
+// third-party
+use alloy::{
+    contract::Error as AlloyContractError,
+    primitives::{Address, U256},
+    providers::{
+        Identity, Provider, ProviderBuilder, RootProvider, WsConnect,
+        fillers::{BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller},
+    },
+    sol,
+    sol_types::SolEvent,
+    transports::{RpcError, TransportError},
 };
-use alloy::providers::{Identity, Provider, ProviderBuilder, RootProvider, WsConnect};
-use alloy::transports::http::reqwest::Url;
-use alloy::transports::{RpcError, TransportError};
-use alloy::{contract::Error as AlloyContractError, sol, sol_types::SolEvent};
 use tonic::codegen::tokio_stream::StreamExt;
 use tracing::{debug, error, info};
+use url::Url;
+// internal
+use crate::error::{AppError, HandleTransferError, RegisterError};
+use crate::user_db_service::{KarmaAmountExt, UserDb};
 
 pub type AlloyWsProvider = FillProvider<
     JoinFill<
@@ -31,7 +36,7 @@ sol! {
     }
 }
 
-impl KarmaSCInstance<AlloyWsProvider> {
+impl KarmaSC::KarmaSCInstance<AlloyWsProvider> {
     pub(crate) async fn try_new(
         rpc_url: Url,
         address: Address,
@@ -42,7 +47,7 @@ impl KarmaSCInstance<AlloyWsProvider> {
     }
 }
 
-impl KarmaAmountExt for KarmaSCInstance<AlloyWsProvider> {
+impl KarmaAmountExt for KarmaSC::KarmaSCInstance<AlloyWsProvider> {
     type Error = alloy::contract::Error;
     async fn karma_amount(&self, address: &Address) -> Result<U256, Self::Error> {
         self.balanceOf(*address).call().await

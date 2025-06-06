@@ -1,11 +1,12 @@
-use alloy::primitives::Address;
-use alloy::providers::{ProviderBuilder, WsConnect};
-use alloy::sol;
-use alloy::transports::{RpcError, TransportError};
+use alloy::{
+    primitives::Address,
+    providers::{ProviderBuilder, WsConnect},
+    sol,
+    transports::{RpcError, TransportError},
+};
 use url::Url;
 // FIXME
 use crate::registry_listener::AlloyWsProvider;
-use crate::rln_sc::KarmaRLNSC::KarmaRLNSCInstance;
 
 sol! {
     // https://github.com/vacp2p/staking-reward-streamer/pull/220
@@ -15,7 +16,7 @@ sol! {
     }
 }
 
-impl KarmaRLNSCInstance<AlloyWsProvider> {
+impl KarmaRLNSC::KarmaRLNSCInstance<AlloyWsProvider> {
     pub(crate) async fn try_new(
         rpc_url: Url,
         address: Address,
