@@ -16,11 +16,12 @@ use tonic::{
 use tonic_web::GrpcWebLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::debug;
+use url::Url;
 // internal
 use crate::error::{AppError, ProofGenerationStringError, RegisterError};
 use crate::proof_generation::{ProofGenerationData, ProofSendingData};
 use crate::tier::{KarmaAmount, TierLimit, TierName};
-use crate::user_db_service::{KarmaAmountExt, UserDb, UserTierInfo};
+use crate::user_db_service::{UserDb, UserTierInfo};
 use rln_proof::RlnIdentifier;
 
 pub mod prover_proto {
@@ -40,6 +41,8 @@ use prover_proto::{
     rln_proof_reply::Resp as GetProofsResp,
     rln_prover_server::{RlnProver, RlnProverServer},
 };
+use crate::registry_listener::{AlloyWsProvider};
+use crate::registry_listener::KarmaSC::KarmaSCInstance;
 
 const PROVER_SERVICE_LIMIT_PER_CONNECTION: usize = 16;
 // Timeout for all handlers of a request
@@ -62,6 +65,7 @@ pub struct ProverService {
         broadcast::Sender<Result<ProofSendingData, ProofGenerationStringError>>,
         broadcast::Receiver<Result<ProofSendingData, ProofGenerationStringError>>,
     ),
+    karma_sc: KarmaSCInstance<AlloyWsProvider>
 }
 
 #[tonic::async_trait]
@@ -200,16 +204,11 @@ impl RlnProver for ProverService {
         } else {
             return Err(Status::invalid_argument("No user address"));
         };
-
-        // TODO: SC call
-        struct MockKarmaSc {}
-
-        impl KarmaAmountExt for MockKarmaSc {
-            async fn karma_amount(&self, _address: &Address) -> U256 {
-                U256::from(10)
-            }
-        }
-        let tier_info = self.user_db.user_tier_info(&user, MockKarmaSc {}).await;
+        
+        let tier_info = self.user_db.user_tier_info::<alloy::contract::Error, KarmaSCInstance<AlloyWsProvider>>(
+            &user, 
+            &self.karma_sc
+        ).await;
 
         match tier_info {
             Ok(tier_info) => Ok(Response::new(GetUserTierInfoReply {
@@ -271,10 +270,16 @@ pub(crate) struct GrpcProverService {
     pub addr: SocketAddr,
     pub rln_identifier: RlnIdentifier,
     pub user_db: UserDb,
+    pub karma_sc_info: (Url, Address),
 }
 
 impl GrpcProverService {
     pub(crate) async fn serve(&self) -> Result<(), AppError> {
+        
+        let karma_sc = KarmaSCInstance::try_new(
+            self.karma_sc_info.0.clone(), self.karma_sc_info.1)
+            .await?;
+        
         let prover_service = ProverService {
             proof_sender: self.proof_sender.clone(),
             user_db: self.user_db.clone(),
@@ -283,6 +288,7 @@ impl GrpcProverService {
                 self.broadcast_channel.0.clone(),
                 self.broadcast_channel.0.subscribe(),
             ),
+            karma_sc,
         };
 
         let reflection_service = tonic_reflection::server::Builder::configure()
@@ -356,8 +362,8 @@ impl From<UserTierInfo> for UserTierInfoResult {
 }
 
 /// UserTierInfoError to UserTierInfoError (Grpc message) conversion
-impl From<crate::user_db_service::UserTierInfoError> for UserTierInfoError {
-    fn from(value: crate::user_db_service::UserTierInfoError) -> Self {
+impl<E> From<crate::user_db_service::UserTierInfoError<E>> for UserTierInfoError where E: std::error::Error {
+    fn from(value: crate::user_db_service::UserTierInfoError<E>) -> Self {
         UserTierInfoError {
             message: value.to_string(),
         }

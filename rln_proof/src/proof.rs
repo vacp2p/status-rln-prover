@@ -7,9 +7,8 @@ use ark_relations::r1cs::ConstraintMatrices;
 use rln::circuit::ZKEY_BYTES;
 use rln::circuit::zkey::read_zkey;
 use rln::hashers::{hash_to_field, poseidon_hash};
-use rln::pm_tree_adapter::PmTree;
 use rln::protocol::{
-    ProofError, RLNProofValues, compute_id_secret, generate_proof, keygen,
+    ProofError, RLNProofValues, generate_proof,
     proof_values_from_witness, rln_witness_from_values,
 };
 
@@ -96,6 +95,13 @@ pub fn compute_rln_proof_and_values(
 mod tests {
     use super::*;
     use zerokit_utils::ZerokitMerkleTree;
+    use rln::{
+        protocol::{
+            keygen,
+            compute_id_secret
+        },
+        pm_tree_adapter::PmTree,
+    };
 
     #[test]
     fn test_recover_secret_hash() {

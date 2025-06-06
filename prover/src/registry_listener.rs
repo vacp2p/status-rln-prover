@@ -1,15 +1,18 @@
-use crate::error::AppError;
-use alloy::eips::BlockNumberOrTag;
-use alloy::primitives::Address;
+use crate::error::{AppError, HandleTransferError, RegisterError};
+use alloy::primitives::{Address, U256};
 use alloy::providers::fillers::{
     BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
 };
 use alloy::providers::{Identity, Provider, ProviderBuilder, RootProvider, WsConnect};
-use alloy::rpc::types::Filter;
 use alloy::transports::{RpcError, TransportError};
+use alloy::{sol, sol_types::SolEvent, contract::Error as AlloyContractError};
+use alloy::transports::http::reqwest::Url;
 use tonic::codegen::tokio_stream::StreamExt;
+use tracing::{debug, error, info};
+use crate::registry_listener::KarmaSC::KarmaSCInstance;
+use crate::user_db_service::{KarmaAmountExt, UserDb};
 
-type AlloyWsProvider = FillProvider<
+pub type AlloyWsProvider = FillProvider<
     JoinFill<
         Identity,
         JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
@@ -17,18 +20,46 @@ type AlloyWsProvider = FillProvider<
     RootProvider,
 >;
 
+sol! {
+    #[sol(rpc)]
+    contract KarmaSC {
+        // From: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC20/IERC20.sol#L16
+        event Transfer(address indexed from, address indexed to, uint256 value);
+
+        function balanceOf(address account) public view override returns (uint256);
+    }
+}
+
+impl KarmaSCInstance<AlloyWsProvider> {
+    pub(crate) async fn try_new(rpc_url: Url, address: Address) -> Result<Self, RpcError<TransportError>> {
+        let ws = WsConnect::new(rpc_url.as_str());
+        let provider = ProviderBuilder::new().connect_ws(ws).await?;
+        Ok(KarmaSC::new(address, provider))
+    }
+}
+
+
+impl KarmaAmountExt for KarmaSCInstance<AlloyWsProvider> {
+    type Error = alloy::contract::Error;
+    async fn karma_amount(&self, address: &Address) -> Result<U256, Self::Error> {
+        self.balanceOf(*address).call().await
+    }
+}
+
 pub(crate) struct RegistryListener {
     rpc_url: String,
     sc_address: Address,
-    event: String,
+    user_db: UserDb,
+    minimal_amount: U256,
 }
 
 impl RegistryListener {
-    pub(crate) fn new(rpc_url: &str, sc_address: Address, event: &str) -> Self {
+    pub(crate) fn new(rpc_url: &str, sc_address: Address, user_db: UserDb, minimal_amount: U256) -> Self {
         Self {
             rpc_url: rpc_url.to_string(),
             sc_address,
-            event: event.to_string(),
+            user_db,
+            minimal_amount,
         }
     }
 
@@ -41,24 +72,136 @@ impl RegistryListener {
 
     /// Listen to Smart Contract specified events
     pub(crate) async fn listen(&self) -> Result<(), AppError> {
+
         let provider = self.setup_provider_ws().await.map_err(AppError::from)?;
+        let karma_sc = KarmaSC::new(self.sc_address, provider.clone());
 
-        let filter = Filter::new()
+        let filter = alloy::rpc::types::Filter::new()
             .address(self.sc_address)
-            .event(self.event.as_str())
-            .from_block(BlockNumberOrTag::Latest);
+            .event(KarmaSC::Transfer::SIGNATURE);
 
-        // Subscribe to logs.
-        let sub = provider
-            .subscribe_logs(&filter)
-            .await
-            .map_err(AppError::from)?;
-        let mut stream = sub.into_stream();
+        // Subscribe to logs matching the filter.
+        let subscription = provider.subscribe_logs(&filter).await?;
+        let mut stream = subscription.into_stream();
 
+        // Loop through the incoming event logs
         while let Some(log) = stream.next().await {
-            println!("Uniswap token logs: {log:?}");
+
+            match KarmaSC::Transfer::decode_log_data(log.data()) {
+                Ok(transfer_event) => {
+
+                    match self.handle_transfer_event(&karma_sc, transfer_event).await {
+                        Ok(addr) => {
+                            info!("Registered new user: {}", addr);
+                        }
+                        Err(HandleTransferError::Register(RegisterError::AlreadyRegistered(address))) => {
+                            debug!("Already registered: {}", address);
+                        }
+                        Err(e) => {
+                            error!("Unexpected error: {}", e);
+                            // FIXME: return / continue?
+                            return Err(AppError::RegistryError(e));
+                        }
+                    };
+                },
+                Err(e) => {
+                    eprintln!("Error decoding log data: {:?}", e);
+                    // It's also useful to print the raw log data for debugging
+                    eprintln!("Raw log topics: {:?}", log.topics());
+                    eprintln!("Raw log data: {:?}", log.data());
+                }
+            }
         }
 
         Ok(())
+    }
+
+    // async fn handle_transfer_event(&self, karma_sc: &KarmaSCInstance<AlloyWsProvider>, transfer_event: KarmaSC::Transfer) -> Result<(), HandleTransferError> {
+    async fn handle_transfer_event<E: Into<AlloyContractError>, KSC: KarmaAmountExt<Error = E>>(&self, karma_sc: &KSC, transfer_event: KarmaSC::Transfer) -> Result<Address, HandleTransferError> {
+
+        let from_address: Address = transfer_event.from;
+        let to_address: Address = transfer_event.to;
+        let amount: U256 = transfer_event.value;
+
+        // This is a mint event if from_address is the zero address
+        if from_address == Address::default() {
+
+            let should_register = {
+                if amount >= self.minimal_amount {
+                    true
+                } else {
+                    let balance = karma_sc.karma_amount(&to_address)
+                        .await
+                        .map_err(|e| HandleTransferError::BalanceOf(e.into()))?;
+                    balance >= self.minimal_amount
+                }
+            };
+
+            if should_register {
+                self.user_db.on_new_user(to_address).map_err(HandleTransferError::Register)?;
+            }
+        }
+
+        Ok(to_address)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use alloy::primitives::address;
+    use parking_lot::RwLock;
+    use crate::epoch_service::{Epoch, EpochSlice};
+    // use crate::tier::TIER_LIMITS;
+    use crate::user_db_service::{UserDbService};
+    use super::*;
+
+    // const ADDR_1: Address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
+    const ADDR_2: Address = address!("0xb20a608c624Ca5003905aA834De7156C68b2E1d0");
+    struct MockKarmaSc {}
+
+    impl KarmaAmountExt for MockKarmaSc {
+
+        type Error = AlloyContractError;
+        async fn karma_amount(&self, _address: &Address) -> Result<U256, Self::Error> {
+            Ok(U256::from(10))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_transfer_event() {
+
+        let epoch = Epoch::from(11);
+        let epoch_slice = EpochSlice::from(42);
+        let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
+        let user_db_service = UserDbService::new(Default::default(), epoch_store, 10.into());
+        let user_db = user_db_service.get_user_db();
+
+        assert!(
+            user_db_service.get_user_db().get_user(&ADDR_2).is_none()
+        );
+
+        let minimal_amount = U256::from(25);
+        let registry = RegistryListener {
+            rpc_url: "".to_string(),
+            sc_address: Default::default(),
+            user_db,
+            minimal_amount: U256::from(25),
+        };
+
+        let transfer = KarmaSC::Transfer {
+            from: Address::default(),
+            to: ADDR_2,
+            value: minimal_amount,
+        };
+
+        let karma_sc = MockKarmaSc {};
+        registry.handle_transfer_event(&karma_sc, transfer)
+            .await
+            .unwrap();
+
+        assert!(
+            user_db_service.get_user_db().get_user(&ADDR_2).is_some()
+        );
     }
 }

@@ -18,6 +18,8 @@ pub enum AppError {
     Alloy2(#[from] RpcError<TransportErrorKind>),
     #[error("Epoch service error: {0}")]
     EpochError(#[from] WaitUntilError),
+    #[error(transparent)]
+    RegistryError(#[from] HandleTransferError),
 }
 
 /*
@@ -88,4 +90,12 @@ pub enum GetMerkleTreeProofError {
     NotRegistered,
     #[error("Merkle tree error: {0}")]
     TreeError(String),
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum HandleTransferError {
+    #[error(transparent)]
+    Register(#[from] RegisterError),
+    #[error("Unable to query balance: {0}")]
+    BalanceOf(#[from] alloy::contract::Error)
 }
