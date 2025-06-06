@@ -16,6 +16,7 @@ use tracing::debug;
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::{AppError, GetMerkleTreeProofError, RegisterError};
+use crate::karma_sc::KarmaAmountExt;
 use crate::tier::{KarmaAmount, TIER_LIMITS, TierLimit, TierName};
 use rln_proof::{RlnUserIdentity, ZerokitMerkleTree};
 
@@ -81,10 +82,10 @@ impl From<RateLimit> for UserRegistry {
 }
 
 impl UserRegistry {
-    fn register(&self, address: Address) -> Result<(), RegisterError> {
+    fn register(&self, address: Address) -> Result<Fr, RegisterError> {
         let (identity_secret_hash, id_commitment) = keygen();
         let index = self.inner.len();
-        let res = self
+        let _ = self
             .inner
             .insert(
                 address,
@@ -104,7 +105,7 @@ impl UserRegistry {
             .write()
             .set(index, rate_commit)
             .map_err(|e| RegisterError::TreeError(e.to_string()))?;
-        res
+        Ok(id_commitment)
     }
 
     fn has_user(&self, address: &Address) -> bool {
@@ -181,14 +182,7 @@ pub enum UserTierInfoError<E: std::error::Error> {
     #[error("User {0} not registered")]
     NotRegistered(Address),
     #[error(transparent)]
-    Contract(E)
-}
-
-pub trait KarmaAmountExt {
-
-    type Error;
-    
-    async fn karma_amount(&self, address: &Address) -> Result<U256, Self::Error>;
+    Contract(E),
 }
 
 /// User registration + tx counters + tier limits storage
@@ -222,7 +216,7 @@ impl UserDb {
         }
     }
 
-    pub fn on_new_user(&self, address: Address) -> Result<(), RegisterError> {
+    pub fn on_new_user(&self, address: Address) -> Result<Fr, RegisterError> {
         self.user_registry.register(address)
     }
 
@@ -297,7 +291,9 @@ impl UserDb {
                 .map(|ref_v| (ref_v.0, ref_v.1))
                 .unwrap_or_default();
 
-            let karma_amount = karma_sc.karma_amount(address).await
+            let karma_amount = karma_sc
+                .karma_amount(address)
+                .await
                 .map_err(|e| UserTierInfoError::Contract(e))?;
             let guard = self.tier_limits.read();
             let range_res = guard.range((
@@ -419,13 +415,12 @@ mod tests {
 
     #[derive(Debug, Display, thiserror::Error)]
     struct DummyError();
-    
+
     struct MockKarmaSc {}
 
     impl KarmaAmountExt for MockKarmaSc {
-        
         type Error = DummyError;
-        
+
         async fn karma_amount(&self, _address: &Address) -> Result<U256, Self::Error> {
             Ok(U256::from(10))
         }
@@ -437,9 +432,8 @@ mod tests {
     struct MockKarmaSc2 {}
 
     impl KarmaAmountExt for MockKarmaSc2 {
-        
         type Error = DummyError;
-        
+
         async fn karma_amount(&self, address: &Address) -> Result<U256, Self::Error> {
             if address == &ADDR_1 {
                 Ok(U256::from(10))
@@ -491,7 +485,10 @@ mod tests {
         user_db.user_registry.register(addr).unwrap();
         // Now update user tx counter
         assert_eq!(user_db.on_new_tx(&addr), Some(EpochSliceCounter(1)));
-        let tier_info = user_db.user_tier_info(&addr, &MockKarmaSc {}).await.unwrap();
+        let tier_info = user_db
+            .user_tier_info(&addr, &MockKarmaSc {})
+            .await
+            .unwrap();
         assert_eq!(tier_info.epoch_tx_count, 1);
         assert_eq!(tier_info.epoch_slice_tx_count, 1);
     }

@@ -8,8 +8,7 @@ use rln::circuit::ZKEY_BYTES;
 use rln::circuit::zkey::read_zkey;
 use rln::hashers::{hash_to_field, poseidon_hash};
 use rln::protocol::{
-    ProofError, RLNProofValues, generate_proof,
-    proof_values_from_witness, rln_witness_from_values,
+    ProofError, RLNProofValues, generate_proof, proof_values_from_witness, rln_witness_from_values,
 };
 
 /// A RLN user identity & limit
@@ -94,14 +93,11 @@ pub fn compute_rln_proof_and_values(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zerokit_utils::ZerokitMerkleTree;
     use rln::{
-        protocol::{
-            keygen,
-            compute_id_secret
-        },
         pm_tree_adapter::PmTree,
+        protocol::{compute_id_secret, keygen},
     };
+    use zerokit_utils::ZerokitMerkleTree;
 
     #[test]
     fn test_recover_secret_hash() {

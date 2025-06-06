@@ -97,5 +97,5 @@ pub enum HandleTransferError {
     #[error(transparent)]
     Register(#[from] RegisterError),
     #[error("Unable to query balance: {0}")]
-    BalanceOf(#[from] alloy::contract::Error)
+    BalanceOf(#[from] alloy::contract::Error),
 }
