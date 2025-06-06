@@ -6,12 +6,13 @@ use alloy::providers::fillers::{
 use alloy::providers::{Identity, Provider, ProviderBuilder, RootProvider, WsConnect};
 use alloy::transports::{RpcError, TransportError};
 use alloy::{sol, sol_types::SolEvent, contract::Error as AlloyContractError};
+use alloy::transports::http::reqwest::Url;
 use tonic::codegen::tokio_stream::StreamExt;
 use tracing::{debug, error, info};
 use crate::registry_listener::KarmaSC::KarmaSCInstance;
 use crate::user_db_service::{KarmaAmountExt, UserDb};
 
-type AlloyWsProvider = FillProvider<
+pub type AlloyWsProvider = FillProvider<
     JoinFill<
         Identity,
         JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
@@ -29,8 +30,17 @@ sol! {
     }
 }
 
+impl KarmaSCInstance<AlloyWsProvider> {
+    pub(crate) async fn try_new(rpc_url: Url, address: Address) -> Result<Self, RpcError<TransportError>> {
+        let ws = WsConnect::new(rpc_url.as_str());
+        let provider = ProviderBuilder::new().connect_ws(ws).await?;
+        Ok(KarmaSC::new(address, provider))
+    }
+}
+
+
 impl KarmaAmountExt for KarmaSCInstance<AlloyWsProvider> {
-    type Error = AlloyContractError;
+    type Error = alloy::contract::Error;
     async fn karma_amount(&self, address: &Address) -> Result<U256, Self::Error> {
         self.balanceOf(*address).call().await
     }
@@ -79,7 +89,7 @@ impl RegistryListener {
 
             match KarmaSC::Transfer::decode_log_data(log.data()) {
                 Ok(transfer_event) => {
-                    
+
                     match self.handle_transfer_event(&karma_sc, transfer_event).await {
                         Ok(addr) => {
                             info!("Registered new user: {}", addr);
@@ -170,7 +180,7 @@ mod tests {
         assert!(
             user_db_service.get_user_db().get_user(&ADDR_2).is_none()
         );
-        
+
         let minimal_amount = U256::from(25);
         let registry = RegistryListener {
             rpc_url: "".to_string(),
@@ -189,7 +199,7 @@ mod tests {
         registry.handle_transfer_event(&karma_sc, transfer)
             .await
             .unwrap();
-        
+
         assert!(
             user_db_service.get_user_db().get_user(&ADDR_2).is_some()
         );

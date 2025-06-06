@@ -534,7 +534,7 @@ mod tests {
         );
 
         info!("Starting...");
-        let res = tokio::try_join!(
+        let _res = tokio::try_join!(
             proof_service.serve().map_err(AppErrorExt::AppError),
             proof_reveal_secret(&mut broadcast_receiver),
             proof_sender_2(

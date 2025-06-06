@@ -494,7 +494,7 @@ mod tests {
                         debug!("[Notified] Epoch update...");
                         let _v = counter.fetch_add(1, Ordering::SeqCst);
                     }
-                    Ok::<(), AppErrorExt>(())
+                    // Ok::<(), AppErrorExt>(())
                 }
             )
             .map_err(|_e| AppErrorExt::Elapsed)

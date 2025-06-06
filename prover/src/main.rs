@@ -12,10 +12,10 @@ mod user_db_service;
 // std
 use std::net::SocketAddr;
 use std::time::Duration;
-use alloy::primitives::{address, U256};
 // third-party
 use chrono::{DateTime, Utc};
 use clap::Parser;
+use alloy::primitives::U256;
 use rln_proof::RlnIdentifier;
 use tokio::task::JoinSet;
 use tracing::level_filters::LevelFilter;
@@ -30,7 +30,7 @@ use crate::args::AppArgs;
 use crate::epoch_service::EpochService;
 use crate::grpc_service::GrpcProverService;
 use crate::proof_service::ProofService;
-use crate::registry_listener::RegistryListener;
+use crate::registry_listener::{RegistryListener};
 use crate::user_db_service::{RateLimit, UserDbService};
 
 const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
@@ -42,6 +42,7 @@ const PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION: U256 = U256::from_le_slice(10u64.t
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    
     let filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy();
@@ -66,10 +67,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Smart contract
 
-    let karma_sc_address = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
+    // let karma_sc_address = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
     let registry_listener =
-        RegistryListener::new(app_args.rpc_url.as_str(), karma_sc_address, user_db_service.get_user_db(), PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION);
-
+        RegistryListener::new(app_args.ws_rpc_url.as_str(), app_args.ksc_address, user_db_service.get_user_db(), PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION);
+    
     // proof service
     // FIXME: bound
     let (tx, rx) = tokio::sync::broadcast::channel(2);
@@ -88,6 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         addr,
         rln_identifier,
         user_db: user_db_service.get_user_db(),
+        karma_sc_info: (app_args.ws_rpc_url, app_args.ksc_address),
     };
 
     let mut set = JoinSet::new();

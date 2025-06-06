@@ -288,7 +288,7 @@ impl UserDb {
     pub(crate) async fn user_tier_info<E: std::error::Error, KSC: KarmaAmountExt<Error = E>>(
         &self,
         address: &Address,
-        karma_sc: KSC,
+        karma_sc: &KSC,
     ) -> Result<UserTierInfo, UserTierInfoError<E>> {
         if self.user_registry.has_user(address) {
             let (epoch_tx_count, epoch_slice_tx_count) = self
@@ -481,7 +481,7 @@ mod tests {
 
         // Try to update tx counter without registering first
         assert_eq!(user_db.on_new_tx(&addr), None);
-        let tier_info = user_db.user_tier_info(&addr, MockKarmaSc {}).await;
+        let tier_info = user_db.user_tier_info(&addr, &MockKarmaSc {}).await;
         // User is not registered -> no tier info
         assert!(matches!(
             tier_info,
@@ -491,7 +491,7 @@ mod tests {
         user_db.user_registry.register(addr).unwrap();
         // Now update user tx counter
         assert_eq!(user_db.on_new_tx(&addr), Some(EpochSliceCounter(1)));
-        let tier_info = user_db.user_tier_info(&addr, MockKarmaSc {}).await.unwrap();
+        let tier_info = user_db.user_tier_info(&addr, &MockKarmaSc {}).await.unwrap();
         assert_eq!(tier_info.epoch_tx_count, 1);
         assert_eq!(tier_info.epoch_slice_tx_count, 1);
     }
@@ -526,7 +526,7 @@ mod tests {
                 new_epoch_slice,
             );
             let addr_1_tier_info = user_db
-                .user_tier_info(&ADDR_1, MockKarmaSc2 {})
+                .user_tier_info(&ADDR_1, &MockKarmaSc2 {})
                 .await
                 .unwrap();
             assert_eq!(addr_1_tier_info.epoch_tx_count, addr_1_tx_count);
@@ -534,7 +534,7 @@ mod tests {
             assert_eq!(addr_1_tier_info.tier_name, Some(TierName::from("Basic")));
 
             let addr_2_tier_info = user_db
-                .user_tier_info(&ADDR_2, MockKarmaSc2 {})
+                .user_tier_info(&ADDR_2, &MockKarmaSc2 {})
                 .await
                 .unwrap();
             assert_eq!(addr_2_tier_info.epoch_tx_count, addr_2_tx_count);
@@ -556,7 +556,7 @@ mod tests {
                 new_epoch_slice,
             );
             let addr_1_tier_info = user_db
-                .user_tier_info(&ADDR_1, MockKarmaSc2 {})
+                .user_tier_info(&ADDR_1, &MockKarmaSc2 {})
                 .await
                 .unwrap();
             assert_eq!(addr_1_tier_info.epoch_tx_count, 0);
@@ -564,7 +564,7 @@ mod tests {
             assert_eq!(addr_1_tier_info.tier_name, Some(TierName::from("Basic")));
 
             let addr_2_tier_info = user_db
-                .user_tier_info(&ADDR_2, MockKarmaSc2 {})
+                .user_tier_info(&ADDR_2, &MockKarmaSc2 {})
                 .await
                 .unwrap();
             assert_eq!(addr_2_tier_info.epoch_tx_count, 0);
