@@ -3,6 +3,7 @@ mod args;
 mod epoch_service;
 mod error;
 mod grpc_service;
+mod karma_sc;
 mod proof_generation;
 mod proof_service;
 mod registry_listener;
@@ -10,7 +11,6 @@ mod rln_sc;
 mod sc;
 mod tier;
 mod user_db_service;
-mod karma_sc;
 
 // std
 use std::net::SocketAddr;

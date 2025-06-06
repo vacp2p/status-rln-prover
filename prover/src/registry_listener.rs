@@ -2,11 +2,7 @@
 use alloy::{
     contract::Error as AlloyContractError,
     primitives::{Address, U256},
-    providers::{
-        Identity, Provider, ProviderBuilder, RootProvider, WsConnect,
-        fillers::{BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller},
-    },
-    sol,
+    providers::{Provider, ProviderBuilder, WsConnect},
     sol_types::SolEvent,
     transports::{RpcError, TransportError},
 };

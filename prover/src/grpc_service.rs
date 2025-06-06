@@ -20,12 +20,12 @@ use tracing::debug;
 use url::Url;
 // internal
 use crate::error::{AppError, ProofGenerationStringError, RegisterError};
+use crate::karma_sc::KarmaSC::KarmaSCInstance;
 use crate::proof_generation::{ProofGenerationData, ProofSendingData};
+use crate::rln_sc::KarmaRLNSC::KarmaRLNSCInstance;
+use crate::sc::AlloyWsProvider;
 use crate::tier::{KarmaAmount, TierLimit, TierName};
 use crate::user_db_service::{UserDb, UserTierInfo};
-use crate::sc::AlloyWsProvider;
-use crate::rln_sc::KarmaRLNSC::KarmaRLNSCInstance;
-use crate::karma_sc::KarmaSC::KarmaSCInstance;
 use rln_proof::RlnIdentifier;
 
 pub mod prover_proto {

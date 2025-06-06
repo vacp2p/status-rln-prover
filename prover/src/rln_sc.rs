@@ -1,3 +1,4 @@
+use crate::sc::AlloyWsProvider;
 use alloy::{
     primitives::Address,
     providers::{ProviderBuilder, WsConnect},
@@ -5,7 +6,6 @@ use alloy::{
     transports::{RpcError, TransportError},
 };
 use url::Url;
-use crate::sc::AlloyWsProvider;
 
 sol! {
     // https://github.com/vacp2p/staking-reward-streamer/pull/220

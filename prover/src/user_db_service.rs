@@ -16,9 +16,9 @@ use tracing::debug;
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::{AppError, GetMerkleTreeProofError, RegisterError};
+use crate::karma_sc::KarmaAmountExt;
 use crate::tier::{KarmaAmount, TIER_LIMITS, TierLimit, TierName};
 use rln_proof::{RlnUserIdentity, ZerokitMerkleTree};
-use crate::karma_sc::KarmaAmountExt;
 
 const MERKLE_TREE_HEIGHT: usize = 20;
 
@@ -184,7 +184,6 @@ pub enum UserTierInfoError<E: std::error::Error> {
     #[error(transparent)]
     Contract(E),
 }
-
 
 /// User registration + tx counters + tier limits storage
 #[derive(Debug, Clone)]

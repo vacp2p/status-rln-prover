@@ -1,3 +1,4 @@
+use crate::sc::AlloyWsProvider;
 use alloy::{
     primitives::{Address, U256},
     providers::{ProviderBuilder, WsConnect},
@@ -5,7 +6,6 @@ use alloy::{
     transports::{RpcError, TransportError},
 };
 use url::Url;
-use crate::sc::AlloyWsProvider;
 
 pub trait KarmaAmountExt {
     type Error;
@@ -41,5 +41,3 @@ impl KarmaAmountExt for KarmaSC::KarmaSCInstance<AlloyWsProvider> {
         self.balanceOf(*address).call().await
     }
 }
-
-
