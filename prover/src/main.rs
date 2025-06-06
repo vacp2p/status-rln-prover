@@ -8,6 +8,7 @@ mod proof_service;
 mod registry_listener;
 mod tier;
 mod user_db_service;
+mod rln_sc;
 
 // std
 use std::net::SocketAddr;

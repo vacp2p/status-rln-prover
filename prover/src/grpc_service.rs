@@ -17,6 +17,7 @@ use tonic_web::GrpcWebLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::debug;
 use url::Url;
+use num_bigint::{BigInt, BigUint};
 // internal
 use crate::error::{AppError, ProofGenerationStringError, RegisterError};
 use crate::proof_generation::{ProofGenerationData, ProofSendingData};
@@ -43,6 +44,7 @@ use prover_proto::{
 };
 use crate::registry_listener::{AlloyWsProvider};
 use crate::registry_listener::KarmaSC::KarmaSCInstance;
+use crate::rln_sc::KarmaRLNSC::KarmaRLNSCInstance;
 
 const PROVER_SERVICE_LIMIT_PER_CONNECTION: usize = 16;
 // Timeout for all handlers of a request
@@ -65,7 +67,8 @@ pub struct ProverService {
         broadcast::Sender<Result<ProofSendingData, ProofGenerationStringError>>,
         broadcast::Receiver<Result<ProofSendingData, ProofGenerationStringError>>,
     ),
-    karma_sc: KarmaSCInstance<AlloyWsProvider>
+    karma_sc: KarmaSCInstance<AlloyWsProvider>,
+    karma_rln_sc: KarmaRLNSCInstance<AlloyWsProvider>,
 }
 
 #[tonic::async_trait]
@@ -96,6 +99,7 @@ impl RlnProver for ProverService {
         // Update the counter as soon as possible (should help to prevent spamming...)
         let counter = self.user_db.on_new_tx(&sender).unwrap_or_default();
 
+        // FIXME: hardcoded
         if req.transaction_hash.len() != 32 {
             return Err(Status::invalid_argument(
                 "Invalid transaction hash (should be 32 bytes)",
@@ -143,7 +147,21 @@ impl RlnProver for ProverService {
         let result = self.user_db.on_new_user(user);
 
         let status = match result {
-            Ok(_) => RegistrationStatus::Success,
+            Ok(id_commitment) => {
+               
+                let id_co = U256::from_le_slice(
+                    BigUint::from(id_commitment).to_bytes_le().as_slice()
+                );
+
+                // TODO: on error, remove from user_db?
+                self.karma_rln_sc
+                    .register(id_co)
+                    .call() 
+                    .await
+                    .map_err(|e| Status::from_error(Box::new(e)))?;
+
+                RegistrationStatus::Success
+            },
             Err(RegisterError::AlreadyRegistered(_a)) => RegistrationStatus::AlreadyRegistered,
             _ => RegistrationStatus::Failure,
         };
@@ -279,6 +297,9 @@ impl GrpcProverService {
         let karma_sc = KarmaSCInstance::try_new(
             self.karma_sc_info.0.clone(), self.karma_sc_info.1)
             .await?;
+        let karma_rln_sc = KarmaRLNSCInstance::try_new(
+            self.karma_sc_info.0.clone(), self.karma_sc_info.1)
+            .await?;
         
         let prover_service = ProverService {
             proof_sender: self.proof_sender.clone(),
@@ -289,6 +310,7 @@ impl GrpcProverService {
                 self.broadcast_channel.0.subscribe(),
             ),
             karma_sc,
+            karma_rln_sc
         };
 
         let reflection_service = tonic_reflection::server::Builder::configure()

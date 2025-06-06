@@ -32,6 +32,7 @@ async-channel = "2.3.1"
 rand = "0.8.5"
 derive_more = "2.0.1"
 url = "2.5"
+num-bigint = "0.4.6"
 
 [build-dependencies]
 tonic-build = "*"

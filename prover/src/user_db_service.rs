@@ -81,7 +81,7 @@ impl From<RateLimit> for UserRegistry {
 }
 
 impl UserRegistry {
-    fn register(&self, address: Address) -> Result<(), RegisterError> {
+    fn register(&self, address: Address) -> Result<Fr, RegisterError> {
         let (identity_secret_hash, id_commitment) = keygen();
         let index = self.inner.len();
         let res = self
@@ -104,7 +104,7 @@ impl UserRegistry {
             .write()
             .set(index, rate_commit)
             .map_err(|e| RegisterError::TreeError(e.to_string()))?;
-        res
+        Ok(id_commitment)
     }
 
     fn has_user(&self, address: &Address) -> bool {
@@ -222,7 +222,7 @@ impl UserDb {
         }
     }
 
-    pub fn on_new_user(&self, address: Address) -> Result<(), RegisterError> {
+    pub fn on_new_user(&self, address: Address) -> Result<Fr, RegisterError> {
         self.user_registry.register(address)
     }
 

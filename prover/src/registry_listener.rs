@@ -21,6 +21,7 @@ pub type AlloyWsProvider = FillProvider<
 >;
 
 sol! {
+    // https://github.com/vacp2p/staking-reward-streamer/pull/220
     #[sol(rpc)]
     contract KarmaSC {
         // From: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC20/IERC20.sol#L16
