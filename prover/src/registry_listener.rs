@@ -10,9 +10,8 @@ use tonic::codegen::tokio_stream::StreamExt;
 use tracing::{debug, error, info};
 // internal
 use crate::error::{AppError, HandleTransferError, RegisterError};
-use crate::karma_sc::{KarmaAmountExt, KarmaSC};
-use crate::sc::AlloyWsProvider;
 use crate::user_db_service::UserDb;
+use smart_contract::{AlloyWsProvider, KarmaAmountExt, KarmaSC};
 
 pub(crate) struct RegistryListener {
     rpc_url: String,

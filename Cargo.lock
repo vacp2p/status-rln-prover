@@ -4169,6 +4169,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "smart_contract"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "url",
+]
+
+[[package]]
 name = "socket2"
 version = "0.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4225,6 +4233,7 @@ dependencies = [
  "rln",
  "rln_proof",
  "scc",
+ "smart_contract",
  "thiserror 2.0.12",
  "tokio",
  "tonic",

@@ -7,7 +7,7 @@ use alloy::{
 };
 use url::Url;
 // internal
-use crate::sc::AlloyWsProvider;
+use crate::AlloyWsProvider;
 
 sol! {
     // https://github.com/vacp2p/staking-reward-streamer/pull/220
@@ -18,7 +18,7 @@ sol! {
 }
 
 impl KarmaRLNSC::KarmaRLNSCInstance<AlloyWsProvider> {
-    pub(crate) async fn try_new(
+    pub async fn try_new(
         rpc_url: Url,
         address: Address,
     ) -> Result<Self, RpcError<TransportError>> {
