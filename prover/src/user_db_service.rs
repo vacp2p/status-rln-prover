@@ -8,7 +8,7 @@ use ark_bn254::Fr;
 use derive_more::{Add, From, Into};
 use parking_lot::RwLock;
 use rln::hashers::poseidon_hash;
-use rln::pm_tree_adapter::{PmTree, PmTreeProof};
+use rln::poseidon_tree::{MerkleProof, PoseidonTree};
 use rln::protocol::keygen;
 use scc::HashMap;
 use tokio::sync::Notify;
@@ -45,7 +45,7 @@ impl From<RateLimit> for Fr {
 #[derive(Clone)]
 pub(crate) struct UserRegistry {
     inner: HashMap<Address, (RlnUserIdentity, MerkleTreeIndex)>,
-    tree: Arc<RwLock<PmTree>>,
+    tree: Arc<RwLock<PoseidonTree>>,
     rate_limit: RateLimit,
 }
 
@@ -61,7 +61,7 @@ impl Default for UserRegistry {
             inner: Default::default(),
             // unwrap safe - no config
             tree: Arc::new(RwLock::new(
-                PmTree::new(MERKLE_TREE_HEIGHT, Default::default(), Default::default()).unwrap(),
+                PoseidonTree::new(MERKLE_TREE_HEIGHT, Default::default(), Default::default()).unwrap(),
             )),
             rate_limit: Default::default(),
         }
@@ -74,7 +74,7 @@ impl From<RateLimit> for UserRegistry {
             inner: Default::default(),
             // unwrap safe - no config
             tree: Arc::new(RwLock::new(
-                PmTree::new(MERKLE_TREE_HEIGHT, Default::default(), Default::default()).unwrap(),
+                PoseidonTree::new(MERKLE_TREE_HEIGHT, Default::default(), Default::default()).unwrap(),
             )),
             rate_limit,
         }
@@ -116,7 +116,7 @@ impl UserRegistry {
         self.inner.get(address).map(|entry| entry.0.clone())
     }
 
-    fn get_merkle_proof(&self, address: &Address) -> Result<PmTreeProof, GetMerkleTreeProofError> {
+    fn get_merkle_proof(&self, address: &Address) -> Result<MerkleProof, GetMerkleTreeProofError> {
         let index = self
             .inner
             .get(address)
@@ -227,7 +227,7 @@ impl UserDb {
     pub fn get_merkle_proof(
         &self,
         address: &Address,
-    ) -> Result<PmTreeProof, GetMerkleTreeProofError> {
+    ) -> Result<MerkleProof, GetMerkleTreeProofError> {
         self.user_registry.get_merkle_proof(address)
     }
 

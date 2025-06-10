@@ -4,12 +4,15 @@ use std::io::Cursor;
 use ark_bn254::{Bn254, Fr};
 use ark_groth16::{Proof, ProvingKey};
 use ark_relations::r1cs::ConstraintMatrices;
-use rln::circuit::ZKEY_BYTES;
-use rln::circuit::zkey::read_zkey;
-use rln::hashers::{hash_to_field, poseidon_hash};
-use rln::protocol::{
-    ProofError, RLNProofValues, generate_proof, proof_values_from_witness, rln_witness_from_values,
+use rln::{
+    circuit::{ZKEY_BYTES, zkey::read_zkey},
+    error::ProofError,
+    hashers::{hash_to_field, poseidon_hash},
+    protocol::{
+        RLNProofValues, generate_proof, proof_values_from_witness, rln_witness_from_values,
+    },
 };
+use rln::poseidon_tree::MerkleProof;
 
 /// A RLN user identity & limit
 #[derive(Debug, Clone)]
@@ -68,7 +71,7 @@ pub fn compute_rln_proof_and_values(
     rln_identifier: &RlnIdentifier,
     rln_data: RlnData,
     epoch: Fr,
-    merkle_proof: &rln::poseidon_tree::MerkleProof,
+    merkle_proof: &MerkleProof,
 ) -> Result<(Proof<Bn254>, RLNProofValues), ProofError> {
     let external_nullifier = poseidon_hash(&[rln_identifier.identifier, epoch]);
 
@@ -94,10 +97,9 @@ pub fn compute_rln_proof_and_values(
 mod tests {
     use super::*;
     use rln::{
-        pm_tree_adapter::PmTree,
         protocol::{compute_id_secret, keygen},
     };
-    use zerokit_utils::ZerokitMerkleTree;
+    use zerokit_utils::{OptimalMerkleTree, ZerokitMerkleTree};
 
     #[test]
     fn test_recover_secret_hash() {
@@ -105,7 +107,7 @@ mod tests {
         let epoch = hash_to_field(b"foo");
         let spam_limit = Fr::from(10);
 
-        let mut tree = PmTree::new(20, Default::default(), Default::default()).unwrap();
+        let mut tree = OptimalMerkleTree::new(20, Default::default(), Default::default()).unwrap();
         tree.set(0, spam_limit).unwrap();
         let m_proof = tree.proof(0).unwrap();
 
