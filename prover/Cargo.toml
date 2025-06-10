@@ -16,7 +16,7 @@ tracing-test = "0.2.5"
 alloy = { version = "1.0", features = ["getrandom", "sol-types", "contract", "provider-ws"] }
 thiserror = "2.0"
 futures = "0.3"
-rln = { git = "https://github.com/vacp2p/zerokit" }
+rln = { git = "https://github.com/vacp2p/zerokit", default-features = false }
 ark-bn254.workspace = true
 ark-serialize.workspace = true
 dashmap = "6.1.0"
