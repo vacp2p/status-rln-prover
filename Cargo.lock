@@ -4173,6 +4173,8 @@ name = "smart_contract"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "async-trait",
+ "log",
  "url",
 ]
 
@@ -4217,6 +4219,7 @@ dependencies = [
  "ark-groth16",
  "ark-serialize 0.5.0",
  "async-channel",
+ "async-trait",
  "bytesize",
  "chrono",
  "claims",

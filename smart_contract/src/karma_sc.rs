@@ -5,15 +5,15 @@ use alloy::{
     sol,
     transports::{RpcError, TransportError},
 };
+use async_trait::async_trait;
 use url::Url;
 // internal
 use crate::AlloyWsProvider;
 
+#[async_trait]
 pub trait KarmaAmountExt {
     type Error;
 
-    // Allow this (for Clippy) as the Trait is only used in the Prover
-    #[allow(async_fn_in_trait)]
     async fn karma_amount(&self, address: &Address) -> Result<U256, Self::Error>;
 }
 
@@ -39,6 +39,7 @@ impl KarmaSC::KarmaSCInstance<AlloyWsProvider> {
     }
 }
 
+#[async_trait]
 impl KarmaAmountExt for KarmaSC::KarmaSCInstance<AlloyWsProvider> {
     type Error = alloy::contract::Error;
     async fn karma_amount(&self, address: &Address) -> Result<U256, Self::Error> {

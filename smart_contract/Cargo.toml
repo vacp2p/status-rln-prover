@@ -6,3 +6,5 @@ edition = "2024"
 [dependencies]
 alloy.workspace = true
 url.workspace = true
+async-trait.workspace = true
+log = "0.4.27"

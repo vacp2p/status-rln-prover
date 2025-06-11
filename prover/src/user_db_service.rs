@@ -18,7 +18,7 @@ use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::{AppError, GetMerkleTreeProofError, RegisterError};
 use crate::tier::{KarmaAmount, TIER_LIMITS, TierLimit, TierName};
 use rln_proof::{RlnUserIdentity, ZerokitMerkleTree};
-use smart_contract::KarmaAmountExt;
+use smart_contract::{KarmaAmountExt};
 
 const MERKLE_TREE_HEIGHT: usize = 20;
 
@@ -412,12 +412,14 @@ mod tests {
     use alloy::primitives::address;
     use claims::{assert_err, assert_matches};
     use derive_more::Display;
+    use async_trait::async_trait;
 
     #[derive(Debug, Display, thiserror::Error)]
     struct DummyError();
 
     struct MockKarmaSc {}
 
+    #[async_trait]
     impl KarmaAmountExt for MockKarmaSc {
         type Error = DummyError;
 
@@ -431,6 +433,7 @@ mod tests {
 
     struct MockKarmaSc2 {}
 
+    #[async_trait]
     impl KarmaAmountExt for MockKarmaSc2 {
         type Error = DummyError;
 
@@ -464,6 +467,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_incr_tx_counter() {
+        
         let user_db = UserDb {
             user_registry: Default::default(),
             tx_registry: Default::default(),

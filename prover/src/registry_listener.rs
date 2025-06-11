@@ -124,18 +124,22 @@ impl RegistryListener {
 
 #[cfg(test)]
 mod tests {
-    use crate::epoch_service::{Epoch, EpochSlice};
-    use alloy::primitives::address;
-    use parking_lot::RwLock;
-    use std::sync::Arc;
-    // use crate::tier::TIER_LIMITS;
     use super::*;
+    // std
+    use std::sync::Arc;
+    // third-party
+    use alloy::primitives::address;
+    use async_trait::async_trait;
+    use parking_lot::RwLock;
+    // internal 
+    use crate::epoch_service::{Epoch, EpochSlice};
     use crate::user_db_service::UserDbService;
 
     // const ADDR_1: Address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
     const ADDR_2: Address = address!("0xb20a608c624Ca5003905aA834De7156C68b2E1d0");
     struct MockKarmaSc {}
 
+    #[async_trait]
     impl KarmaAmountExt for MockKarmaSc {
         type Error = AlloyContractError;
         async fn karma_amount(&self, _address: &Address) -> Result<U256, Self::Error> {

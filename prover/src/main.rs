@@ -52,6 +52,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app_args = AppArgs::parse();
     debug!("Arguments: {:?}", app_args);
+    
+    // Application cli arguments checks
+    if app_args.ws_rpc_url.is_some() {
+        if app_args.ksc_address.is_none() || app_args.ksc_address.is_none() {
+            todo!()
+        }
+    } else {
+        if app_args.mock_sc.is_none() {
+            todo!()
+        }
+    }
 
     // Epoch
     let epoch_service = EpochService::try_from((Duration::from_secs(60 * 2), GENESIS))
@@ -66,12 +77,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Smart contract
     // let karma_sc_address = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
-    let registry_listener = RegistryListener::new(
-        app_args.ws_rpc_url.as_str(),
-        app_args.ksc_address,
-        user_db_service.get_user_db(),
-        PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION,
-    );
+    let registry_listener = if app_args.mock_sc.is_some() {
+        None
+    } else {
+        Some(RegistryListener::new(
+            app_args.ws_rpc_url.clone().unwrap().as_str(),
+            app_args.ksc_address.unwrap(),
+            user_db_service.get_user_db(),
+            PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION,
+        ))
+    };
 
     // proof service
     // FIXME: bound
@@ -85,14 +100,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = SocketAddr::new(app_args.ip, app_args.port);
     debug!("Listening on: {}", addr);
     // TODO: broadcast subscribe?
-    let prover_grpc_service = GrpcProverService {
-        proof_sender,
-        broadcast_channel: (tx.clone(), rx),
-        addr,
-        rln_identifier,
-        user_db: user_db_service.get_user_db(),
-        karma_sc_info: (app_args.ws_rpc_url.clone(), app_args.ksc_address),
-        rln_sc_info: (app_args.ws_rpc_url, app_args.rlnsc_address),
+    let prover_grpc_service = { 
+        let mut service = GrpcProverService {
+            proof_sender,
+            broadcast_channel: (tx.clone(), rx),
+            addr,
+            rln_identifier,
+            user_db: user_db_service.get_user_db(),
+            karma_sc_info: None,
+            rln_sc_info: None,
+        };
+        
+        if app_args.ws_rpc_url.is_some() {
+            
+            let ws_rpc_url = app_args.ws_rpc_url.clone().unwrap();
+            service.karma_sc_info = Some((ws_rpc_url.clone(), app_args.ksc_address.clone().unwrap()));
+            service.rln_sc_info = Some((ws_rpc_url, app_args.rlnsc_address.clone().unwrap()));
+        }
+        service
     };
 
     let mut set = JoinSet::new();
@@ -113,10 +138,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             proof_service.serve().await
         });
     }
-    set.spawn(async move { registry_listener.listen().await });
+    
+    if registry_listener.is_some() {
+        set.spawn(async move { registry_listener.unwrap().listen().await });
+    }
     set.spawn(async move { epoch_service.listen_for_new_epoch().await });
     set.spawn(async move { user_db_service.listen_for_epoch_changes().await });
-    set.spawn(async move { prover_grpc_service.serve().await });
+    if app_args.ws_rpc_url.is_some() {
+        set.spawn(async move { prover_grpc_service.serve().await });
+    } else {
+        debug!("Grpc service started with mocked smart contracts");
+        set.spawn(async move { prover_grpc_service.serve_with_mock().await });
+    }
 
     let _ = set.join_all().await;
     Ok(())
