@@ -106,7 +106,7 @@ impl<KSC, RLNSC> RlnProver for ProverService<KSC, RLNSC>
         };
 
         // Update the counter as soon as possible (should help to prevent spamming...)
-        let counter = self.user_db.on_new_tx(&sender).unwrap_or_default();
+        let counter = self.user_db.on_new_tx(&sender, None).unwrap_or_default();
 
         // FIXME: hardcoded
         if req.transaction_hash.len() != PROVER_TX_HASH_BYTESIZE {
@@ -161,11 +161,6 @@ impl<KSC, RLNSC> RlnProver for ProverService<KSC, RLNSC>
                     U256::from_le_slice(BigUint::from(id_commitment).to_bytes_le().as_slice());
 
                 // TODO: on error, remove from user_db?
-                // self.karma_rln_sc
-                //     .register(id_co)
-                //     .call()
-                //     .await
-                //     .map_err(|e| Status::from_error(Box::new(e)))?;
                 self.karma_rln_sc.register(id_co).await
                     .map_err(|e| Status::from_error(Box::new(e)))?;
 

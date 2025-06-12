@@ -4236,6 +4236,8 @@ dependencies = [
  "rln",
  "rln_proof",
  "scc",
+ "serde",
+ "serde_json",
  "smart_contract",
  "thiserror 2.0.12",
  "tokio",

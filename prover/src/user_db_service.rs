@@ -231,9 +231,9 @@ impl UserDb {
         self.user_registry.get_merkle_proof(address)
     }
 
-    pub(crate) fn on_new_tx(&self, address: &Address) -> Option<EpochSliceCounter> {
+    pub(crate) fn on_new_tx(&self, address: &Address, incr_value: Option<u64>) -> Option<EpochSliceCounter> {
         if self.user_registry.has_user(address) {
-            Some(self.tx_registry.incr_counter(address, None))
+            Some(self.tx_registry.incr_counter(address, incr_value))
         } else {
             None
         }
@@ -478,7 +478,7 @@ mod tests {
         let addr = Address::new([0; 20]);
 
         // Try to update tx counter without registering first
-        assert_eq!(user_db.on_new_tx(&addr), None);
+        assert_eq!(user_db.on_new_tx(&addr, None), None);
         let tier_info = user_db.user_tier_info(&addr, &MockKarmaSc {}).await;
         // User is not registered -> no tier info
         assert!(matches!(
@@ -488,7 +488,7 @@ mod tests {
         // Register user
         user_db.user_registry.register(addr).unwrap();
         // Now update user tx counter
-        assert_eq!(user_db.on_new_tx(&addr), Some(EpochSliceCounter(1)));
+        assert_eq!(user_db.on_new_tx(&addr, None), Some(EpochSliceCounter(1)));
         let tier_info = user_db
             .user_tier_info(&addr, &MockKarmaSc {})
             .await

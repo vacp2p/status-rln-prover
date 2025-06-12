@@ -8,6 +8,8 @@ mod proof_service;
 mod registry_listener;
 mod tier;
 mod user_db_service;
+// mod tiers_listener;
+mod mock;
 
 // std
 use std::net::SocketAddr;
@@ -29,6 +31,7 @@ use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberI
 use crate::args::AppArgs;
 use crate::epoch_service::EpochService;
 use crate::grpc_service::GrpcProverService;
+use crate::mock::read_mock_user;
 use crate::proof_service::ProofService;
 use crate::registry_listener::RegistryListener;
 use crate::user_db_service::{RateLimit, UserDbService};
@@ -52,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app_args = AppArgs::parse();
     debug!("Arguments: {:?}", app_args);
-    
+
     // Application cli arguments checks
     if app_args.ws_rpc_url.is_some() {
         if app_args.ksc_address.is_none() || app_args.ksc_address.is_none() {
@@ -74,6 +77,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         epoch_service.current_epoch.clone(),
         PROVER_SPAM_LIMIT,
     );
+
+    if app_args.mock_sc.is_none() {
+       if let Some(user_filepath) = app_args.mock_user.as_ref() {
+           let mock_users = read_mock_user(user_filepath).unwrap();
+           debug!("Mock - will register {} users", mock_users.len());
+           mock_users.into_iter().for_each(|mock_user| {
+                debug!("Registering user address: {} - tx count: {}", mock_user.address, mock_user.tx_count); 
+               let user_db = user_db_service.get_user_db();
+               user_db.on_new_user(mock_user.address).unwrap();
+               user_db.on_new_tx(&mock_user.address, Some(mock_user.tx_count)).unwrap();
+           })
+       }
+    }
 
     // Smart contract
     // let karma_sc_address = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
@@ -100,7 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = SocketAddr::new(app_args.ip, app_args.port);
     debug!("Listening on: {}", addr);
     // TODO: broadcast subscribe?
-    let prover_grpc_service = { 
+    let prover_grpc_service = {
         let mut service = GrpcProverService {
             proof_sender,
             broadcast_channel: (tx.clone(), rx),
@@ -110,9 +126,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             karma_sc_info: None,
             rln_sc_info: None,
         };
-        
+
         if app_args.ws_rpc_url.is_some() {
-            
+
             let ws_rpc_url = app_args.ws_rpc_url.clone().unwrap();
             service.karma_sc_info = Some((ws_rpc_url.clone(), app_args.ksc_address.clone().unwrap()));
             service.rln_sc_info = Some((ws_rpc_url, app_args.rlnsc_address.clone().unwrap()));
@@ -138,7 +154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             proof_service.serve().await
         });
     }
-    
+
     if registry_listener.is_some() {
         set.spawn(async move { registry_listener.unwrap().listen().await });
     }
