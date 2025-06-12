@@ -1,5 +1,4 @@
 // std
-use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,7 +10,9 @@ use futures::TryFutureExt;
 use http::Method;
 use num_bigint::BigUint;
 use tokio::sync::{broadcast, mpsc};
-use tonic::{Request, Response, Status, codegen::tokio_stream::wrappers::ReceiverStream, transport::Server};
+use tonic::{
+    Request, Response, Status, codegen::tokio_stream::wrappers::ReceiverStream, transport::Server,
+};
 use tonic_web::GrpcWebLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::debug;
@@ -19,13 +20,15 @@ use url::Url;
 // internal
 use crate::error::{AppError, ProofGenerationStringError, RegisterError};
 use crate::proof_generation::{ProofGenerationData, ProofSendingData};
-use crate::tier::{KarmaAmount, TierLimit, TierName};
 use crate::user_db_service::{UserDb, UserTierInfo};
 use rln_proof::RlnIdentifier;
 use smart_contract::{
-    KarmaSC::KarmaSCInstance, KarmaRLNSC::KarmaRLNSCInstance,
-    KarmaAmountExt, RLNRegister, // traits 
-    MockKarmaSc, MockKarmaRLNSc
+    KarmaAmountExt,
+    KarmaRLNSC::KarmaRLNSCInstance,
+    KarmaSC::KarmaSCInstance,
+    MockKarmaRLNSc,
+    MockKarmaSc,
+    RLNRegister, // traits
 };
 
 pub mod prover_proto {
@@ -37,9 +40,19 @@ pub mod prover_proto {
         tonic::include_file_descriptor_set!("prover_descriptor");
 }
 use prover_proto::{
-    GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply, RegisterUserRequest,
-    RegistrationStatus, RlnProof, RlnProofFilter, RlnProofReply, SendTransactionReply,
-    SendTransactionRequest, SetTierLimitsReply, SetTierLimitsRequest, Tier, UserTierInfoError,
+    GetUserTierInfoReply,
+    GetUserTierInfoRequest,
+    RegisterUserReply,
+    RegisterUserRequest,
+    RegistrationStatus,
+    RlnProof,
+    RlnProofFilter,
+    RlnProofReply,
+    SendTransactionReply,
+    SendTransactionRequest,
+    // SetTierLimitsReply, SetTierLimitsRequest,
+    Tier,
+    UserTierInfoError,
     UserTierInfoResult,
     get_user_tier_info_reply::Resp,
     rln_proof_reply::Resp as GetProofsResp,
@@ -77,10 +90,11 @@ pub struct ProverService<KSC: KarmaAmountExt, RLNSC: RLNRegister> {
 
 #[tonic::async_trait]
 impl<KSC, RLNSC> RlnProver for ProverService<KSC, RLNSC>
-    where KSC: KarmaAmountExt + Send + Sync + 'static,
-          KSC::Error: std::error::Error + Send + Sync + 'static,
-          RLNSC: RLNRegister + Send + Sync + 'static,
-          RLNSC::Error: std::error::Error + Send + Sync + 'static
+where
+    KSC: KarmaAmountExt + Send + Sync + 'static,
+    KSC::Error: std::error::Error + Send + Sync + 'static,
+    RLNSC: RLNRegister + Send + Sync + 'static,
+    RLNSC::Error: std::error::Error + Send + Sync + 'static,
 {
     async fn send_transaction(
         &self,
@@ -161,7 +175,9 @@ impl<KSC, RLNSC> RlnProver for ProverService<KSC, RLNSC>
                     U256::from_le_slice(BigUint::from(id_commitment).to_bytes_le().as_slice());
 
                 // TODO: on error, remove from user_db?
-                self.karma_rln_sc.register(id_co).await
+                self.karma_rln_sc
+                    .register(id_co)
+                    .await
                     .map_err(|e| Status::from_error(Box::new(e)))?;
 
                 RegistrationStatus::Success
@@ -227,13 +243,7 @@ impl<KSC, RLNSC> RlnProver for ProverService<KSC, RLNSC>
             return Err(Status::invalid_argument("No user address"));
         };
 
-        let tier_info = self
-            .user_db
-            .user_tier_info(
-                &user,
-                &self.karma_sc,
-            )
-            .await;
+        let tier_info = self.user_db.user_tier_info(&user, &self.karma_sc).await;
 
         match tier_info {
             Ok(tier_info) => Ok(Response::new(GetUserTierInfoReply {
@@ -245,6 +255,7 @@ impl<KSC, RLNSC> RlnProver for ProverService<KSC, RLNSC>
         }
     }
 
+    /*
     async fn set_tier_limits(
         &self,
         request: Request<SetTierLimitsRequest>,
@@ -284,6 +295,7 @@ impl<KSC, RLNSC> RlnProver for ProverService<KSC, RLNSC>
         };
         Ok(Response::new(reply))
     }
+    */
 }
 
 pub(crate) struct GrpcProverService {
@@ -301,7 +313,6 @@ pub(crate) struct GrpcProverService {
 
 impl GrpcProverService {
     pub(crate) async fn serve(&self) -> Result<(), AppError> {
-
         let karma_sc = if let Some(karma_sc_info) = self.karma_sc_info.as_ref() {
             KarmaSCInstance::try_new(karma_sc_info.0.clone(), karma_sc_info.1).await?
         } else {
@@ -374,7 +385,6 @@ impl GrpcProverService {
     }
 
     pub(crate) async fn serve_with_mock(&self) -> Result<(), AppError> {
-
         let prover_service = ProverService {
             proof_sender: self.proof_sender.clone(),
             user_db: self.user_db.clone(),

@@ -3,13 +3,13 @@ mod args;
 mod epoch_service;
 mod error;
 mod grpc_service;
+mod mock;
 mod proof_generation;
 mod proof_service;
 mod registry_listener;
 mod tier;
+mod tiers_listener;
 mod user_db_service;
-// mod tiers_listener;
-mod mock;
 
 // std
 use std::net::SocketAddr;
@@ -19,6 +19,8 @@ use alloy::primitives::U256;
 use chrono::{DateTime, Utc};
 use clap::Parser;
 use rln_proof::RlnIdentifier;
+use smart_contract::KarmaTiersSC::KarmaTiersSCInstance;
+use smart_contract::TIER_LIMITS;
 use tokio::task::JoinSet;
 use tracing::level_filters::LevelFilter;
 use tracing::{
@@ -34,6 +36,7 @@ use crate::grpc_service::GrpcProverService;
 use crate::mock::read_mock_user;
 use crate::proof_service::ProofService;
 use crate::registry_listener::RegistryListener;
+use crate::tiers_listener::TiersListener;
 use crate::user_db_service::{RateLimit, UserDbService};
 
 const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
@@ -58,37 +61,56 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Application cli arguments checks
     if app_args.ws_rpc_url.is_some() {
-        if app_args.ksc_address.is_none() || app_args.ksc_address.is_none() {
-            todo!()
+        if app_args.ksc_address.is_none()
+            || app_args.ksc_address.is_none()
+            || app_args.tsc_address.is_none()
+        {
+            return Err("Please provide smart contract address".into());
         }
-    } else {
-        if app_args.mock_sc.is_none() {
-            todo!()
-        }
+    } else if app_args.mock_sc.is_none() {
+        return Err("Please provide rpc url (--ws-rpc-url) or mock (--mock-sc)".into());
     }
 
     // Epoch
     let epoch_service = EpochService::try_from((Duration::from_secs(60 * 2), GENESIS))
         .expect("Failed to create epoch service");
 
+    let tier_limits = if app_args.ws_rpc_url.is_some() {
+        KarmaTiersSCInstance::get_tiers(
+            app_args.ws_rpc_url.clone().unwrap(),
+            app_args.tsc_address.unwrap(),
+        )
+        .await?
+    } else {
+        // mock
+        debug!("Mock - will use tier limits: {:#?}", TIER_LIMITS);
+        TIER_LIMITS.clone()
+    };
+
     // User db service
     let user_db_service = UserDbService::new(
         epoch_service.epoch_changes.clone(),
         epoch_service.current_epoch.clone(),
         PROVER_SPAM_LIMIT,
+        tier_limits,
     );
 
-    if app_args.mock_sc.is_none() {
-       if let Some(user_filepath) = app_args.mock_user.as_ref() {
-           let mock_users = read_mock_user(user_filepath).unwrap();
-           debug!("Mock - will register {} users", mock_users.len());
-           mock_users.into_iter().for_each(|mock_user| {
-                debug!("Registering user address: {} - tx count: {}", mock_user.address, mock_user.tx_count); 
-               let user_db = user_db_service.get_user_db();
-               user_db.on_new_user(mock_user.address).unwrap();
-               user_db.on_new_tx(&mock_user.address, Some(mock_user.tx_count)).unwrap();
-           })
-       }
+    if app_args.mock_sc.is_some() {
+        if let Some(user_filepath) = app_args.mock_user.as_ref() {
+            let mock_users = read_mock_user(user_filepath).unwrap();
+            debug!("Mock - will register {} users", mock_users.len());
+            mock_users.into_iter().for_each(|mock_user| {
+                debug!(
+                    "Registering user address: {} - tx count: {}",
+                    mock_user.address, mock_user.tx_count
+                );
+                let user_db = user_db_service.get_user_db();
+                user_db.on_new_user(mock_user.address).unwrap();
+                user_db
+                    .on_new_tx(&mock_user.address, Some(mock_user.tx_count))
+                    .unwrap();
+            })
+        }
     }
 
     // Smart contract
@@ -101,6 +123,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             app_args.ksc_address.unwrap(),
             user_db_service.get_user_db(),
             PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION,
+        ))
+    };
+
+    let tiers_listener = if app_args.mock_sc.is_some() {
+        None
+    } else {
+        Some(TiersListener::new(
+            app_args.ws_rpc_url.clone().unwrap().as_str(),
+            app_args.tsc_address.unwrap(),
+            user_db_service.get_user_db(),
         ))
     };
 
@@ -128,10 +160,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         if app_args.ws_rpc_url.is_some() {
-
             let ws_rpc_url = app_args.ws_rpc_url.clone().unwrap();
-            service.karma_sc_info = Some((ws_rpc_url.clone(), app_args.ksc_address.clone().unwrap()));
-            service.rln_sc_info = Some((ws_rpc_url, app_args.rlnsc_address.clone().unwrap()));
+            service.karma_sc_info = Some((ws_rpc_url.clone(), app_args.ksc_address.unwrap()));
+            service.rln_sc_info = Some((ws_rpc_url, app_args.rlnsc_address.unwrap()));
         }
         service
     };
@@ -157,6 +188,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if registry_listener.is_some() {
         set.spawn(async move { registry_listener.unwrap().listen().await });
+    }
+    if tiers_listener.is_some() {
+        set.spawn(async move { tiers_listener.unwrap().listen().await });
     }
     set.spawn(async move { epoch_service.listen_for_new_epoch().await });
     set.spawn(async move { user_db_service.listen_for_epoch_changes().await });

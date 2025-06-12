@@ -146,11 +146,13 @@ mod tests {
     use ark_serialize::CanonicalDeserialize;
     use claims::assert_matches;
     use futures::TryFutureExt;
-    use rln::circuit::{Curve, zkey_from_folder};
     use tokio::sync::broadcast;
     use tracing::info;
     // third-party: zerokit
-    use rln::protocol::{compute_id_secret, deserialize_proof_values, verify_proof};
+    use rln::{
+        circuit::{Curve, zkey_from_folder},
+        protocol::{compute_id_secret, deserialize_proof_values, verify_proof},
+    };
     // internal
     use crate::user_db_service::UserDbService;
     use rln_proof::RlnIdentifier;
@@ -254,8 +256,12 @@ mod tests {
         let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
 
         // User db
-        let user_db_service =
-            UserDbService::new(Default::default(), epoch_store.clone(), 10.into());
+        let user_db_service = UserDbService::new(
+            Default::default(),
+            epoch_store.clone(),
+            10.into(),
+            Default::default(),
+        );
         let user_db = user_db_service.get_user_db();
         user_db.on_new_user(ADDR_1).unwrap();
         user_db.on_new_user(ADDR_2).unwrap();
@@ -302,8 +308,12 @@ mod tests {
         let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
 
         // User db
-        let user_db_service =
-            UserDbService::new(Default::default(), epoch_store.clone(), 10.into());
+        let user_db_service = UserDbService::new(
+            Default::default(),
+            epoch_store.clone(),
+            10.into(),
+            Default::default(),
+        );
         let user_db = user_db_service.get_user_db();
         user_db.on_new_user(ADDR_1).unwrap();
         // user_db.on_new_user(ADDR_2).unwrap();
@@ -453,8 +463,12 @@ mod tests {
         let rate_limit = RateLimit::from(1);
 
         // User db
-        let user_db_service =
-            UserDbService::new(Default::default(), epoch_store.clone(), rate_limit);
+        let user_db_service = UserDbService::new(
+            Default::default(),
+            epoch_store.clone(),
+            rate_limit,
+            Default::default(),
+        );
         let user_db = user_db_service.get_user_db();
         user_db.on_new_user(ADDR_1).unwrap();
         let user_addr_1 = user_db.get_user(&ADDR_1).unwrap();
@@ -514,8 +528,12 @@ mod tests {
         let rate_limit = RateLimit::from(1);
 
         // User db - limit is 1 message per epoch
-        let user_db_service =
-            UserDbService::new(Default::default(), epoch_store.clone(), rate_limit.into());
+        let user_db_service = UserDbService::new(
+            Default::default(),
+            epoch_store.clone(),
+            rate_limit.into(),
+            Default::default(),
+        );
         let user_db = user_db_service.get_user_db();
         user_db.on_new_user(ADDR_1).unwrap();
         let user_addr_1 = user_db.get_user(&ADDR_1).unwrap();

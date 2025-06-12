@@ -7,4 +7,5 @@ edition = "2024"
 alloy.workspace = true
 url.workspace = true
 async-trait.workspace = true
+derive_more.workspace = true
 log = "0.4.27"

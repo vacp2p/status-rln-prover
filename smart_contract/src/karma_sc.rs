@@ -29,10 +29,7 @@ sol! {
 }
 
 impl KarmaSC::KarmaSCInstance<AlloyWsProvider> {
-    pub async fn try_new(
-        rpc_url: Url,
-        address: Address,
-    ) -> Result<Self, RpcError<TransportError>> {
+    pub async fn try_new(rpc_url: Url, address: Address) -> Result<Self, RpcError<TransportError>> {
         let ws = WsConnect::new(rpc_url.as_str());
         let provider = ProviderBuilder::new().connect_ws(ws).await?;
         Ok(KarmaSC::new(address, provider))

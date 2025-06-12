@@ -1,11 +1,11 @@
 // third-party
+use alloy::primitives::U256;
 use alloy::{
     primitives::Address,
     providers::{ProviderBuilder, WsConnect},
     sol,
     transports::{RpcError, TransportError},
 };
-use alloy::primitives::U256;
 use async_trait::async_trait;
 use url::Url;
 // internal
@@ -27,16 +27,12 @@ sol! {
 }
 
 impl KarmaRLNSC::KarmaRLNSCInstance<AlloyWsProvider> {
-    pub async fn try_new(
-        rpc_url: Url,
-        address: Address,
-    ) -> Result<Self, RpcError<TransportError>> {
+    pub async fn try_new(rpc_url: Url, address: Address) -> Result<Self, RpcError<TransportError>> {
         let ws = WsConnect::new(rpc_url.as_str());
         let provider = ProviderBuilder::new().connect_ws(ws).await?;
         Ok(KarmaRLNSC::new(address, provider))
     }
 }
-
 
 #[async_trait]
 impl RLNRegister for KarmaRLNSC::KarmaRLNSCInstance<AlloyWsProvider> {

@@ -4,6 +4,7 @@ use std::io::Cursor;
 use ark_bn254::{Bn254, Fr};
 use ark_groth16::{Proof, ProvingKey};
 use ark_relations::r1cs::ConstraintMatrices;
+use rln::poseidon_tree::MerkleProof;
 use rln::{
     circuit::{ZKEY_BYTES, zkey::read_zkey},
     error::ProofError,
@@ -12,7 +13,6 @@ use rln::{
         RLNProofValues, generate_proof, proof_values_from_witness, rln_witness_from_values,
     },
 };
-use rln::poseidon_tree::MerkleProof;
 
 /// A RLN user identity & limit
 #[derive(Debug, Clone)]
@@ -96,9 +96,7 @@ pub fn compute_rln_proof_and_values(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rln::{
-        protocol::{compute_id_secret, keygen},
-    };
+    use rln::protocol::{compute_id_secret, keygen};
     use zerokit_utils::{OptimalMerkleTree, ZerokitMerkleTree};
 
     #[test]

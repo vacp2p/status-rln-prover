@@ -12,14 +12,16 @@ pub enum AppError {
     Tonic(#[from] tonic::transport::Error),
     #[error("Tonic reflection (grpc) error: {0}")]
     TonicReflection(#[from] tonic_reflection::server::Error),
-    #[error("SC error 1: {0}")]
-    Alloy(#[from] RpcError<RpcError<TransportErrorKind>>),
-    #[error("SC error 2: {0}")]
-    Alloy2(#[from] RpcError<TransportErrorKind>),
+    #[error("Rpc error 1: {0}")]
+    RpcError(#[from] RpcError<RpcError<TransportErrorKind>>),
+    #[error("Rpc transport error 2: {0}")]
+    RpcTransportError(#[from] RpcError<TransportErrorKind>),
     #[error("Epoch service error: {0}")]
     EpochError(#[from] WaitUntilError),
     #[error(transparent)]
     RegistryError(#[from] HandleTransferError),
+    #[error(transparent)]
+    ContractError(#[from] alloy::contract::Error),
 }
 
 #[derive(thiserror::Error, Debug)]

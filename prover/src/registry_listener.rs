@@ -131,7 +131,7 @@ mod tests {
     use alloy::primitives::address;
     use async_trait::async_trait;
     use parking_lot::RwLock;
-    // internal 
+    // internal
     use crate::epoch_service::{Epoch, EpochSlice};
     use crate::user_db_service::UserDbService;
 
@@ -152,7 +152,12 @@ mod tests {
         let epoch = Epoch::from(11);
         let epoch_slice = EpochSlice::from(42);
         let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
-        let user_db_service = UserDbService::new(Default::default(), epoch_store, 10.into());
+        let user_db_service = UserDbService::new(
+            Default::default(),
+            epoch_store,
+            10.into(),
+            Default::default(),
+        );
         let user_db = user_db_service.get_user_db();
 
         assert!(user_db_service.get_user_db().get_user(&ADDR_2).is_none());
