@@ -5,10 +5,12 @@ use alloy::{
     sol,
     transports::{RpcError, TransportError},
 };
+use async_trait::async_trait;
 use url::Url;
 // internal
-use crate::sc::AlloyWsProvider;
+use crate::AlloyWsProvider;
 
+#[async_trait]
 pub trait KarmaAmountExt {
     type Error;
 
@@ -27,16 +29,14 @@ sol! {
 }
 
 impl KarmaSC::KarmaSCInstance<AlloyWsProvider> {
-    pub(crate) async fn try_new(
-        rpc_url: Url,
-        address: Address,
-    ) -> Result<Self, RpcError<TransportError>> {
+    pub async fn try_new(rpc_url: Url, address: Address) -> Result<Self, RpcError<TransportError>> {
         let ws = WsConnect::new(rpc_url.as_str());
         let provider = ProviderBuilder::new().connect_ws(ws).await?;
         Ok(KarmaSC::new(address, provider))
     }
 }
 
+#[async_trait]
 impl KarmaAmountExt for KarmaSC::KarmaSCInstance<AlloyWsProvider> {
     type Error = alloy::contract::Error;
     async fn karma_amount(&self, address: &Address) -> Result<U256, Self::Error> {

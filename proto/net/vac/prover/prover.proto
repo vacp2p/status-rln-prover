@@ -15,7 +15,7 @@ service RlnProver {
   rpc GetProofs(RlnProofFilter) returns (stream RlnProofReply);
 
   rpc GetUserTierInfo(GetUserTierInfoRequest) returns (GetUserTierInfoReply);
-  rpc SetTierLimits(SetTierLimitsRequest) returns (SetTierLimitsReply);
+  // rpc SetTierLimits(SetTierLimitsRequest) returns (SetTierLimitsReply);
 }
 
 /*
@@ -214,6 +214,7 @@ message Tier {
   uint64 quota = 2;
 }
 
+/*
 message SetTierLimitsRequest {
   repeated U256 karmaAmounts = 1;
   repeated Tier tiers = 2;
@@ -223,3 +224,4 @@ message SetTierLimitsReply {
   bool status = 1;
   string error = 2;
 }
+*/

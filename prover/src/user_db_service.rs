@@ -1,5 +1,3 @@
-use std::collections::{BTreeMap, HashSet};
-use std::ops::Bound::Included;
 use std::ops::Deref;
 use std::sync::Arc;
 // third-party
@@ -16,9 +14,9 @@ use tracing::debug;
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::{AppError, GetMerkleTreeProofError, RegisterError};
-use crate::karma_sc::KarmaAmountExt;
-use crate::tier::{KarmaAmount, TIER_LIMITS, TierLimit, TierName};
+use crate::tier::{TierLimit, TierLimits, TierName};
 use rln_proof::{RlnUserIdentity, ZerokitMerkleTree};
+use smart_contract::{KarmaAmountExt, Tier, TierIndex};
 
 const MERKLE_TREE_HEIGHT: usize = 20;
 
@@ -45,7 +43,7 @@ impl From<RateLimit> for Fr {
 #[derive(Clone)]
 pub(crate) struct UserRegistry {
     inner: HashMap<Address, (RlnUserIdentity, MerkleTreeIndex)>,
-    tree: Arc<RwLock<PoseidonTree>>,
+    merkle_tree: Arc<RwLock<PoseidonTree>>,
     rate_limit: RateLimit,
 }
 
@@ -60,8 +58,9 @@ impl Default for UserRegistry {
         Self {
             inner: Default::default(),
             // unwrap safe - no config
-            tree: Arc::new(RwLock::new(
-                PoseidonTree::new(MERKLE_TREE_HEIGHT, Default::default(), Default::default()).unwrap(),
+            merkle_tree: Arc::new(RwLock::new(
+                PoseidonTree::new(MERKLE_TREE_HEIGHT, Default::default(), Default::default())
+                    .unwrap(),
             )),
             rate_limit: Default::default(),
         }
@@ -73,8 +72,9 @@ impl From<RateLimit> for UserRegistry {
         Self {
             inner: Default::default(),
             // unwrap safe - no config
-            tree: Arc::new(RwLock::new(
-                PoseidonTree::new(MERKLE_TREE_HEIGHT, Default::default(), Default::default()).unwrap(),
+            merkle_tree: Arc::new(RwLock::new(
+                PoseidonTree::new(MERKLE_TREE_HEIGHT, Default::default(), Default::default())
+                    .unwrap(),
             )),
             rate_limit,
         }
@@ -101,7 +101,7 @@ impl UserRegistry {
             .map_err(|_e| RegisterError::AlreadyRegistered(address));
 
         let rate_commit = poseidon_hash(&[id_commitment, Fr::from(u64::from(self.rate_limit))]);
-        self.tree
+        self.merkle_tree
             .write()
             .set(index, rate_commit)
             .map_err(|e| RegisterError::TreeError(e.to_string()))?;
@@ -122,7 +122,7 @@ impl UserRegistry {
             .get(address)
             .map(|entry| entry.1)
             .ok_or(GetMerkleTreeProofError::NotRegistered)?;
-        self.tree
+        self.merkle_tree
             .read()
             .proof(index.into())
             .map_err(|e| GetMerkleTreeProofError::TreeError(e.to_string()))
@@ -190,8 +190,8 @@ pub enum UserTierInfoError<E: std::error::Error> {
 pub struct UserDb {
     user_registry: Arc<UserRegistry>,
     tx_registry: Arc<TxRegistry>,
-    tier_limits: Arc<RwLock<BTreeMap<KarmaAmount, (TierLimit, TierName)>>>,
-    tier_limits_next: Arc<RwLock<BTreeMap<KarmaAmount, (TierLimit, TierName)>>>,
+    tier_limits: Arc<RwLock<TierLimits>>,
+    tier_limits_next: Arc<RwLock<TierLimits>>,
     epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
 }
 
@@ -209,7 +209,7 @@ impl UserDb {
         let tier_limits_next_has_updates = !self.tier_limits_next.read().is_empty();
         if tier_limits_next_has_updates {
             let mut guard = self.tier_limits_next.write();
-            // mem::take will clear the BTreeMap in tier_limits_next
+            // mem::take will clear the TierLimits in tier_limits_next
             let new_tier_limits = std::mem::take(&mut *guard);
             debug!("Installing new tier limits: {:?}", new_tier_limits);
             *self.tier_limits.write() = new_tier_limits;
@@ -231,9 +231,13 @@ impl UserDb {
         self.user_registry.get_merkle_proof(address)
     }
 
-    pub(crate) fn on_new_tx(&self, address: &Address) -> Option<EpochSliceCounter> {
+    pub(crate) fn on_new_tx(
+        &self,
+        address: &Address,
+        incr_value: Option<u64>,
+    ) -> Option<EpochSliceCounter> {
         if self.user_registry.has_user(address) {
-            Some(self.tx_registry.incr_counter(address, None))
+            Some(self.tx_registry.incr_counter(address, incr_value))
         } else {
             None
         }
@@ -241,39 +245,39 @@ impl UserDb {
 
     pub(crate) fn on_new_tier_limits(
         &self,
-        tier_limits: BTreeMap<KarmaAmount, (TierLimit, TierName)>,
+        tier_limits: TierLimits,
     ) -> Result<(), SetTierLimitsError> {
-        #[derive(Default)]
-        struct Context<'a> {
-            tier_names: HashSet<TierName>,
-            prev_karma_amount: Option<&'a KarmaAmount>,
-            prev_tier_limit: Option<&'a TierLimit>,
-            i: usize,
+        let tier_limits = tier_limits.clone().filter_inactive();
+        tier_limits.validate()?;
+        *self.tier_limits_next.write() = tier_limits;
+        Ok(())
+    }
+
+    pub(crate) fn on_new_tier(
+        &self,
+        tier_index: TierIndex,
+        tier: Tier,
+    ) -> Result<(), SetTierLimitsError> {
+        let mut tier_limits = self.tier_limits.read().clone();
+        tier_limits.insert(tier_index, tier);
+        tier_limits.validate()?;
+        // Write
+        *self.tier_limits_next.write() = tier_limits;
+        Ok(())
+    }
+
+    pub(crate) fn on_tier_updated(
+        &self,
+        tier_index: TierIndex,
+        tier: Tier,
+    ) -> Result<(), SetTierLimitsError> {
+        let mut tier_limits = self.tier_limits.read().clone();
+        if !tier_limits.contains_key(&tier_index) {
+            return Err(SetTierLimitsError::InvalidTierIndex);
         }
-
-        let _context = tier_limits.iter().try_fold(
-            Context::default(),
-            |mut state, (karma_amount, (tier_limit, tier_name))| {
-                if karma_amount <= state.prev_karma_amount.unwrap_or(&KarmaAmount::ZERO) {
-                    return Err(SetTierLimitsError::InvalidKarmaAmount);
-                }
-
-                if tier_limit <= state.prev_tier_limit.unwrap_or(&TierLimit::from(0)) {
-                    return Err(SetTierLimitsError::InvalidTierLimit);
-                }
-
-                if state.tier_names.contains(tier_name) {
-                    return Err(SetTierLimitsError::NonUniqueTierName);
-                }
-
-                state.prev_karma_amount = Some(karma_amount);
-                state.prev_tier_limit = Some(tier_limit);
-                state.tier_names.insert(tier_name.clone());
-                state.i += 1;
-                Ok(state)
-            },
-        )?;
-
+        tier_limits.entry(tier_index).and_modify(|e| *e = tier);
+        tier_limits.validate()?;
+        // Write
         *self.tier_limits_next.write() = tier_limits;
         Ok(())
     }
@@ -295,14 +299,9 @@ impl UserDb {
                 .karma_amount(address)
                 .await
                 .map_err(|e| UserTierInfoError::Contract(e))?;
-            let guard = self.tier_limits.read();
-            let range_res = guard.range((
-                Included(&KarmaAmount::ZERO),
-                Included(&KarmaAmount::from(karma_amount)),
-            ));
-            let tier_info: Option<(TierLimit, TierName)> =
-                range_res.into_iter().last().map(|o| o.1.clone());
-            drop(guard);
+            let tier_limits_guard = self.tier_limits.read();
+            let tier_info = tier_limits_guard.get_tier_by_karma(&karma_amount);
+            drop(tier_limits_guard);
 
             let user_tier_info = {
                 let (current_epoch, current_epoch_slice) = *self.epoch_store.read();
@@ -315,9 +314,10 @@ impl UserDb {
                     tier_name: None,
                     tier_limit: None,
                 };
-                if let Some((tier_limit, tier_name)) = tier_info {
-                    t.tier_name = Some(tier_name);
-                    t.tier_limit = Some(tier_limit);
+                if let Some((_tier_index, tier)) = tier_info {
+                    t.tier_name = Some(tier.name.into());
+                    // TODO
+                    t.tier_limit = Some(0.into());
                 }
                 t
             };
@@ -333,10 +333,16 @@ impl UserDb {
 pub enum SetTierLimitsError {
     #[error("Invalid Karma amount (must be increasing)")]
     InvalidKarmaAmount,
+    #[error("Invalid Karma max amount (min: {0} vs max: {1})")]
+    InvalidMaxAmount(U256, U256),
     #[error("Invalid Tier limit (must be increasing)")]
     InvalidTierLimit,
+    #[error("Invalid Tier index (must be increasing)")]
+    InvalidTierIndex,
     #[error("Non unique Tier name")]
     NonUniqueTierName,
+    #[error("Non active Tier")]
+    InactiveTier,
 }
 
 /// Async service to update a UserDb on epoch changes
@@ -351,12 +357,13 @@ impl UserDbService {
         epoch_changes_notifier: Arc<Notify>,
         epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
         rate_limit: RateLimit,
+        tier_limits: TierLimits,
     ) -> Self {
         Self {
             user_db: UserDb {
                 user_registry: Arc::new(UserRegistry::from(rate_limit)),
                 tx_registry: Default::default(),
-                tier_limits: Arc::new(RwLock::new(TIER_LIMITS.clone())),
+                tier_limits: Arc::new(RwLock::new(tier_limits)),
                 tier_limits_next: Arc::new(Default::default()),
                 epoch_store,
             },
@@ -410,6 +417,7 @@ impl UserDbService {
 mod tests {
     use super::*;
     use alloy::primitives::address;
+    use async_trait::async_trait;
     use claims::{assert_err, assert_matches};
     use derive_more::Display;
 
@@ -418,6 +426,7 @@ mod tests {
 
     struct MockKarmaSc {}
 
+    #[async_trait]
     impl KarmaAmountExt for MockKarmaSc {
         type Error = DummyError;
 
@@ -431,6 +440,7 @@ mod tests {
 
     struct MockKarmaSc2 {}
 
+    #[async_trait]
     impl KarmaAmountExt for MockKarmaSc2 {
         type Error = DummyError;
 
@@ -450,7 +460,7 @@ mod tests {
         let user_db = UserDb {
             user_registry: Default::default(),
             tx_registry: Default::default(),
-            tier_limits: Arc::new(RwLock::new(TIER_LIMITS.clone())),
+            tier_limits: Arc::new(RwLock::new(Default::default())),
             tier_limits_next: Arc::new(Default::default()),
             epoch_store: Arc::new(RwLock::new(Default::default())),
         };
@@ -467,14 +477,14 @@ mod tests {
         let user_db = UserDb {
             user_registry: Default::default(),
             tx_registry: Default::default(),
-            tier_limits: Arc::new(RwLock::new(TIER_LIMITS.clone())),
+            tier_limits: Arc::new(RwLock::new(Default::default())),
             tier_limits_next: Arc::new(Default::default()),
             epoch_store: Arc::new(RwLock::new(Default::default())),
         };
         let addr = Address::new([0; 20]);
 
         // Try to update tx counter without registering first
-        assert_eq!(user_db.on_new_tx(&addr), None);
+        assert_eq!(user_db.on_new_tx(&addr, None), None);
         let tier_info = user_db.user_tier_info(&addr, &MockKarmaSc {}).await;
         // User is not registered -> no tier info
         assert!(matches!(
@@ -484,7 +494,7 @@ mod tests {
         // Register user
         user_db.user_registry.register(addr).unwrap();
         // Now update user tx counter
-        assert_eq!(user_db.on_new_tx(&addr), Some(EpochSliceCounter(1)));
+        assert_eq!(user_db.on_new_tx(&addr, None), Some(EpochSliceCounter(1)));
         let tier_info = user_db
             .user_tier_info(&addr, &MockKarmaSc {})
             .await
@@ -498,7 +508,66 @@ mod tests {
         let mut epoch = Epoch::from(11);
         let mut epoch_slice = EpochSlice::from(42);
         let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
-        let user_db_service = UserDbService::new(Default::default(), epoch_store, 10.into());
+
+        let tier_limits = BTreeMap::from([
+            (
+                TierIndex::from(0),
+                Tier {
+                    name: "Basic".into(),
+                    min_karma: U256::from(10),
+                    max_karma: U256::from(49),
+                    tx_per_epoch: 5,
+                    active: true,
+                },
+            ),
+            (
+                TierIndex::from(1),
+                Tier {
+                    name: "Active".into(),
+                    min_karma: U256::from(50),
+                    max_karma: U256::from(99),
+                    tx_per_epoch: 10,
+                    active: true,
+                },
+            ),
+            (
+                TierIndex::from(2),
+                Tier {
+                    name: "Regular".into(),
+                    min_karma: U256::from(100),
+                    max_karma: U256::from(499),
+                    tx_per_epoch: 15,
+                    active: true,
+                },
+            ),
+            (
+                TierIndex::from(3),
+                Tier {
+                    name: "Power User".into(),
+                    min_karma: U256::from(500),
+                    max_karma: U256::from(4999),
+                    tx_per_epoch: 20,
+                    active: true,
+                },
+            ),
+            (
+                TierIndex::from(4),
+                Tier {
+                    name: "S-Tier".into(),
+                    min_karma: U256::from(5000),
+                    max_karma: U256::from(U256::MAX),
+                    tx_per_epoch: 25,
+                    active: true,
+                },
+            ),
+        ]);
+
+        let user_db_service = UserDbService::new(
+            Default::default(),
+            epoch_store,
+            10.into(),
+            tier_limits.into(),
+        );
         let user_db = user_db_service.get_user_db();
 
         let addr_1_tx_count = 2;
@@ -581,24 +650,39 @@ mod tests {
         let mut epoch = Epoch::from(11);
         let mut epoch_slice = EpochSlice::from(42);
         let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
-        let user_db_service = UserDbService::new(Default::default(), epoch_store, 10.into());
+
+        let user_db_service = UserDbService::new(
+            Default::default(),
+            epoch_store,
+            10.into(),
+            Default::default(),
+        );
         let user_db = user_db_service.get_user_db();
         let tier_limits_original = user_db.tier_limits.read().clone();
 
         let tier_limits = BTreeMap::from([
             (
-                KarmaAmount::from(100),
-                (TierLimit::from(100), TierName::from("Basic")),
+                TierIndex::from(0),
+                Tier {
+                    name: "Basic".into(),
+                    min_karma: U256::from(10),
+                    max_karma: U256::from(49),
+                    tx_per_epoch: 5,
+                    active: true,
+                },
             ),
             (
-                KarmaAmount::from(200),
-                (TierLimit::from(200), TierName::from("Power User")),
-            ),
-            (
-                KarmaAmount::from(300),
-                (TierLimit::from(300), TierName::from("Elite User")),
+                TierIndex::from(1),
+                Tier {
+                    name: "Power User".into(),
+                    min_karma: U256::from(50),
+                    max_karma: U256::from(299),
+                    tx_per_epoch: 20,
+                    active: true,
+                },
             ),
         ]);
+        let tier_limits = TierLimits::from(tier_limits);
 
         user_db.on_new_tier_limits(tier_limits.clone()).unwrap();
         // Check it is not yet installed
@@ -618,7 +702,7 @@ mod tests {
         // Should be installed now
         assert_eq!(*user_db.tier_limits.read(), tier_limits);
         // And the tier_limits_next field is expected to be empty
-        assert_eq!(*user_db.tier_limits_next.read(), BTreeMap::new());
+        assert!(user_db.tier_limits_next.read().is_empty());
     }
 
     #[test]
@@ -629,46 +713,200 @@ mod tests {
         let epoch = Epoch::from(11);
         let epoch_slice = EpochSlice::from(42);
         let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
-        let user_db_service = UserDbService::new(Default::default(), epoch_store, 10.into());
+        let user_db_service = UserDbService::new(
+            Default::default(),
+            epoch_store,
+            10.into(),
+            Default::default(),
+        );
         let user_db = user_db_service.get_user_db();
 
         let tier_limits_original = user_db.tier_limits.read().clone();
 
+        // Invalid: non unique index
         {
             let tier_limits = BTreeMap::from([
                 (
-                    KarmaAmount::from(100),
-                    (TierLimit::from(100), TierName::from("Basic")),
+                    TierIndex::from(0),
+                    Tier {
+                        min_karma: Default::default(),
+                        max_karma: Default::default(),
+                        name: "Basic".to_string(),
+                        tx_per_epoch: 100,
+                        active: true,
+                    },
                 ),
                 (
-                    KarmaAmount::from(200),
-                    (TierLimit::from(200), TierName::from("Power User")),
-                ),
-                (
-                    KarmaAmount::from(199),
-                    (TierLimit::from(300), TierName::from("Elite User")),
+                    TierIndex::from(0),
+                    Tier {
+                        min_karma: Default::default(),
+                        max_karma: Default::default(),
+                        name: "Power User".to_string(),
+                        tx_per_epoch: 200,
+                        active: true,
+                    },
                 ),
             ]);
+            let tier_limits = TierLimits::from(tier_limits);
 
             assert_err!(user_db.on_new_tier_limits(tier_limits.clone()));
             assert_eq!(*user_db.tier_limits.read(), tier_limits_original);
         }
 
+        // Invalid: min Karma amount not increasing
         {
             let tier_limits = BTreeMap::from([
                 (
-                    KarmaAmount::from(100),
-                    (TierLimit::from(100), TierName::from("Basic")),
+                    TierIndex::from(0),
+                    Tier {
+                        min_karma: U256::from(10),
+                        max_karma: U256::from(49),
+                        name: "Basic".to_string(),
+                        tx_per_epoch: 5,
+                        active: true,
+                    },
                 ),
                 (
-                    KarmaAmount::from(200),
-                    (TierLimit::from(200), TierName::from("Power User")),
+                    TierIndex::from(1),
+                    Tier {
+                        min_karma: U256::from(50),
+                        max_karma: U256::from(99),
+                        name: "Power User".to_string(),
+                        tx_per_epoch: 10,
+                        active: true,
+                    },
                 ),
                 (
-                    KarmaAmount::from(300),
-                    (TierLimit::from(300), TierName::from("Basic")),
+                    TierIndex::from(2),
+                    Tier {
+                        min_karma: U256::from(60),
+                        max_karma: U256::from(99),
+                        name: "Power User".to_string(),
+                        tx_per_epoch: 15,
+                        active: true,
+                    },
                 ),
             ]);
+            let tier_limits = TierLimits::from(tier_limits);
+
+            assert_err!(user_db.on_new_tier_limits(tier_limits.clone()));
+            assert_eq!(*user_db.tier_limits.read(), tier_limits_original);
+        }
+
+        // Invalid: Non unique tier name
+        {
+            let tier_limits = BTreeMap::from([
+                (
+                    TierIndex::from(0),
+                    Tier {
+                        min_karma: U256::from(10),
+                        max_karma: U256::from(49),
+                        name: "Basic".to_string(),
+                        tx_per_epoch: 5,
+                        active: true,
+                    },
+                ),
+                (
+                    TierIndex::from(1),
+                    Tier {
+                        min_karma: U256::from(50),
+                        max_karma: U256::from(99),
+                        name: "Power User".to_string(),
+                        tx_per_epoch: 10,
+                        active: true,
+                    },
+                ),
+                (
+                    TierIndex::from(2),
+                    Tier {
+                        min_karma: U256::from(100),
+                        max_karma: U256::from(999),
+                        name: "Power User".to_string(),
+                        tx_per_epoch: 15,
+                        active: true,
+                    },
+                ),
+            ]);
+            let tier_limits = TierLimits::from(tier_limits);
+
+            assert_err!(user_db.on_new_tier_limits(tier_limits.clone()));
+            assert_eq!(*user_db.tier_limits.read(), tier_limits_original);
+        }
+    }
+
+    #[test]
+    #[tracing_test::traced_test]
+    fn test_set_invalid_tier_limits_2() {
+        // Check we cannot update with invalid tier limits
+
+        let epoch = Epoch::from(11);
+        let epoch_slice = EpochSlice::from(42);
+        let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
+        let user_db_service = UserDbService::new(
+            Default::default(),
+            epoch_store,
+            10.into(),
+            Default::default(),
+        );
+        let user_db = user_db_service.get_user_db();
+
+        let tier_limits_original = user_db.tier_limits.read().clone();
+
+        // Invalid: inactive tier
+        {
+            let tier_limits = BTreeMap::from([
+                (
+                    TierIndex::from(0),
+                    Tier {
+                        min_karma: U256::from(10),
+                        max_karma: U256::from(49),
+                        name: "Basic".to_string(),
+                        tx_per_epoch: 5,
+                        active: true,
+                    },
+                ),
+                (
+                    TierIndex::from(1),
+                    Tier {
+                        min_karma: U256::from(50),
+                        max_karma: U256::from(99),
+                        name: "Power User".to_string(),
+                        tx_per_epoch: 10,
+                        active: true,
+                    },
+                ),
+            ]);
+            let tier_limits = TierLimits::from(tier_limits);
+
+            assert_err!(user_db.on_new_tier_limits(tier_limits.clone()));
+            assert_eq!(*user_db.tier_limits.read(), tier_limits_original);
+        }
+
+        // Invalid: non-increasing tx_per_epoch
+        {
+            let tier_limits = BTreeMap::from([
+                (
+                    TierIndex::from(0),
+                    Tier {
+                        min_karma: U256::from(10),
+                        max_karma: U256::from(49),
+                        name: "Basic".to_string(),
+                        tx_per_epoch: 5,
+                        active: true,
+                    },
+                ),
+                (
+                    TierIndex::from(1),
+                    Tier {
+                        min_karma: U256::from(50),
+                        max_karma: U256::from(99),
+                        name: "Power User".to_string(),
+                        tx_per_epoch: 5,
+                        active: true,
+                    },
+                ),
+            ]);
+            let tier_limits = TierLimits::from(tier_limits);
 
             assert_err!(user_db.on_new_tier_limits(tier_limits.clone()));
             assert_eq!(*user_db.tier_limits.read(), tier_limits_original);

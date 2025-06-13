@@ -1,5 +1,4 @@
 // std
-use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,13 +19,17 @@ use tracing::debug;
 use url::Url;
 // internal
 use crate::error::{AppError, ProofGenerationStringError, RegisterError};
-use crate::karma_sc::KarmaSC::KarmaSCInstance;
 use crate::proof_generation::{ProofGenerationData, ProofSendingData};
-use crate::rln_sc::KarmaRLNSC::KarmaRLNSCInstance;
-use crate::sc::AlloyWsProvider;
-use crate::tier::{KarmaAmount, TierLimit, TierName};
 use crate::user_db_service::{UserDb, UserTierInfo};
 use rln_proof::RlnIdentifier;
+use smart_contract::{
+    KarmaAmountExt,
+    KarmaRLNSC::KarmaRLNSCInstance,
+    KarmaSC::KarmaSCInstance,
+    MockKarmaRLNSc,
+    MockKarmaSc,
+    RLNRegister, // traits
+};
 
 pub mod prover_proto {
 
@@ -37,9 +40,19 @@ pub mod prover_proto {
         tonic::include_file_descriptor_set!("prover_descriptor");
 }
 use prover_proto::{
-    GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply, RegisterUserRequest,
-    RegistrationStatus, RlnProof, RlnProofFilter, RlnProofReply, SendTransactionReply,
-    SendTransactionRequest, SetTierLimitsReply, SetTierLimitsRequest, Tier, UserTierInfoError,
+    GetUserTierInfoReply,
+    GetUserTierInfoRequest,
+    RegisterUserReply,
+    RegisterUserRequest,
+    RegistrationStatus,
+    RlnProof,
+    RlnProofFilter,
+    RlnProofReply,
+    SendTransactionReply,
+    SendTransactionRequest,
+    // SetTierLimitsReply, SetTierLimitsRequest,
+    Tier,
+    UserTierInfoError,
     UserTierInfoResult,
     get_user_tier_info_reply::Resp,
     rln_proof_reply::Resp as GetProofsResp,
@@ -61,7 +74,7 @@ const PROVER_SERVICE_MESSAGE_ENCODING_MAX_SIZE: ByteSize = ByteSize::mib(5);
 const PROVER_TX_HASH_BYTESIZE: usize = 32;
 
 #[derive(Debug)]
-pub struct ProverService {
+pub struct ProverService<KSC: KarmaAmountExt, RLNSC: RLNRegister> {
     proof_sender: Sender<ProofGenerationData>,
     user_db: UserDb,
     rln_identifier: Arc<RlnIdentifier>,
@@ -69,12 +82,18 @@ pub struct ProverService {
         broadcast::Sender<Result<ProofSendingData, ProofGenerationStringError>>,
         broadcast::Receiver<Result<ProofSendingData, ProofGenerationStringError>>,
     ),
-    karma_sc: KarmaSCInstance<AlloyWsProvider>,
-    karma_rln_sc: KarmaRLNSCInstance<AlloyWsProvider>,
+    karma_sc: KSC,
+    karma_rln_sc: RLNSC,
 }
 
 #[tonic::async_trait]
-impl RlnProver for ProverService {
+impl<KSC, RLNSC> RlnProver for ProverService<KSC, RLNSC>
+where
+    KSC: KarmaAmountExt + Send + Sync + 'static,
+    KSC::Error: std::error::Error + Send + Sync + 'static,
+    RLNSC: RLNRegister + Send + Sync + 'static,
+    RLNSC::Error: std::error::Error + Send + Sync + 'static,
+{
     async fn send_transaction(
         &self,
         request: Request<SendTransactionRequest>,
@@ -99,7 +118,7 @@ impl RlnProver for ProverService {
         };
 
         // Update the counter as soon as possible (should help to prevent spamming...)
-        let counter = self.user_db.on_new_tx(&sender).unwrap_or_default();
+        let counter = self.user_db.on_new_tx(&sender, None).unwrap_or_default();
 
         // FIXME: hardcoded
         if req.transaction_hash.len() != PROVER_TX_HASH_BYTESIZE {
@@ -156,7 +175,6 @@ impl RlnProver for ProverService {
                 // TODO: on error, remove from user_db?
                 self.karma_rln_sc
                     .register(id_co)
-                    .call()
                     .await
                     .map_err(|e| Status::from_error(Box::new(e)))?;
 
@@ -223,13 +241,7 @@ impl RlnProver for ProverService {
             return Err(Status::invalid_argument("No user address"));
         };
 
-        let tier_info = self
-            .user_db
-            .user_tier_info::<alloy::contract::Error, KarmaSCInstance<AlloyWsProvider>>(
-                &user,
-                &self.karma_sc,
-            )
-            .await;
+        let tier_info = self.user_db.user_tier_info(&user, &self.karma_sc).await;
 
         match tier_info {
             Ok(tier_info) => Ok(Response::new(GetUserTierInfoReply {
@@ -241,6 +253,7 @@ impl RlnProver for ProverService {
         }
     }
 
+    /*
     async fn set_tier_limits(
         &self,
         request: Request<SetTierLimitsRequest>,
@@ -280,6 +293,7 @@ impl RlnProver for ProverService {
         };
         Ok(Response::new(reply))
     }
+    */
 }
 
 pub(crate) struct GrpcProverService {
@@ -291,16 +305,22 @@ pub(crate) struct GrpcProverService {
     pub addr: SocketAddr,
     pub rln_identifier: RlnIdentifier,
     pub user_db: UserDb,
-    pub karma_sc_info: (Url, Address),
-    pub rln_sc_info: (Url, Address),
+    pub karma_sc_info: Option<(Url, Address)>,
+    pub rln_sc_info: Option<(Url, Address)>,
 }
 
 impl GrpcProverService {
     pub(crate) async fn serve(&self) -> Result<(), AppError> {
-        let karma_sc =
-            KarmaSCInstance::try_new(self.karma_sc_info.0.clone(), self.karma_sc_info.1).await?;
-        let karma_rln_sc =
-            KarmaRLNSCInstance::try_new(self.rln_sc_info.0.clone(), self.rln_sc_info.1).await?;
+        let karma_sc = if let Some(karma_sc_info) = self.karma_sc_info.as_ref() {
+            KarmaSCInstance::try_new(karma_sc_info.0.clone(), karma_sc_info.1).await?
+        } else {
+            panic!("Please provide karma_sc_info or use serve_with_mock");
+        };
+        let karma_rln_sc = if let Some(rln_sc_info) = self.rln_sc_info.as_ref() {
+            KarmaRLNSCInstance::try_new(rln_sc_info.0.clone(), rln_sc_info.1).await?
+        } else {
+            panic!("Please provide rln_sc_info or use serve_with_mock");
+        };
 
         let prover_service = ProverService {
             proof_sender: self.proof_sender.clone(),
@@ -312,6 +332,67 @@ impl GrpcProverService {
             ),
             karma_sc,
             karma_rln_sc,
+        };
+
+        let reflection_service = tonic_reflection::server::Builder::configure()
+            .register_encoded_file_descriptor_set(prover_proto::FILE_DESCRIPTOR_SET)
+            .build_v1()?;
+
+        let r = RlnProverServer::new(prover_service)
+            .max_decoding_message_size(PROVER_SERVICE_MESSAGE_DECODING_MAX_SIZE.as_u64() as usize)
+            .max_encoding_message_size(PROVER_SERVICE_MESSAGE_ENCODING_MAX_SIZE.as_u64() as usize)
+            // TODO: perf?
+            //.accept_compressed(CompressionEncoding::Gzip)
+            //.send_compressed(CompressionEncoding::Gzip)
+            ;
+
+        // CORS
+        let cors = CorsLayer::new()
+            // Allow `GET`, `POST` and `OPTIONS` when accessing the resource
+            .allow_methods([
+                Method::GET,
+                // http POST && OPTIONS not required for grpc-web
+                // Method::POST,
+                // Method::OPTIONS
+            ])
+            // Allow requests from any origin
+            // FIXME: config?
+            .allow_origin(Any)
+            .allow_headers(Any);
+
+        Server::builder()
+            // service protection && limits
+            // limits: connection
+            .concurrency_limit_per_connection(PROVER_SERVICE_LIMIT_PER_CONNECTION)
+            .timeout(PROVER_SERVICE_GRPC_TIMEOUT)
+            // limits : http2
+            .max_concurrent_streams(PROVER_SERVICE_HTTP2_MAX_CONCURRENT_STREAM)
+            .max_frame_size(PROVER_SERVICE_HTTP2_MAX_FRAME_SIZE.as_u64() as u32)
+            // perf: tcp
+            .tcp_nodelay(true)
+            // http 1 layer required for GrpcWebLayer
+            .accept_http1(true)
+            // services
+            .layer(cors)
+            .layer(GrpcWebLayer::new())
+            .add_service(reflection_service)
+            .add_service(r)
+            .serve(self.addr)
+            .map_err(AppError::from)
+            .await
+    }
+
+    pub(crate) async fn serve_with_mock(&self) -> Result<(), AppError> {
+        let prover_service = ProverService {
+            proof_sender: self.proof_sender.clone(),
+            user_db: self.user_db.clone(),
+            rln_identifier: Arc::new(self.rln_identifier.clone()),
+            broadcast_channel: (
+                self.broadcast_channel.0.clone(),
+                self.broadcast_channel.0.subscribe(),
+            ),
+            karma_sc: MockKarmaSc {},
+            karma_rln_sc: MockKarmaRLNSc {},
         };
 
         let reflection_service = tonic_reflection::server::Builder::configure()
