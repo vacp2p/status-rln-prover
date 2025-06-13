@@ -85,8 +85,8 @@ impl UserRegistry {
     fn register(&self, address: Address) -> Result<Fr, RegisterError> {
         let (identity_secret_hash, id_commitment) = keygen();
         let index = self.inner.len();
-        let _ = self
-            .inner
+
+        self.inner
             .insert(
                 address,
                 (
@@ -98,7 +98,7 @@ impl UserRegistry {
                     MerkleTreeIndex(index),
                 ),
             )
-            .map_err(|_e| RegisterError::AlreadyRegistered(address));
+            .map_err(|_e| RegisterError::AlreadyRegistered(address))?;
 
         let rate_commit = poseidon_hash(&[id_commitment, Fr::from(u64::from(self.rate_limit))]);
         self.merkle_tree
@@ -416,6 +416,9 @@ impl UserDbService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // std
+    use std::collections::BTreeMap;
+    // third-party
     use alloy::primitives::address;
     use async_trait::async_trait;
     use claims::{assert_err, assert_matches};
@@ -662,7 +665,7 @@ mod tests {
 
         let tier_limits = BTreeMap::from([
             (
-                TierIndex::from(0),
+                TierIndex::from(1),
                 Tier {
                     name: "Basic".into(),
                     min_karma: U256::from(10),
@@ -672,7 +675,7 @@ mod tests {
                 },
             ),
             (
-                TierIndex::from(1),
+                TierIndex::from(2),
                 Tier {
                     name: "Power User".into(),
                     min_karma: U256::from(50),

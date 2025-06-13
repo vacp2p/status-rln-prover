@@ -1,8 +1,11 @@
-use alloy::primitives::U256;
 use std::collections::{BTreeMap, HashSet};
-use std::ops::{Deref, DerefMut};
+use std::ops::{
+    ControlFlow,
+    Deref, DerefMut
+};
 // third-party
 use derive_more::{From, Into};
+use alloy::primitives::U256;
 // internal
 use crate::user_db_service::SetTierLimitsError;
 use smart_contract::{Tier, TierIndex};
@@ -95,22 +98,28 @@ impl TierLimits {
 
     /// Given some karma amount, find the matching Tier
     pub(crate) fn get_tier_by_karma(&self, karma_amount: &U256) -> Option<(TierIndex, Tier)> {
-        #[derive(Default)]
+        
         struct Context<'a> {
             prev: Option<(&'a TierIndex, &'a Tier)>,
         }
 
+        let ctx_initial = Context { prev: None };
         let ctx = self
             .0
             .iter()
-            .try_fold(Context::default(), |mut state, (tier_index, tier)| {
+            .try_fold(ctx_initial, |mut state, (tier_index, tier)| {
                 if karma_amount < &tier.min_karma {
-                    return None;
+                    ControlFlow::Break(state)
+                } else {
+                    state.prev = Some((tier_index, tier));
+                    ControlFlow::Continue(state)
                 }
-                state.prev = Some((tier_index, tier));
-                Some(state)
-            })?;
+            });
 
-        ctx.prev.map(|p| (*p.0, p.1.clone()))
+        if let Some(ctx) = ctx.break_value() {
+            ctx.prev.map(|p| (*p.0, p.1.clone()))
+        } else {
+            None
+        }
     }
 }
