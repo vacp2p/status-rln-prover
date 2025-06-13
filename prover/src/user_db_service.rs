@@ -85,6 +85,7 @@ impl UserRegistry {
     fn register(&self, address: Address) -> Result<Fr, RegisterError> {
         let (identity_secret_hash, id_commitment) = keygen();
         let index = self.inner.len();
+
         let _ = self
             .inner
             .insert(
@@ -98,7 +99,7 @@ impl UserRegistry {
                     MerkleTreeIndex(index),
                 ),
             )
-            .map_err(|_e| RegisterError::AlreadyRegistered(address));
+            .map_err(|_e| RegisterError::AlreadyRegistered(address))?;
 
         let rate_commit = poseidon_hash(&[id_commitment, Fr::from(u64::from(self.rate_limit))]);
         self.merkle_tree
@@ -460,6 +461,7 @@ mod tests {
 
     #[test]
     fn test_user_register() {
+
         let user_db = UserDb {
             user_registry: Default::default(),
             tx_registry: Default::default(),
