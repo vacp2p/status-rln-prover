@@ -88,8 +88,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
     } else {
         // mock
-        debug!("Mock - will use tier limits: {:#?}", TIER_LIMITS);
-        TierLimits::from(TIER_LIMITS.clone())
+        let tl = TierLimits::from(TIER_LIMITS.clone());
+        debug!("Mock - will use tier limits: {:#?}", tl);
+        tl
     };
 
     tier_limits.filter_inactive();
