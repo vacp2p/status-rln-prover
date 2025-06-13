@@ -37,7 +37,6 @@ impl TiersListener {
     /// Listen to Smart Contract specified events
     pub(crate) async fn listen(&self) -> Result<(), AppError> {
         let provider = self.setup_provider_ws().await.map_err(AppError::from)?;
-        // let karma_tiers_sc = KarmaTiersSC::new(self.sc_address, provider.clone());
 
         let filter = alloy::rpc::types::Filter::new()
             .address(self.sc_address)

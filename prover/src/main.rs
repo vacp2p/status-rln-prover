@@ -36,6 +36,7 @@ use crate::grpc_service::GrpcProverService;
 use crate::mock::read_mock_user;
 use crate::proof_service::ProofService;
 use crate::registry_listener::RegistryListener;
+use crate::tier::TierLimits;
 use crate::tiers_listener::TiersListener;
 use crate::user_db_service::{RateLimit, UserDbService};
 
@@ -92,7 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         epoch_service.epoch_changes.clone(),
         epoch_service.current_epoch.clone(),
         PROVER_SPAM_LIMIT,
-        tier_limits,
+        TierLimits::from(tier_limits),
     );
 
     if app_args.mock_sc.is_some() {
@@ -114,7 +115,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Smart contract
-    // let karma_sc_address = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
     let registry_listener = if app_args.mock_sc.is_some() {
         None
     } else {

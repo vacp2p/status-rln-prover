@@ -8,10 +8,10 @@ use rln::{
     circuit::{ZKEY_BYTES, zkey::read_zkey},
     error::ProofError,
     hashers::{hash_to_field, poseidon_hash},
+    poseidon_tree::MerkleProof,
     protocol::{
         RLNProofValues, generate_proof, proof_values_from_witness, rln_witness_from_values,
     },
-    poseidon_tree::MerkleProof,
 };
 
 /// A RLN user identity & limit

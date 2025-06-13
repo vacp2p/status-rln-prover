@@ -15,7 +15,7 @@ use tracing::debug;
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::{AppError, GetMerkleTreeProofError, RegisterError};
-use crate::tier::{TierLimit, TierName};
+use crate::tier::{TierLimit, TierLimits, TierName};
 use rln_proof::{RlnUserIdentity, ZerokitMerkleTree};
 use smart_contract::{KarmaAmountExt, Tier, TierIndex};
 
@@ -191,8 +191,8 @@ pub enum UserTierInfoError<E: std::error::Error> {
 pub struct UserDb {
     user_registry: Arc<UserRegistry>,
     tx_registry: Arc<TxRegistry>,
-    tier_limits: Arc<RwLock<BTreeMap<TierIndex, Tier>>>,
-    tier_limits_next: Arc<RwLock<BTreeMap<TierIndex, Tier>>>,
+    tier_limits: Arc<RwLock<TierLimits>>,
+    tier_limits_next: Arc<RwLock<TierLimits>>,
     epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
 }
 
@@ -210,7 +210,7 @@ impl UserDb {
         let tier_limits_next_has_updates = !self.tier_limits_next.read().is_empty();
         if tier_limits_next_has_updates {
             let mut guard = self.tier_limits_next.write();
-            // mem::take will clear the BTreeMap in tier_limits_next
+            // mem::take will clear the TierLimits in tier_limits_next
             let new_tier_limits = std::mem::take(&mut *guard);
             debug!("Installing new tier limits: {:?}", new_tier_limits);
             *self.tier_limits.write() = new_tier_limits;
@@ -246,11 +246,10 @@ impl UserDb {
 
     pub(crate) fn on_new_tier_limits(
         &self,
-        tier_limits: BTreeMap<TierIndex, Tier>,
+        tier_limits: TierLimits,
     ) -> Result<(), SetTierLimitsError> {
-        // Filter non active Tier (rejected by validate_tier_limits...)
-        let tier_limits = tier_limits.into_iter().filter(|(_k, v)| v.active).collect();
-        self.validate_tier_limits(&tier_limits)?;
+        let tier_limits = tier_limits.clone().filter_inactive();
+        tier_limits.validate()?;
         *self.tier_limits_next.write() = tier_limits;
         Ok(())
     }
@@ -262,11 +261,9 @@ impl UserDb {
     ) -> Result<(), SetTierLimitsError> {
         let mut tier_limits = self.tier_limits.read().clone();
         tier_limits.insert(tier_index, tier);
-        self.validate_tier_limits(&tier_limits)?;
-
+        tier_limits.validate()?;
         // Write
         *self.tier_limits_next.write() = tier_limits;
-
         Ok(())
     }
 
@@ -276,71 +273,13 @@ impl UserDb {
         tier: Tier,
     ) -> Result<(), SetTierLimitsError> {
         let mut tier_limits = self.tier_limits.read().clone();
-
         if !tier_limits.contains_key(&tier_index) {
             return Err(SetTierLimitsError::InvalidTierIndex);
         }
-
         tier_limits.entry(tier_index).and_modify(|e| *e = tier);
-        self.validate_tier_limits(&tier_limits)?;
-
+        tier_limits.validate()?;
         // Write
         *self.tier_limits_next.write() = tier_limits;
-
-        Ok(())
-    }
-
-    fn validate_tier_limits(
-        &self,
-        tier_limits: &BTreeMap<TierIndex, Tier>,
-    ) -> Result<(), SetTierLimitsError> {
-        #[derive(Default)]
-        struct Context<'a> {
-            tier_names: HashSet<String>,
-            prev_amount: Option<&'a U256>,
-            prev_tx_per_epoch: Option<&'a u32>,
-            prev_index: Option<&'a TierIndex>,
-        }
-
-        let _context =
-            tier_limits
-                .iter()
-                .try_fold(Context::default(), |mut state, (tier_index, tier)| {
-                    if !tier.active {
-                        return Err(SetTierLimitsError::InactiveTier);
-                    }
-
-                    if *tier_index <= *state.prev_index.unwrap_or(&TierIndex::default()) {
-                        return Err(SetTierLimitsError::InvalidTierIndex);
-                    }
-
-                    if tier.min_karma >= tier.max_karma {
-                        return Err(SetTierLimitsError::InvalidMaxAmount(
-                            tier.min_karma,
-                            tier.max_karma,
-                        ));
-                    }
-
-                    if tier.min_karma <= *state.prev_amount.unwrap_or(&U256::ZERO) {
-                        return Err(SetTierLimitsError::InvalidKarmaAmount);
-                    }
-                    
-                    if tier.tx_per_epoch <= *state.prev_tx_per_epoch.unwrap_or(&0) {
-                        return Err(SetTierLimitsError::InvalidTierLimit);
-                    }
-                    
-
-                    if state.tier_names.contains(&tier.name) {
-                        return Err(SetTierLimitsError::NonUniqueTierName);
-                    }
-
-                    state.prev_amount = Some(&tier.min_karma);
-                    state.prev_tx_per_epoch = Some(&tier.tx_per_epoch);
-                    state.tier_names.insert(tier.name.clone());
-                    state.prev_index = Some(tier_index);
-                    Ok(state)
-                })?;
-
         Ok(())
     }
 
@@ -362,27 +301,7 @@ impl UserDb {
                 .await
                 .map_err(|e| UserTierInfoError::Contract(e))?;
             let tier_limits_guard = self.tier_limits.read();
-
-            // TODO: Move to a struct
-            #[derive(Default)]
-            struct Context<'a> {
-                prev: Option<(&'a TierIndex, &'a Tier)>,
-                // prev_tier: Option<&'a Tier>,
-            }
-
-            let ctx = tier_limits_guard.iter().try_fold(
-                Context::default(),
-                |mut state, (tier_index, tier)| {
-                    if karma_amount < tier.min_karma {
-                        // FIXME
-                        return Err(UserTierInfoError::NotRegistered(*address));
-                    }
-                    state.prev = Some((tier_index, tier));
-                    Ok(state)
-                },
-            )?;
-
-            let tier_info = ctx.prev.map(|p| (*p.0, p.1.clone()));
+            let tier_info = tier_limits_guard.get_tier_by_karma(&karma_amount);
             drop(tier_limits_guard);
 
             let user_tier_info = {
@@ -439,7 +358,7 @@ impl UserDbService {
         epoch_changes_notifier: Arc<Notify>,
         epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
         rate_limit: RateLimit,
-        tier_limits: BTreeMap<TierIndex, Tier>,
+        tier_limits: TierLimits,
     ) -> Self {
         Self {
             user_db: UserDb {
@@ -645,7 +564,7 @@ mod tests {
         ]);
 
         let user_db_service =
-            UserDbService::new(Default::default(), epoch_store, 10.into(), tier_limits);
+            UserDbService::new(Default::default(), epoch_store, 10.into(), tier_limits.into());
         let user_db = user_db_service.get_user_db();
 
         let addr_1_tx_count = 2;
@@ -760,6 +679,7 @@ mod tests {
                 },
             ),
         ]);
+        let tier_limits = TierLimits::from(tier_limits);
 
         user_db.on_new_tier_limits(tier_limits.clone()).unwrap();
         // Check it is not yet installed
@@ -779,7 +699,7 @@ mod tests {
         // Should be installed now
         assert_eq!(*user_db.tier_limits.read(), tier_limits);
         // And the tier_limits_next field is expected to be empty
-        assert_eq!(*user_db.tier_limits_next.read(), BTreeMap::new());
+        assert!(user_db.tier_limits_next.read().is_empty());
     }
 
     #[test]
@@ -824,6 +744,7 @@ mod tests {
                     },
                 ),
             ]);
+            let tier_limits = TierLimits::from(tier_limits);
 
             assert_err!(user_db.on_new_tier_limits(tier_limits.clone()));
             assert_eq!(*user_db.tier_limits.read(), tier_limits_original);
@@ -863,6 +784,7 @@ mod tests {
                     },
                 ),
             ]);
+            let tier_limits = TierLimits::from(tier_limits);
 
             assert_err!(user_db.on_new_tier_limits(tier_limits.clone()));
             assert_eq!(*user_db.tier_limits.read(), tier_limits_original);
@@ -902,6 +824,7 @@ mod tests {
                     },
                 ),
             ]);
+            let tier_limits = TierLimits::from(tier_limits);
 
             assert_err!(user_db.on_new_tier_limits(tier_limits.clone()));
             assert_eq!(*user_db.tier_limits.read(), tier_limits_original);
@@ -950,11 +873,12 @@ mod tests {
                     },
                 ),
             ]);
+            let tier_limits = TierLimits::from(tier_limits);
 
             assert_err!(user_db.on_new_tier_limits(tier_limits.clone()));
             assert_eq!(*user_db.tier_limits.read(), tier_limits_original);
         }
-        
+
         // Invalid: non-increasing tx_per_epoch
         {
             let tier_limits = BTreeMap::from([
@@ -979,6 +903,7 @@ mod tests {
                     },
                 ),
             ]);
+            let tier_limits = TierLimits::from(tier_limits);
 
             assert_err!(user_db.on_new_tier_limits(tier_limits.clone()));
             assert_eq!(*user_db.tier_limits.read(), tier_limits_original);
