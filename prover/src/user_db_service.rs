@@ -86,8 +86,7 @@ impl UserRegistry {
         let (identity_secret_hash, id_commitment) = keygen();
         let index = self.inner.len();
 
-        let _ = self
-            .inner
+        self.inner
             .insert(
                 address,
                 (
@@ -461,7 +460,6 @@ mod tests {
 
     #[test]
     fn test_user_register() {
-
         let user_db = UserDb {
             user_registry: Default::default(),
             tx_registry: Default::default(),

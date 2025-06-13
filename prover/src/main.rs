@@ -49,9 +49,8 @@ const PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION: U256 =
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    
     // debug!("Args: {:?}", std::env::args());
-    
+
     let filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy();
