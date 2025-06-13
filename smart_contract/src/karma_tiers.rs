@@ -14,15 +14,17 @@ sol! {
     // https://github.com/vacp2p/staking-reward-streamer/pull/224
     #[sol(rpc)]
     contract KarmaTiersSC {
+
         /// @notice Emitted when a new tier is added
-        event TierAdded(uint8 indexed tierId, string name, uint256 minKarma, uint256 maxKarma);
+        event TierAdded(uint8 indexed tierId, string name, uint256 minKarma, uint256 maxKarma, uint32 txPerEpoch);
         /// @notice Emitted when a tier is updated
-        event TierUpdated(uint8 indexed tierId, string name, uint256 minKarma, uint256 maxKarma);
+        event TierUpdated(uint8 indexed tierId, string name, uint256 minKarma, uint256 maxKarma, uint32 txPerEpoch);
 
         struct Tier {
             uint256 minKarma;
             uint256 maxKarma;
             string name;
+            uint32 txPerEpoch;
             bool active;
         }
 
@@ -64,6 +66,7 @@ pub struct Tier {
     pub min_karma: U256,
     pub max_karma: U256,
     pub name: String,
+    pub tx_per_epoch: u32,
     pub active: bool,
 }
 
@@ -73,6 +76,7 @@ impl From<KarmaTiersSC::TierAdded> for Tier {
             min_karma: tier_added.minKarma,
             max_karma: tier_added.maxKarma,
             name: tier_added.name,
+            tx_per_epoch: tier_added.txPerEpoch,
             active: true,
         }
     }
@@ -84,6 +88,7 @@ impl From<KarmaTiersSC::TierUpdated> for Tier {
             min_karma: tier_updated.minKarma,
             max_karma: tier_updated.maxKarma,
             name: tier_updated.name,
+            tx_per_epoch: tier_updated.txPerEpoch,
             active: true,
         }
     }
@@ -95,7 +100,8 @@ impl From<KarmaTiersSC::tiersReturn> for Tier {
             min_karma: tiers_return._0,
             max_karma: tiers_return._1,
             name: tiers_return._2,
-            active: tiers_return._3,
+            tx_per_epoch: tiers_return._3,
+            active: tiers_return._4,
         }
     }
 }

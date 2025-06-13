@@ -298,7 +298,7 @@ impl UserDb {
         struct Context<'a> {
             tier_names: HashSet<String>,
             prev_amount: Option<&'a U256>,
-            // prev_tier_limit: Option<&'a TierLimit>,
+            prev_tx_per_epoch: Option<&'a u32>,
             prev_index: Option<&'a TierIndex>,
         }
 
@@ -324,19 +324,18 @@ impl UserDb {
                     if tier.min_karma <= *state.prev_amount.unwrap_or(&U256::ZERO) {
                         return Err(SetTierLimitsError::InvalidKarmaAmount);
                     }
-
-                    /*
-                    if tier_limit <= state.prev_tier_limit.unwrap_or(&TierLimit::from(0)) {
+                    
+                    if tier.tx_per_epoch <= *state.prev_tx_per_epoch.unwrap_or(&0) {
                         return Err(SetTierLimitsError::InvalidTierLimit);
                     }
-                    */
+                    
 
                     if state.tier_names.contains(&tier.name) {
                         return Err(SetTierLimitsError::NonUniqueTierName);
                     }
 
                     state.prev_amount = Some(&tier.min_karma);
-                    // state.prev_tier_limit = Some(tier_limit);
+                    state.prev_tx_per_epoch = Some(&tier.tx_per_epoch);
                     state.tier_names.insert(tier.name.clone());
                     state.prev_index = Some(tier_index);
                     Ok(state)
@@ -599,6 +598,7 @@ mod tests {
                     name: "Basic".into(),
                     min_karma: U256::from(10),
                     max_karma: U256::from(49),
+                    tx_per_epoch: 5,
                     active: true,
                 },
             ),
@@ -608,6 +608,7 @@ mod tests {
                     name: "Active".into(),
                     min_karma: U256::from(50),
                     max_karma: U256::from(99),
+                    tx_per_epoch: 10,
                     active: true,
                 },
             ),
@@ -617,6 +618,7 @@ mod tests {
                     name: "Regular".into(),
                     min_karma: U256::from(100),
                     max_karma: U256::from(499),
+                    tx_per_epoch: 15,
                     active: true,
                 },
             ),
@@ -626,6 +628,7 @@ mod tests {
                     name: "Power User".into(),
                     min_karma: U256::from(500),
                     max_karma: U256::from(4999),
+                    tx_per_epoch: 20,
                     active: true,
                 },
             ),
@@ -635,6 +638,7 @@ mod tests {
                     name: "S-Tier".into(),
                     min_karma: U256::from(5000),
                     max_karma: U256::from(U256::MAX),
+                    tx_per_epoch: 25,
                     active: true,
                 },
             ),
@@ -741,6 +745,7 @@ mod tests {
                     name: "Basic".into(),
                     min_karma: U256::from(10),
                     max_karma: U256::from(49),
+                    tx_per_epoch: 5,
                     active: true,
                 },
             ),
@@ -750,6 +755,7 @@ mod tests {
                     name: "Power User".into(),
                     min_karma: U256::from(50),
                     max_karma: U256::from(299),
+                    tx_per_epoch: 20,
                     active: true,
                 },
             ),
@@ -803,9 +809,9 @@ mod tests {
                         min_karma: Default::default(),
                         max_karma: Default::default(),
                         name: "Basic".to_string(),
+                        tx_per_epoch: 100,
                         active: true,
-                    }, // KarmaAmount::from(100),
-                       // (TierLimit::from(100), TierName::from("Basic")),
+                    },
                 ),
                 (
                     TierIndex::from(0),
@@ -813,14 +819,10 @@ mod tests {
                         min_karma: Default::default(),
                         max_karma: Default::default(),
                         name: "Power User".to_string(),
+                        tx_per_epoch: 200,
                         active: true,
-                    }, // KarmaAmount::from(200),
-                       // (TierLimit::from(200), TierName::from("Power User")),
+                    },
                 ),
-                // (
-                //     KarmaAmount::from(199),
-                //     (TierLimit::from(300), TierName::from("Elite User")),
-                // ),
             ]);
 
             assert_err!(user_db.on_new_tier_limits(tier_limits.clone()));
@@ -836,6 +838,7 @@ mod tests {
                         min_karma: U256::from(10),
                         max_karma: U256::from(49),
                         name: "Basic".to_string(),
+                        tx_per_epoch: 5,
                         active: true,
                     },
                 ),
@@ -845,6 +848,7 @@ mod tests {
                         min_karma: U256::from(50),
                         max_karma: U256::from(99),
                         name: "Power User".to_string(),
+                        tx_per_epoch: 10,
                         active: true,
                     },
                 ),
@@ -854,6 +858,7 @@ mod tests {
                         min_karma: U256::from(60),
                         max_karma: U256::from(99),
                         name: "Power User".to_string(),
+                        tx_per_epoch: 15,
                         active: true,
                     },
                 ),
@@ -872,6 +877,7 @@ mod tests {
                         min_karma: U256::from(10),
                         max_karma: U256::from(49),
                         name: "Basic".to_string(),
+                        tx_per_epoch: 5,
                         active: true,
                     },
                 ),
@@ -881,6 +887,7 @@ mod tests {
                         min_karma: U256::from(50),
                         max_karma: U256::from(99),
                         name: "Power User".to_string(),
+                        tx_per_epoch: 10,
                         active: true,
                     },
                 ),
@@ -890,6 +897,7 @@ mod tests {
                         min_karma: U256::from(100),
                         max_karma: U256::from(999),
                         name: "Power User".to_string(),
+                        tx_per_epoch: 15,
                         active: true,
                     },
                 ),
@@ -918,7 +926,7 @@ mod tests {
 
         let tier_limits_original = user_db.tier_limits.read().clone();
 
-        // Invalid: non active tier
+        // Invalid: inactive tier
         {
             let tier_limits = BTreeMap::from([
                 (
@@ -927,6 +935,7 @@ mod tests {
                         min_karma: U256::from(10),
                         max_karma: U256::from(49),
                         name: "Basic".to_string(),
+                        tx_per_epoch: 5,
                         active: true,
                     },
                 ),
@@ -936,6 +945,36 @@ mod tests {
                         min_karma: U256::from(50),
                         max_karma: U256::from(99),
                         name: "Power User".to_string(),
+                        tx_per_epoch: 10,
+                        active: true,
+                    },
+                ),
+            ]);
+
+            assert_err!(user_db.on_new_tier_limits(tier_limits.clone()));
+            assert_eq!(*user_db.tier_limits.read(), tier_limits_original);
+        }
+        
+        // Invalid: non-increasing tx_per_epoch
+        {
+            let tier_limits = BTreeMap::from([
+                (
+                    TierIndex::from(0),
+                    Tier {
+                        min_karma: U256::from(10),
+                        max_karma: U256::from(49),
+                        name: "Basic".to_string(),
+                        tx_per_epoch: 5,
+                        active: true,
+                    },
+                ),
+                (
+                    TierIndex::from(1),
+                    Tier {
+                        min_karma: U256::from(50),
+                        max_karma: U256::from(99),
+                        name: "Power User".to_string(),
+                        tx_per_epoch: 5,
                         active: true,
                     },
                 ),
