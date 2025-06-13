@@ -665,7 +665,7 @@ mod tests {
 
         let tier_limits = BTreeMap::from([
             (
-                TierIndex::from(0),
+                TierIndex::from(1),
                 Tier {
                     name: "Basic".into(),
                     min_karma: U256::from(10),
@@ -675,7 +675,7 @@ mod tests {
                 },
             ),
             (
-                TierIndex::from(1),
+                TierIndex::from(2),
                 Tier {
                     name: "Power User".into(),
                     min_karma: U256::from(50),
