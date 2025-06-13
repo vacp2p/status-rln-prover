@@ -4,7 +4,7 @@ use std::ops::{Deref, DerefMut};
 // third-party
 use derive_more::{From, Into};
 // internal
-use crate::user_db_service::{SetTierLimitsError, UserTierInfoError};
+use crate::user_db_service::SetTierLimitsError;
 use smart_contract::{Tier, TierIndex};
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, From, Into)]
@@ -36,7 +36,6 @@ impl DerefMut for TierLimits {
 }
 
 impl TierLimits {
-    
     /// Filter inactive Tier (rejected by validate)
     pub(crate) fn filter_inactive(&mut self) -> Self {
         let map = std::mem::take(&mut self.0);
@@ -96,7 +95,6 @@ impl TierLimits {
 
     /// Given some karma amount, find the matching Tier
     pub(crate) fn get_tier_by_karma(&self, karma_amount: &U256) -> Option<(TierIndex, Tier)> {
-
         #[derive(Default)]
         struct Context<'a> {
             prev: Option<(&'a TierIndex, &'a Tier)>,
@@ -113,9 +111,6 @@ impl TierLimits {
                 Some(state)
             })?;
 
-        let tier_info = ctx
-            .prev
-            .map(|p| (*p.0, p.1.clone()));
-        tier_info
+        ctx.prev.map(|p| (*p.0, p.1.clone()))
     }
 }

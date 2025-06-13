@@ -82,9 +82,7 @@ pub struct ProverService<KSC: KarmaAmountExt, RLNSC: RLNRegister> {
         broadcast::Sender<Result<ProofSendingData, ProofGenerationStringError>>,
         broadcast::Receiver<Result<ProofSendingData, ProofGenerationStringError>>,
     ),
-    // karma_sc: KarmaSCInstance<AlloyWsProvider>,
     karma_sc: KSC,
-    // karma_rln_sc: KarmaRLNSCInstance<AlloyWsProvider>,
     karma_rln_sc: RLNSC,
 }
 

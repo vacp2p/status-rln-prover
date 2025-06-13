@@ -1,4 +1,3 @@
-use std::collections::{BTreeMap, HashSet};
 use std::ops::Deref;
 use std::sync::Arc;
 // third-party
@@ -563,8 +562,12 @@ mod tests {
             ),
         ]);
 
-        let user_db_service =
-            UserDbService::new(Default::default(), epoch_store, 10.into(), tier_limits.into());
+        let user_db_service = UserDbService::new(
+            Default::default(),
+            epoch_store,
+            10.into(),
+            tier_limits.into(),
+        );
         let user_db = user_db_service.get_user_db();
 
         let addr_1_tx_count = 2;

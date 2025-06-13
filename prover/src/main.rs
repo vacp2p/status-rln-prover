@@ -76,24 +76,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let epoch_service = EpochService::try_from((Duration::from_secs(60 * 2), GENESIS))
         .expect("Failed to create epoch service");
 
-    let tier_limits = if app_args.ws_rpc_url.is_some() {
-        KarmaTiersSCInstance::get_tiers(
-            app_args.ws_rpc_url.clone().unwrap(),
-            app_args.tsc_address.unwrap(),
+    let mut tier_limits = if app_args.ws_rpc_url.is_some() {
+        TierLimits::from(
+            KarmaTiersSCInstance::get_tiers(
+                app_args.ws_rpc_url.clone().unwrap(),
+                app_args.tsc_address.unwrap(),
+            )
+            .await?,
         )
-        .await?
     } else {
         // mock
         debug!("Mock - will use tier limits: {:#?}", TIER_LIMITS);
-        TIER_LIMITS.clone()
+        TierLimits::from(TIER_LIMITS.clone())
     };
+
+    tier_limits.filter_inactive();
+    tier_limits.validate()?;
 
     // User db service
     let user_db_service = UserDbService::new(
         epoch_service.epoch_changes.clone(),
         epoch_service.current_epoch.clone(),
         PROVER_SPAM_LIMIT,
-        TierLimits::from(tier_limits),
+        tier_limits,
     );
 
     if app_args.mock_sc.is_some() {
