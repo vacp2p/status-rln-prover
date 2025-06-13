@@ -316,12 +316,12 @@ impl GrpcProverService {
         let karma_sc = if let Some(karma_sc_info) = self.karma_sc_info.as_ref() {
             KarmaSCInstance::try_new(karma_sc_info.0.clone(), karma_sc_info.1).await?
         } else {
-            unimplemented!()
+            panic!("Please provide karma_sc_info or use serve_with_mock");
         };
         let karma_rln_sc = if let Some(rln_sc_info) = self.rln_sc_info.as_ref() {
             KarmaRLNSCInstance::try_new(rln_sc_info.0.clone(), rln_sc_info.1).await?
         } else {
-            unimplemented!()
+            panic!("Please provide rln_sc_info or use serve_with_mock");
         };
 
         let prover_service = ProverService {

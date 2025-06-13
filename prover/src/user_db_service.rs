@@ -193,8 +193,6 @@ pub struct UserDb {
     tx_registry: Arc<TxRegistry>,
     tier_limits: Arc<RwLock<BTreeMap<TierIndex, Tier>>>,
     tier_limits_next: Arc<RwLock<BTreeMap<TierIndex, Tier>>>,
-    // tier_limits_next: Arc<RwLock<BTreeMap<KarmaAmount, (TierLimit, TierName)>>>,
-    // tier_limits_next: Arc<RwLock<BTreeMap<KarmaAmount, (TierLimit, TierName)>>>,
     epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
 }
 

@@ -65,7 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             || app_args.ksc_address.is_none()
             || app_args.tsc_address.is_none()
         {
-            return Err("Please provide smart contract address".into());
+            return Err("Please provide smart contract addresses".into());
         }
     } else if app_args.mock_sc.is_none() {
         return Err("Please provide rpc url (--ws-rpc-url) or mock (--mock-sc)".into());
