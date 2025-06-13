@@ -416,6 +416,9 @@ impl UserDbService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // std
+    use std::collections::BTreeMap;
+    // third-party
     use alloy::primitives::address;
     use async_trait::async_trait;
     use claims::{assert_err, assert_matches};
