@@ -38,7 +38,3 @@ EXPOSE 50051
 
 # Run the prover - shell script will build arguments with parsed env var
 ENTRYPOINT ["docker-entrypoint.sh"]
-
-# Define default env variables. These will be used if not overridden during `docker run`.
-ENV SERVICE_IP="0.0.0.0" \
-    SERVICE_PORT="50051"

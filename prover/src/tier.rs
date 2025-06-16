@@ -39,13 +39,14 @@ impl DerefMut for TierLimits {
 }
 
 impl TierLimits {
-    /// Filter inactive Tier (rejected by validate)
+    /// Filter inactive Tier (rejected by function validate)
     pub(crate) fn filter_inactive(&mut self) -> Self {
         let map = std::mem::take(&mut self.0);
         let map_filtered = map.into_iter().filter(|(_k, v)| v.active).collect();
         Self(map_filtered)
     }
 
+    /// Validate tier limits (unique names, increasing min & max karma ...)
     pub(crate) fn validate(&self) -> Result<(), SetTierLimitsError> {
         #[derive(Default)]
         struct Context<'a> {

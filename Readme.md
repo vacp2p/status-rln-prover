@@ -3,7 +3,7 @@
 ## Docker
 
 * docker build --progress=plain --no-cache -t prover .
-* docker run -p 50051:50051 -e MOCK_SC="1" -e MOCK_USER="mock/mock_user_1.json" prover
+* sudo docker run -p 50051:50051 prover --mock-sc true --mock-user mock/mock_user_1.json
 
 ## Run
 
