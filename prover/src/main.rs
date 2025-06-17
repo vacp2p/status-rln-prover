@@ -10,6 +10,8 @@ mod registry_listener;
 mod tier;
 mod tiers_listener;
 mod user_db_service;
+mod user_rocksdb;
+mod rocksdb_operator;
 
 // std
 use std::net::SocketAddr;
