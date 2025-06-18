@@ -78,17 +78,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         PROVER_SPAM_LIMIT,
     );
 
-    if app_args.mock_sc.is_none() {
-       if let Some(user_filepath) = app_args.mock_user.as_ref() {
-           let mock_users = read_mock_user(user_filepath).unwrap();
-           debug!("Mock - will register {} users", mock_users.len());
-           mock_users.into_iter().for_each(|mock_user| {
-                debug!("Registering user address: {} - tx count: {}", mock_user.address, mock_user.tx_count); 
-               let user_db = user_db_service.get_user_db();
-               user_db.on_new_user(mock_user.address).unwrap();
-               user_db.on_new_tx(&mock_user.address, Some(mock_user.tx_count)).unwrap();
-           })
-       }
+    if app_args.mock_sc.is_some() {
+        if let Some(user_filepath) = app_args.mock_user.as_ref() {
+            let mock_users = read_mock_user(user_filepath).unwrap();
+            debug!("Mock - will register {} users", mock_users.len());
+            mock_users.into_iter().for_each(|mock_user| {
+                debug!(
+                    "Registering user address: {} - tx count: {}",
+                    mock_user.address, mock_user.tx_count
+                );
+                let user_db = user_db_service.get_user_db();
+                user_db.on_new_user(mock_user.address).unwrap();
+                user_db
+                    .on_new_tx(&mock_user.address, Some(mock_user.tx_count))
+                    .unwrap();
+            })
+        }
     }
 
     // Smart contract
@@ -128,9 +133,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         if app_args.ws_rpc_url.is_some() {
-
             let ws_rpc_url = app_args.ws_rpc_url.clone().unwrap();
-            service.karma_sc_info = Some((ws_rpc_url.clone(), app_args.ksc_address.clone().unwrap()));
+            service.karma_sc_info =
+                Some((ws_rpc_url.clone(), app_args.ksc_address.clone().unwrap()));
             service.rln_sc_info = Some((ws_rpc_url, app_args.rlnsc_address.clone().unwrap()));
         }
         service
