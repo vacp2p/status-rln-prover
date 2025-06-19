@@ -331,10 +331,10 @@ impl UserDb {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SetTierLimitsError {
-    #[error("Invalid Karma min amount must be greater than previous tier's max_karma)")]
+    #[error("Invalid Karma min amount must be greater than previous tier's max_karma")]
     InvalidMinKarmaAmount,
-    #[error("Invalid Karma max: max_karma ({1}) must be greater than min_karma ({0})")]
-    InvalidMaxKarmaAmount(U256, U256),
+    #[error("Invalid Karma max amount must be greater than previous tier's max_karma")]
+    InvalidMaxKarmaAmount,
     #[error("Invalid Tier limit (must be increasing)")]
     InvalidTierLimit,
     #[error("Invalid Tier index (must be increasing)")]
