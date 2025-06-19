@@ -14,7 +14,7 @@ use tracing::debug;
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::{AppError, GetMerkleTreeProofError, RegisterError};
-use crate::tier::{TierLimit, TierLimits, TierName};
+use crate::tier::{TierLimit, TierLimits, TierMatch, TierName};
 use rln_proof::{RlnUserIdentity, ZerokitMerkleTree};
 use smart_contract::{KarmaAmountExt, Tier, TierIndex};
 
@@ -300,7 +300,7 @@ impl UserDb {
                 .await
                 .map_err(|e| UserTierInfoError::Contract(e))?;
             let tier_limits_guard = self.tier_limits.read();
-            let tier_info = tier_limits_guard.get_tier_by_karma(&karma_amount);
+            let tier_match = tier_limits_guard.get_tier_by_karma(&karma_amount);
             drop(tier_limits_guard);
 
             let user_tier_info = {
@@ -314,7 +314,7 @@ impl UserDb {
                     tier_name: None,
                     tier_limit: None,
                 };
-                if let Some((_tier_index, tier)) = tier_info {
+                if let TierMatch::MatchedTier(_tier_index, tier) = tier_match {
                     t.tier_name = Some(tier.name.into());
                     // TODO
                     t.tier_limit = Some(0.into());
