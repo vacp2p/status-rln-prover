@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
-use std::ops::{ControlFlow, Deref, DerefMut};
-use std::ops::{ControlFlow, Deref, DerefMut};
+use std::ops::{Deref, DerefMut};
 // third-party
 use alloy::primitives::U256;
 use alloy::primitives::U256;
@@ -35,6 +34,21 @@ impl DerefMut for TierLimits {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TierMatch {
+    /// Karma is above the highest defined tier; returns the highest tier.
+    AboveHighestTier(TierIndex, Tier),
+
+    /// Karma is below the lowest defined tier; returns the lowest tier.
+    UnderLowestTier(TierIndex, Tier),
+
+    /// Karma matches a defined tier range.
+    MatchedTier(TierIndex, Tier),
+
+    /// No active tiers are available.
+    NoActiveTiers,
 }
 
 impl TierLimits {
@@ -95,32 +109,36 @@ impl TierLimits {
         Ok(())
     }
 
-    /// Given some karma amount, find the matching Tier
-    pub(crate) fn get_tier_by_karma(&self, karma_amount: &U256) -> Option<(TierIndex, Tier)> {
-        struct Context<'a> {
-            prev: Option<(&'a TierIndex, &'a Tier)>,
+    /// Given a karma amount, find the matching Tier or return closest relevant info.
+    pub(crate) fn get_tier_by_karma(&self, karma_amount: &U256) -> TierMatch {
+        let active_tiers: Vec<_> = self.0.iter().filter(|(_, tier)| tier.active).collect();
+
+        if active_tiers.is_empty() {
+            return TierMatch::NoActiveTiers;
         }
 
-        let ctx_initial = Context { prev: None };
-        let ctx = self
-            .0
-            .iter()
-            .try_fold(ctx_initial, |mut state, (tier_index, tier)| {
-                if !tier.active {
-                    ControlFlow::Continue(state)
-                } else if karma_amount < &tier.min_karma {
-                    ControlFlow::Break(state)
-                } else {
-                    state.prev = Some((tier_index, tier));
-                    ControlFlow::Continue(state)
-                }
-            });
-
-        match ctx {
-            ControlFlow::Break(state) | ControlFlow::Continue(state) => {
-                state.prev.map(|p| (*p.0, p.1.clone()))
+        if let Some((first_index, first_tier)) = active_tiers.first().copied() {
+            if karma_amount < &first_tier.min_karma {
+                return TierMatch::UnderLowestTier(*first_index, first_tier.clone());
             }
         }
+
+        let mut highest_qualifying_tier = None;
+
+        for (tier_index, tier) in active_tiers {
+            if karma_amount >= &tier.min_karma {
+                if karma_amount <= &tier.max_karma {
+                    return TierMatch::MatchedTier(*tier_index, tier.clone());
+                }
+                highest_qualifying_tier = Some((*tier_index, tier.clone()));
+            } else {
+                break;
+            }
+        }
+
+        let (index, tier) =
+            highest_qualifying_tier.expect("at least one tier must qualify or match");
+        TierMatch::AboveHighestTier(index, tier)
     }
 }
 
@@ -129,13 +147,6 @@ mod tier_limits_tests {
     use super::*;
     use alloy::primitives::U256;
     use std::collections::BTreeMap;
-
-    #[test]
-    fn test_validate_with_empty_tier_limits() {
-        let tier_limits = TierLimits::default();
-
-        assert!(tier_limits.validate().is_ok());
-    }
 
     #[test]
     fn test_filter_inactive_removes_inactive_tiers() {
@@ -506,6 +517,17 @@ mod tier_limits_tests {
     }
 
     #[test]
+    fn test_validate_and_get_tier_by_karma_with_empty_tier_limits() {
+        let tier_limits = TierLimits::default();
+
+        assert!(tier_limits.validate().is_ok());
+
+        let result = tier_limits.get_tier_by_karma(&U256::ZERO);
+
+        assert_eq!(result, TierMatch::NoActiveTiers);
+    }
+
+    #[test]
     fn test_get_tier_by_karma_bounds_and_ranges() {
         let mut map = BTreeMap::new();
         map.insert(
@@ -542,39 +564,66 @@ mod tier_limits_tests {
 
         // Case 1: Zero karma
         let result = tier_limits.get_tier_by_karma(&U256::ZERO);
-        assert!(result.is_none());
+        if let TierMatch::UnderLowestTier(index, tier) = result {
+            assert_eq!(index, TierIndex::from(0));
+            assert_eq!(tier.name, "Basic");
+        } else {
+            panic!("Expected UnderLowestTier, got {:?}", result);
+        }
 
         // Case 2: Karma below all tiers
         let result = tier_limits.get_tier_by_karma(&U256::from(5));
-        assert!(result.is_none());
+        if let TierMatch::UnderLowestTier(index, tier) = result {
+            assert_eq!(index, TierIndex::from(0));
+            assert_eq!(tier.name, "Basic");
+        } else {
+            panic!("Expected UnderLowestTier, got {:?}", result);
+        }
 
-        // Case 3: Exact match on min_karma
+        // Case 3: Exact match on min_karma (start of first tier)
         let result = tier_limits.get_tier_by_karma(&U256::from(10));
-        assert!(result.is_some());
-        let (index, tier) = result.unwrap();
-        assert_eq!(index, TierIndex::from(0));
-        assert_eq!(tier.name, "Basic");
+        if let TierMatch::MatchedTier(index, tier) = result {
+            assert_eq!(index, TierIndex::from(0));
+            assert_eq!(tier.name, "Basic");
+        } else {
+            panic!("Expected MatchedTier, got {:?}", result);
+        }
 
-        // Case 4: Karma within a tier range
-        let result = tier_limits.get_tier_by_karma(&U256::from(250));
-        assert!(result.is_some());
-        let (index, tier) = result.unwrap();
-        assert_eq!(index, TierIndex::from(2));
-        assert_eq!(tier.name, "Regular");
-
-        // Case 5: Exact match on a tier boundary (start of second tier)
+        // Case 4: Exact match on a tier boundary (start of second tier)
         let result = tier_limits.get_tier_by_karma(&U256::from(50));
-        assert!(result.is_some());
-        let (index, tier) = result.unwrap();
-        assert_eq!(index, TierIndex::from(1));
-        assert_eq!(tier.name, "Active");
+        if let TierMatch::MatchedTier(index, tier) = result {
+            assert_eq!(index, TierIndex::from(1));
+            assert_eq!(tier.name, "Active");
+        } else {
+            panic!("Expected MatchedTier, got {:?}", result);
+        }
 
-        // Case 6: Karma above all tiers
+        // Case 5: Karma within a tier range (between third tier)
+        let result = tier_limits.get_tier_by_karma(&U256::from(250));
+        if let TierMatch::MatchedTier(index, tier) = result {
+            assert_eq!(index, TierIndex::from(2));
+            assert_eq!(tier.name, "Regular");
+        } else {
+            panic!("Expected MatchedTier, got {:?}", result);
+        }
+
+        // Case 6: Exact match on max_karma (end of the third tier)
+        let result = tier_limits.get_tier_by_karma(&U256::from(499));
+        if let TierMatch::MatchedTier(index, tier) = result {
+            assert_eq!(index, TierIndex::from(2));
+            assert_eq!(tier.name, "Regular");
+        } else {
+            panic!("Expected MatchedTier, got {:?}", result);
+        }
+
+        // Case 7: Karma above all tiers
         let result = tier_limits.get_tier_by_karma(&U256::from(1000));
-        assert!(result.is_some());
-        let (index, tier) = result.unwrap();
-        assert_eq!(index, TierIndex::from(2));
-        assert_eq!(tier.name, "Regular");
+        if let TierMatch::AboveHighestTier(index, tier) = result {
+            assert_eq!(index, TierIndex::from(2));
+            assert_eq!(tier.name, "Regular");
+        } else {
+            panic!("Expected AboveHighestTier, got {:?}", result);
+        }
     }
 
     #[test]
@@ -604,6 +653,11 @@ mod tier_limits_tests {
 
         let result = tier_limits.get_tier_by_karma(&U256::from(25));
 
-        assert!(result.is_none());
+        if let TierMatch::UnderLowestTier(index, tier) = result {
+            assert_eq!(index, TierIndex::from(1));
+            assert_eq!(tier.name, "Active");
+        } else {
+            panic!("Expected UnderLowestTier, got {:?}", result);
+        }
     }
 }
