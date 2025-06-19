@@ -53,49 +53,47 @@ impl TierLimits {
             prev_min_karma: Option<&'a U256>,
             prev_max_karma: Option<&'a U256>,
             prev_tx_per_epoch: Option<&'a u32>,
-            prev_index: Option<&'a TierIndex>,
         }
 
-        let _context =
-            self.0
-                .iter()
-                .try_fold(Context::default(), |mut state, (tier_index, tier)| {
-                    if !tier.active {
-                        return Err(SetTierLimitsError::InactiveTier);
-                    }
+        let _context = self
+            .0
+            .iter()
+            .try_fold(Context::default(), |mut state, (_, tier)| {
+                if !tier.active {
+                    return Err(SetTierLimitsError::InactiveTier);
+                }
 
-                    if tier.min_karma >= tier.max_karma {
-                        return Err(SetTierLimitsError::InvalidMaxKarmaAmount(
-                            tier.min_karma,
-                            tier.max_karma,
-                        ));
-                    }
+                if tier.min_karma >= tier.max_karma {
+                    return Err(SetTierLimitsError::InvalidMaxKarmaAmount(
+                        tier.min_karma,
+                        tier.max_karma,
+                    ));
+                }
 
-                    if tier.min_karma <= *state.prev_min_karma.unwrap_or(&U256::ZERO) {
+                if tier.min_karma <= *state.prev_min_karma.unwrap_or(&U256::ZERO) {
+                    return Err(SetTierLimitsError::InvalidMinKarmaAmount);
+                }
+
+                if let Some(prev_max) = state.prev_max_karma {
+                    if tier.min_karma <= *prev_max {
                         return Err(SetTierLimitsError::InvalidMinKarmaAmount);
                     }
+                }
 
-                    if let Some(prev_max) = state.prev_max_karma {
-                        if tier.min_karma <= *prev_max {
-                            return Err(SetTierLimitsError::InvalidMinKarmaAmount);
-                        }
-                    }
+                if tier.tx_per_epoch <= *state.prev_tx_per_epoch.unwrap_or(&0) {
+                    return Err(SetTierLimitsError::InvalidTierLimit);
+                }
 
-                    if tier.tx_per_epoch <= *state.prev_tx_per_epoch.unwrap_or(&0) {
-                        return Err(ValidateTierLimitsError::InvalidTierLimit);
-                    }
+                if state.tier_names.contains(&tier.name) {
+                    return Err(SetTierLimitsError::NonUniqueTierName);
+                }
 
-                    if state.tier_names.contains(&tier.name) {
-                        return Err(ValidateTierLimitsError::NonUniqueTierName);
-                    }
-
-                    state.prev_min_karma = Some(&tier.min_karma);
-                    state.prev_max_karma = Some(&tier.max_karma);
-                    state.prev_tx_per_epoch = Some(&tier.tx_per_epoch);
-                    state.tier_names.insert(tier.name.clone());
-                    state.prev_index = Some(tier_index);
-                    Ok(state)
-                })?;
+                state.prev_min_karma = Some(&tier.min_karma);
+                state.prev_max_karma = Some(&tier.max_karma);
+                state.prev_tx_per_epoch = Some(&tier.tx_per_epoch);
+                state.tier_names.insert(tier.name.clone());
+                Ok(state)
+            })?;
 
         Ok(())
     }
