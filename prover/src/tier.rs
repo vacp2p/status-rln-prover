@@ -1,11 +1,8 @@
 use std::collections::{BTreeMap, HashSet};
-use std::ops::{
-    ControlFlow,
-    Deref, DerefMut
-};
+use std::ops::{Deref, DerefMut};
 // third-party
-use derive_more::{From, Into};
 use alloy::primitives::U256;
+use derive_more::{From, Into};
 // internal
 use crate::user_db_service::SetTierLimitsError;
 use smart_contract::{Tier, TierIndex};
@@ -38,6 +35,21 @@ impl DerefMut for TierLimits {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum TierMatch {
+    /// Karma is above the highest defined tier; returns the highest tier.
+    AboveHighestTier(TierIndex, Tier),
+
+    /// Karma is below the lowest defined tier; returns the lowest tier.
+    UnderLowestTier(TierIndex, Tier),
+
+    /// Karma matches a defined tier range.
+    MatchedTier(TierIndex, Tier),
+
+    /// No active tiers are available.
+    NoActiveTiers,
+}
+
 impl TierLimits {
     /// Filter inactive Tier (rejected by function validate)
     pub(crate) fn filter_inactive(&mut self) -> Self {
@@ -46,81 +58,605 @@ impl TierLimits {
         Self(map_filtered)
     }
 
-    /// Validate tier limits (unique names, increasing min & max karma ...)
+    /// Validate tier limits (unique names, increasing min & max karma, no overlaps)
     pub(crate) fn validate(&self) -> Result<(), SetTierLimitsError> {
         #[derive(Default)]
         struct Context<'a> {
             tier_names: HashSet<String>,
-            prev_amount: Option<&'a U256>,
+            prev_min_karma: Option<&'a U256>,
+            prev_max_karma: Option<&'a U256>,
             prev_tx_per_epoch: Option<&'a u32>,
-            prev_index: Option<&'a TierIndex>,
         }
 
-        let _context =
-            self.0
-                .iter()
-                .try_fold(Context::default(), |mut state, (tier_index, tier)| {
-                    if !tier.active {
-                        return Err(SetTierLimitsError::InactiveTier);
-                    }
+        let _context = self
+            .0
+            .iter()
+            .try_fold(Context::default(), |mut state, (_, tier)| {
+                if !tier.active {
+                    return Err(SetTierLimitsError::InactiveTier);
+                }
 
-                    if *tier_index <= *state.prev_index.unwrap_or(&TierIndex::default()) {
-                        return Err(SetTierLimitsError::InvalidTierIndex);
-                    }
+                if tier.min_karma >= tier.max_karma {
+                    return Err(SetTierLimitsError::InvalidMaxKarmaAmount);
+                }
 
-                    if tier.min_karma >= tier.max_karma {
-                        return Err(SetTierLimitsError::InvalidMaxAmount(
-                            tier.min_karma,
-                            tier.max_karma,
-                        ));
-                    }
+                if tier.min_karma <= *state.prev_min_karma.unwrap_or(&U256::ZERO) {
+                    return Err(SetTierLimitsError::InvalidMinKarmaAmount);
+                }
 
-                    if tier.min_karma <= *state.prev_amount.unwrap_or(&U256::ZERO) {
-                        return Err(SetTierLimitsError::InvalidKarmaAmount);
+                if let Some(prev_max) = state.prev_max_karma {
+                    if tier.min_karma <= *prev_max {
+                        return Err(SetTierLimitsError::InvalidMinKarmaAmount);
                     }
+                }
 
-                    if tier.tx_per_epoch <= *state.prev_tx_per_epoch.unwrap_or(&0) {
-                        return Err(SetTierLimitsError::InvalidTierLimit);
-                    }
+                if tier.tx_per_epoch <= *state.prev_tx_per_epoch.unwrap_or(&0) {
+                    return Err(SetTierLimitsError::InvalidTierLimit);
+                }
 
-                    if state.tier_names.contains(&tier.name) {
-                        return Err(SetTierLimitsError::NonUniqueTierName);
-                    }
+                if state.tier_names.contains(&tier.name) {
+                    return Err(SetTierLimitsError::NonUniqueTierName);
+                }
 
-                    state.prev_amount = Some(&tier.min_karma);
-                    state.prev_tx_per_epoch = Some(&tier.tx_per_epoch);
-                    state.tier_names.insert(tier.name.clone());
-                    state.prev_index = Some(tier_index);
-                    Ok(state)
-                })?;
+                state.prev_min_karma = Some(&tier.min_karma);
+                state.prev_max_karma = Some(&tier.max_karma);
+                state.prev_tx_per_epoch = Some(&tier.tx_per_epoch);
+                state.tier_names.insert(tier.name.clone());
+                Ok(state)
+            })?;
 
         Ok(())
     }
 
-    /// Given some karma amount, find the matching Tier
-    pub(crate) fn get_tier_by_karma(&self, karma_amount: &U256) -> Option<(TierIndex, Tier)> {
-        
-        struct Context<'a> {
-            prev: Option<(&'a TierIndex, &'a Tier)>,
+    /// Given a karma amount, find the matching Tier or return closest relevant info.
+    pub(crate) fn get_tier_by_karma(&self, karma_amount: &U256) -> TierMatch {
+        let active_tiers: Vec<_> = self.0.iter().filter(|(_, tier)| tier.active).collect();
+
+        if active_tiers.is_empty() {
+            return TierMatch::NoActiveTiers;
         }
 
-        let ctx_initial = Context { prev: None };
-        let ctx = self
-            .0
-            .iter()
-            .try_fold(ctx_initial, |mut state, (tier_index, tier)| {
-                if karma_amount < &tier.min_karma {
-                    ControlFlow::Break(state)
-                } else {
-                    state.prev = Some((tier_index, tier));
-                    ControlFlow::Continue(state)
-                }
-            });
+        if let Some((first_index, first_tier)) = active_tiers.first().copied() {
+            if karma_amount < &first_tier.min_karma {
+                return TierMatch::UnderLowestTier(*first_index, first_tier.clone());
+            }
+        }
 
-        if let Some(ctx) = ctx.break_value() {
-            ctx.prev.map(|p| (*p.0, p.1.clone()))
+        let mut highest_qualifying_tier = None;
+
+        for (tier_index, tier) in active_tiers {
+            if karma_amount >= &tier.min_karma {
+                if karma_amount <= &tier.max_karma {
+                    return TierMatch::MatchedTier(*tier_index, tier.clone());
+                }
+                highest_qualifying_tier = Some((*tier_index, tier.clone()));
+            } else {
+                break;
+            }
+        }
+
+        let (index, tier) =
+            highest_qualifying_tier.expect("at least one tier must qualify or match");
+        TierMatch::AboveHighestTier(index, tier)
+    }
+}
+
+#[cfg(test)]
+mod tier_limits_tests {
+    use super::*;
+    use alloy::primitives::U256;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn test_filter_inactive_removes_inactive_tiers() {
+        let mut map = BTreeMap::new();
+        map.insert(
+            TierIndex::from(0),
+            Tier {
+                name: "Basic".to_string(),
+                min_karma: U256::from(10),
+                max_karma: U256::from(49),
+                tx_per_epoch: 6,
+                active: true,
+            },
+        );
+        map.insert(
+            TierIndex::from(1),
+            Tier {
+                name: "Active".to_string(),
+                min_karma: U256::from(50),
+                max_karma: U256::from(99),
+                tx_per_epoch: 120,
+                active: true,
+            },
+        );
+        map.insert(
+            TierIndex::from(2),
+            Tier {
+                name: "Power User".to_string(),
+                min_karma: U256::from(500),
+                max_karma: U256::from(999),
+                tx_per_epoch: 86400,
+                active: false,
+            },
+        );
+        let mut tier_limits = TierLimits::from(map);
+
+        let filtered = tier_limits.filter_inactive();
+
+        assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
+    fn test_validate_success_with_valid_tiers() {
+        let mut map = BTreeMap::new();
+        map.insert(
+            TierIndex::from(0),
+            Tier {
+                name: "Basic".to_string(),
+                min_karma: U256::from(10),
+                max_karma: U256::from(49),
+                tx_per_epoch: 6,
+                active: true,
+            },
+        );
+        map.insert(
+            TierIndex::from(1),
+            Tier {
+                name: "Active".to_string(),
+                min_karma: U256::from(50),
+                max_karma: U256::from(99),
+                tx_per_epoch: 120,
+                active: true,
+            },
+        );
+        map.insert(
+            TierIndex::from(2),
+            Tier {
+                name: "Regular".to_string(),
+                min_karma: U256::from(100),
+                max_karma: U256::from(499),
+                tx_per_epoch: 720,
+                active: true,
+            },
+        );
+        let tier_limits = TierLimits::from(map);
+
+        assert!(tier_limits.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_fails_with_inactive_tier() {
+        let mut map = BTreeMap::new();
+        map.insert(
+            TierIndex::from(0),
+            Tier {
+                name: "Basic".to_string(),
+                min_karma: U256::from(10),
+                max_karma: U256::from(49),
+                tx_per_epoch: 6,
+                active: true,
+            },
+        );
+        map.insert(
+            TierIndex::from(1),
+            Tier {
+                name: "Active".to_string(),
+                min_karma: U256::from(50),
+                max_karma: U256::from(99),
+                tx_per_epoch: 120,
+                active: false,
+            },
+        );
+        let tier_limits = TierLimits::from(map);
+
+        assert!(matches!(
+            tier_limits.validate(),
+            Err(SetTierLimitsError::InactiveTier)
+        ));
+    }
+
+    #[test]
+    fn test_validate_with_non_sequential_tier_indices() {
+        let mut map = BTreeMap::new();
+        map.insert(
+            TierIndex::from(1),
+            Tier {
+                name: "Basic".to_string(),
+                min_karma: U256::from(10),
+                max_karma: U256::from(49),
+                tx_per_epoch: 6,
+                active: true,
+            },
+        );
+        map.insert(
+            TierIndex::from(3),
+            Tier {
+                name: "Active".to_string(),
+                min_karma: U256::from(50),
+                max_karma: U256::from(99),
+                tx_per_epoch: 120,
+                active: true,
+            },
+        );
+        map.insert(
+            TierIndex::from(7),
+            Tier {
+                name: "Regular".to_string(),
+                min_karma: U256::from(100),
+                max_karma: U256::from(499),
+                tx_per_epoch: 720,
+                active: true,
+            },
+        );
+        let tier_limits = TierLimits::from(map);
+
+        assert!(tier_limits.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_failed_when_karma_overlapping_between_tier() {
+        let mut map = BTreeMap::new();
+        map.insert(
+            TierIndex::from(0),
+            Tier {
+                name: "Basic".to_string(),
+                min_karma: U256::from(10),
+                max_karma: U256::from(100),
+                tx_per_epoch: 6,
+                active: true,
+            },
+        );
+        map.insert(
+            TierIndex::from(1),
+            Tier {
+                name: "Active".to_string(),
+                min_karma: U256::from(50),
+                max_karma: U256::from(150),
+                tx_per_epoch: 120,
+                active: true,
+            },
+        );
+        let tier_limits = TierLimits::from(map);
+
+        assert!(matches!(
+            tier_limits.validate(),
+            Err(SetTierLimitsError::InvalidMinKarmaAmount)
+        ));
+    }
+
+    #[test]
+    fn test_validate_fails_when_min_karma_equal_or_greater_max_karma() {
+        let mut tier_limits = TierLimits::default();
+        tier_limits.insert(
+            TierIndex::from(0),
+            Tier {
+                name: "Basic".to_string(),
+                min_karma: U256::from(100),
+                max_karma: U256::from(100),
+                tx_per_epoch: 6,
+                active: true,
+            },
+        );
+
+        assert!(matches!(
+            tier_limits.validate(),
+            Err(SetTierLimitsError::InvalidMaxKarmaAmount)
+        ));
+
+        let mut tier_limits = TierLimits::default();
+        tier_limits.insert(
+            TierIndex::from(0),
+            Tier {
+                name: "Basic".to_string(),
+                min_karma: U256::from(500),
+                max_karma: U256::from(100),
+                tx_per_epoch: 6,
+                active: true,
+            },
+        );
+
+        assert!(matches!(
+            tier_limits.validate(),
+            Err(SetTierLimitsError::InvalidMaxKarmaAmount)
+        ));
+    }
+
+    #[test]
+    fn test_validate_fails_with_non_increasing_or_decreasing_min_karma() {
+        // Case 1: Duplicate min_karma values
+        let mut map = BTreeMap::new();
+        map.insert(
+            TierIndex::from(0),
+            Tier {
+                name: "Basic".to_string(),
+                min_karma: U256::from(10),
+                max_karma: U256::from(49),
+                tx_per_epoch: 6,
+                active: true,
+            },
+        );
+        map.insert(
+            TierIndex::from(1),
+            Tier {
+                name: "Active".to_string(),
+                min_karma: U256::from(10),
+                max_karma: U256::from(99),
+                tx_per_epoch: 120,
+                active: true,
+            },
+        );
+        let tier_limits = TierLimits::from(map);
+
+        assert!(matches!(
+            tier_limits.validate(),
+            Err(SetTierLimitsError::InvalidMinKarmaAmount)
+        ));
+
+        // Case 2: Decreasing min_karma values
+        let mut map = BTreeMap::new();
+        map.insert(
+            TierIndex::from(0),
+            Tier {
+                name: "Basic".to_string(),
+                min_karma: U256::from(50),
+                max_karma: U256::from(99),
+                tx_per_epoch: 6,
+                active: true,
+            },
+        );
+        map.insert(
+            TierIndex::from(1),
+            Tier {
+                name: "Active".to_string(),
+                min_karma: U256::from(10),
+                max_karma: U256::from(49),
+                tx_per_epoch: 120,
+                active: true,
+            },
+        );
+        let tier_limits = TierLimits::from(map);
+
+        assert!(matches!(
+            tier_limits.validate(),
+            Err(SetTierLimitsError::InvalidMinKarmaAmount)
+        ));
+    }
+
+    #[test]
+    fn test_validate_fails_with_non_increasing_or_decreasing_tx_per_epoch() {
+        // Case 1: Duplicate tx_per_epoch values
+        let mut map = BTreeMap::new();
+        map.insert(
+            TierIndex::from(0),
+            Tier {
+                name: "Basic".to_string(),
+                min_karma: U256::from(10),
+                max_karma: U256::from(49),
+                tx_per_epoch: 120,
+                active: true,
+            },
+        );
+        map.insert(
+            TierIndex::from(1),
+            Tier {
+                name: "Active".to_string(),
+                min_karma: U256::from(50),
+                max_karma: U256::from(99),
+                tx_per_epoch: 120,
+                active: true,
+            },
+        );
+        let tier_limits = TierLimits::from(map);
+
+        assert!(matches!(
+            tier_limits.validate(),
+            Err(SetTierLimitsError::InvalidTierLimit)
+        ));
+
+        // Case 2: Decreasing tx_per_epoch values
+        let mut map = BTreeMap::new();
+        map.insert(
+            TierIndex::from(0),
+            Tier {
+                name: "Basic".to_string(),
+                min_karma: U256::from(10),
+                max_karma: U256::from(49),
+                tx_per_epoch: 120,
+                active: true,
+            },
+        );
+        map.insert(
+            TierIndex::from(1),
+            Tier {
+                name: "Active".to_string(),
+                min_karma: U256::from(50),
+                max_karma: U256::from(99),
+                tx_per_epoch: 6,
+                active: true,
+            },
+        );
+        let tier_limits = TierLimits::from(map);
+
+        assert!(matches!(
+            tier_limits.validate(),
+            Err(SetTierLimitsError::InvalidTierLimit)
+        ));
+    }
+
+    #[test]
+    fn test_validate_fails_with_duplicate_tier_names() {
+        let mut map = BTreeMap::new();
+        map.insert(
+            TierIndex::from(0),
+            Tier {
+                name: "Basic".to_string(),
+                min_karma: U256::from(10),
+                max_karma: U256::from(49),
+                tx_per_epoch: 6,
+                active: true,
+            },
+        );
+        map.insert(
+            TierIndex::from(1),
+            Tier {
+                name: "Basic".to_string(),
+                min_karma: U256::from(50),
+                max_karma: U256::from(99),
+                tx_per_epoch: 120,
+                active: true,
+            },
+        );
+        let tier_limits = TierLimits::from(map);
+
+        assert!(matches!(
+            tier_limits.validate(),
+            Err(SetTierLimitsError::NonUniqueTierName)
+        ));
+    }
+
+    #[test]
+    fn test_validate_and_get_tier_by_karma_with_empty_tier_limits() {
+        let tier_limits = TierLimits::default();
+
+        assert!(tier_limits.validate().is_ok());
+
+        let result = tier_limits.get_tier_by_karma(&U256::ZERO);
+
+        assert_eq!(result, TierMatch::NoActiveTiers);
+    }
+
+    #[test]
+    fn test_get_tier_by_karma_bounds_and_ranges() {
+        let mut map = BTreeMap::new();
+        map.insert(
+            TierIndex::from(0),
+            Tier {
+                name: "Basic".to_string(),
+                min_karma: U256::from(10),
+                max_karma: U256::from(49),
+                tx_per_epoch: 6,
+                active: true,
+            },
+        );
+        map.insert(
+            TierIndex::from(1),
+            Tier {
+                name: "Active".to_string(),
+                min_karma: U256::from(50),
+                max_karma: U256::from(99),
+                tx_per_epoch: 120,
+                active: true,
+            },
+        );
+        map.insert(
+            TierIndex::from(2),
+            Tier {
+                name: "Regular".to_string(),
+                min_karma: U256::from(100),
+                max_karma: U256::from(499),
+                tx_per_epoch: 720,
+                active: true,
+            },
+        );
+        let tier_limits = TierLimits::from(map);
+
+        // Case 1: Zero karma
+        let result = tier_limits.get_tier_by_karma(&U256::ZERO);
+        if let TierMatch::UnderLowestTier(index, tier) = result {
+            assert_eq!(index, TierIndex::from(0));
+            assert_eq!(tier.name, "Basic");
         } else {
-            None
+            panic!("Expected UnderLowestTier, got {:?}", result);
+        }
+
+        // Case 2: Karma below all tiers
+        let result = tier_limits.get_tier_by_karma(&U256::from(5));
+        if let TierMatch::UnderLowestTier(index, tier) = result {
+            assert_eq!(index, TierIndex::from(0));
+            assert_eq!(tier.name, "Basic");
+        } else {
+            panic!("Expected UnderLowestTier, got {:?}", result);
+        }
+
+        // Case 3: Exact match on min_karma (start of first tier)
+        let result = tier_limits.get_tier_by_karma(&U256::from(10));
+        if let TierMatch::MatchedTier(index, tier) = result {
+            assert_eq!(index, TierIndex::from(0));
+            assert_eq!(tier.name, "Basic");
+        } else {
+            panic!("Expected MatchedTier, got {:?}", result);
+        }
+
+        // Case 4: Exact match on a tier boundary (start of second tier)
+        let result = tier_limits.get_tier_by_karma(&U256::from(50));
+        if let TierMatch::MatchedTier(index, tier) = result {
+            assert_eq!(index, TierIndex::from(1));
+            assert_eq!(tier.name, "Active");
+        } else {
+            panic!("Expected MatchedTier, got {:?}", result);
+        }
+
+        // Case 5: Karma within a tier range (between third tier)
+        let result = tier_limits.get_tier_by_karma(&U256::from(250));
+        if let TierMatch::MatchedTier(index, tier) = result {
+            assert_eq!(index, TierIndex::from(2));
+            assert_eq!(tier.name, "Regular");
+        } else {
+            panic!("Expected MatchedTier, got {:?}", result);
+        }
+
+        // Case 6: Exact match on max_karma (end of the third tier)
+        let result = tier_limits.get_tier_by_karma(&U256::from(499));
+        if let TierMatch::MatchedTier(index, tier) = result {
+            assert_eq!(index, TierIndex::from(2));
+            assert_eq!(tier.name, "Regular");
+        } else {
+            panic!("Expected MatchedTier, got {:?}", result);
+        }
+
+        // Case 7: Karma above all tiers
+        let result = tier_limits.get_tier_by_karma(&U256::from(1000));
+        if let TierMatch::AboveHighestTier(index, tier) = result {
+            assert_eq!(index, TierIndex::from(2));
+            assert_eq!(tier.name, "Regular");
+        } else {
+            panic!("Expected AboveHighestTier, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_get_tier_by_karma_ignores_inactive_tiers() {
+        let mut map = BTreeMap::new();
+        map.insert(
+            TierIndex::from(0),
+            Tier {
+                name: "Basic".to_string(),
+                min_karma: U256::from(10),
+                max_karma: U256::from(49),
+                tx_per_epoch: 6,
+                active: false,
+            },
+        );
+        map.insert(
+            TierIndex::from(1),
+            Tier {
+                name: "Active".to_string(),
+                min_karma: U256::from(50),
+                max_karma: U256::from(99),
+                tx_per_epoch: 120,
+                active: true,
+            },
+        );
+        let tier_limits = TierLimits::from(map);
+
+        let result = tier_limits.get_tier_by_karma(&U256::from(25));
+
+        if let TierMatch::UnderLowestTier(index, tier) = result {
+            assert_eq!(index, TierIndex::from(1));
+            assert_eq!(tier.name, "Active");
+        } else {
+            panic!("Expected UnderLowestTier, got {:?}", result);
         }
     }
 }
