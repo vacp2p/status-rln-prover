@@ -5,7 +5,7 @@ use alloy::{
     providers::{ProviderBuilder, WsConnect},
     sol,
 };
-use derive_more::From;
+use derive_more::{From, Into};
 use url::Url;
 // internal
 use crate::AlloyWsProvider;
@@ -60,6 +60,12 @@ impl KarmaTiersSC::KarmaTiersSCInstance<AlloyWsProvider> {
 
 #[derive(Debug, Clone, Default, Copy, From, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TierIndex(u8);
+
+impl Into<u8> for &TierIndex {
+    fn into(self) -> u8 {
+        self.0
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tier {
