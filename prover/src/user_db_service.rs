@@ -172,7 +172,7 @@ pub struct UserTierInfo {
     pub(crate) current_epoch_slice: EpochSlice,
     pub(crate) epoch_tx_count: u64,
     pub(crate) epoch_slice_tx_count: u64,
-    karma_amount: U256,
+    pub(crate) karma_amount: U256,
     pub(crate) tier_name: Option<TierName>,
     pub(crate) tier_limit: Option<TierLimit>,
 }
