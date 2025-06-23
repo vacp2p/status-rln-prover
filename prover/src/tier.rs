@@ -39,16 +39,16 @@ impl DerefMut for TierLimits {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TierMatch {
     /// Karma is above the highest defined tier; returns the highest tier.
-    AboveHighestTier(TierIndex, Tier),
+    AboveHighest(TierIndex, Tier),
 
     /// Karma is below the lowest defined tier; returns the lowest tier.
-    UnderLowestTier(TierIndex, Tier),
+    UnderLowest(TierIndex, Tier),
 
     /// Karma matches a defined tier range.
-    MatchedTier(TierIndex, Tier),
+    Matched(TierIndex, Tier),
 
     /// No active tiers are available.
-    NoActiveTiers,
+    NoActive,
 }
 
 impl TierLimits {
@@ -114,12 +114,12 @@ impl TierLimits {
         let active_tiers: Vec<_> = self.0.iter().filter(|(_, tier)| tier.active).collect();
 
         if active_tiers.is_empty() {
-            return TierMatch::NoActiveTiers;
+            return TierMatch::NoActive;
         }
 
         if let Some((first_index, first_tier)) = active_tiers.first().copied() {
             if karma_amount < &first_tier.min_karma {
-                return TierMatch::UnderLowestTier(*first_index, first_tier.clone());
+                return TierMatch::UnderLowest(*first_index, first_tier.clone());
             }
         }
 
@@ -128,7 +128,7 @@ impl TierLimits {
         for (tier_index, tier) in active_tiers {
             if karma_amount >= &tier.min_karma {
                 if karma_amount <= &tier.max_karma {
-                    return TierMatch::MatchedTier(*tier_index, tier.clone());
+                    return TierMatch::Matched(*tier_index, tier.clone());
                 }
                 highest_qualifying_tier = Some((*tier_index, tier.clone()));
             } else {
@@ -138,7 +138,7 @@ impl TierLimits {
 
         let (index, tier) =
             highest_qualifying_tier.expect("at least one tier must qualify or match");
-        TierMatch::AboveHighestTier(index, tier)
+        TierMatch::AboveHighest(index, tier)
     }
 }
 
@@ -524,7 +524,7 @@ mod tier_limits_tests {
 
         let result = tier_limits.get_tier_by_karma(&U256::ZERO);
 
-        assert_eq!(result, TierMatch::NoActiveTiers);
+        assert_eq!(result, TierMatch::NoActive);
     }
 
     #[test]
@@ -564,7 +564,7 @@ mod tier_limits_tests {
 
         // Case 1: Zero karma
         let result = tier_limits.get_tier_by_karma(&U256::ZERO);
-        if let TierMatch::UnderLowestTier(index, tier) = result {
+        if let TierMatch::UnderLowest(index, tier) = result {
             assert_eq!(index, TierIndex::from(0));
             assert_eq!(tier.name, "Basic");
         } else {
@@ -573,7 +573,7 @@ mod tier_limits_tests {
 
         // Case 2: Karma below all tiers
         let result = tier_limits.get_tier_by_karma(&U256::from(5));
-        if let TierMatch::UnderLowestTier(index, tier) = result {
+        if let TierMatch::UnderLowest(index, tier) = result {
             assert_eq!(index, TierIndex::from(0));
             assert_eq!(tier.name, "Basic");
         } else {
@@ -582,7 +582,7 @@ mod tier_limits_tests {
 
         // Case 3: Exact match on min_karma (start of first tier)
         let result = tier_limits.get_tier_by_karma(&U256::from(10));
-        if let TierMatch::MatchedTier(index, tier) = result {
+        if let TierMatch::Matched(index, tier) = result {
             assert_eq!(index, TierIndex::from(0));
             assert_eq!(tier.name, "Basic");
         } else {
@@ -591,7 +591,7 @@ mod tier_limits_tests {
 
         // Case 4: Exact match on a tier boundary (start of second tier)
         let result = tier_limits.get_tier_by_karma(&U256::from(50));
-        if let TierMatch::MatchedTier(index, tier) = result {
+        if let TierMatch::Matched(index, tier) = result {
             assert_eq!(index, TierIndex::from(1));
             assert_eq!(tier.name, "Active");
         } else {
@@ -600,7 +600,7 @@ mod tier_limits_tests {
 
         // Case 5: Karma within a tier range (between third tier)
         let result = tier_limits.get_tier_by_karma(&U256::from(250));
-        if let TierMatch::MatchedTier(index, tier) = result {
+        if let TierMatch::Matched(index, tier) = result {
             assert_eq!(index, TierIndex::from(2));
             assert_eq!(tier.name, "Regular");
         } else {
@@ -609,7 +609,7 @@ mod tier_limits_tests {
 
         // Case 6: Exact match on max_karma (end of the third tier)
         let result = tier_limits.get_tier_by_karma(&U256::from(499));
-        if let TierMatch::MatchedTier(index, tier) = result {
+        if let TierMatch::Matched(index, tier) = result {
             assert_eq!(index, TierIndex::from(2));
             assert_eq!(tier.name, "Regular");
         } else {
@@ -618,7 +618,7 @@ mod tier_limits_tests {
 
         // Case 7: Karma above all tiers
         let result = tier_limits.get_tier_by_karma(&U256::from(1000));
-        if let TierMatch::AboveHighestTier(index, tier) = result {
+        if let TierMatch::AboveHighest(index, tier) = result {
             assert_eq!(index, TierIndex::from(2));
             assert_eq!(tier.name, "Regular");
         } else {
@@ -653,7 +653,7 @@ mod tier_limits_tests {
 
         let result = tier_limits.get_tier_by_karma(&U256::from(25));
 
-        if let TierMatch::UnderLowestTier(index, tier) = result {
+        if let TierMatch::UnderLowest(index, tier) = result {
             assert_eq!(index, TierIndex::from(1));
             assert_eq!(tier.name, "Active");
         } else {
