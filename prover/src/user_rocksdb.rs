@@ -31,8 +31,8 @@ use rln_proof::RlnUserIdentity;
 use smart_contract::{KarmaAmountExt, Tier, TierIndex};
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::AppError;
-use crate::rocksdb_operator_2::{
-    epoch_incr_operands,
+use crate::rocksdb_operands::{
+    counter_operands,
     EpochCounterDeserializer,
     EpochIncr,
     EpochIncrSerializer
@@ -291,7 +291,7 @@ impl UserRocksDb {
         // TODO: name
         tx_counter_cf_opts.set_merge_operator_associative(
             "counter merge operator",
-            epoch_incr_operands
+            counter_operands
         );
         
         let db = DB::open_cf_descriptors(
@@ -398,7 +398,7 @@ impl UserRocksDb {
         let incr = EpochIncr {
             epoch: epoch.0 as u64,
             epoch_slice: epoch_slice.0 as u64,
-            incr_value: incr_value as i64,
+            incr_value,
         };
         println!("incr: {:?}", incr);
         let incr_ser = EpochIncrSerializer {};
@@ -424,7 +424,7 @@ impl UserRocksDb {
         match self.db
             .get_cf(cf_counter, address.as_slice()) {
             Ok(Some(value)) => {
-                let counter = counter_deser.deserialize(&value);
+                let (_, counter) = counter_deser.deserialize(&value).unwrap();
                 
                 let (epoch, epoch_slice) = *self.epoch_store.read();
                 

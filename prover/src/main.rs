@@ -12,7 +12,7 @@ mod tiers_listener;
 mod user_db_service;
 mod user_rocksdb;
 mod rocksdb_operator;
-mod rocksdb_operator_2;
+mod rocksdb_operands;
 
 // std
 use std::net::SocketAddr;
