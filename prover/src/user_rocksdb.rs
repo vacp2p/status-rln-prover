@@ -17,9 +17,10 @@ use crate::rocksdb_operands::{
 use crate::tier::{SetTierLimitsError, TierLimit, TierLimits, TierName};
 use crate::user_db_serialization::{
     MerkleTreeIndexSerializer, RlnUserIdentityDeserializer, RlnUserIdentitySerializer,
-    TierDeserializer, TierLimitsDeserializer, TierLimitsSerializer, TierSerializer,
+    TierDeserializer, TierLimitsDeserializer, TierLimitsSerializer,
 };
 use crate::user_db_types::{EpochCounter, EpochSliceCounter, MerkleTreeIndex, RateLimit};
+use crate::user_db_error::UserDbOpenError;
 use rln_proof::RlnUserIdentity;
 use smart_contract::{KarmaAmountExt, Tier, TierIndex};
 
@@ -74,31 +75,47 @@ impl UserRocksDb {
         db_path: PathBuf,
         tier_limits: TierLimits,
         epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
-    ) -> Self {
-        // TODO: try try_from impl
-        let db_opts = Self::default_db_opts();
-        // FIXME: no unwrap
-        let db = Self::db_open(&db_path, db_opts).expect("rocksdb open error");
+    ) -> Result<Self, UserDbOpenError> {
+        
+        let db_options = {
+            let mut db_opts = Options::default();
+            db_opts.set_max_open_files(820);
+            db_opts.create_if_missing(true);
+            db_opts.create_missing_column_families(true);
+            db_opts
+        };
+        
+        let mut tx_counter_cf_opts = Options::default();
+        tx_counter_cf_opts.set_merge_operator_associative("counter operator", counter_operands);
 
-        // TODO: re-enable
-        // debug_assert!(tier_limits.validate().is_ok());
+        let db = DB::open_cf_descriptors(
+            &db_options,
+            db_path,
+            vec![
+                ColumnFamilyDescriptor::new(USER_CF, Options::default()),
+                ColumnFamilyDescriptor::new(TX_COUNTER_CF, tx_counter_cf_opts.clone()),
+                ColumnFamilyDescriptor::new(TIER_LIMITS_CF, Options::default()),
+            ],
+        )?;
+
+        debug_assert!(tier_limits.validate().is_ok());
         let tier_limits_serializer = TierLimitsSerializer::default();
         let mut buffer = Vec::with_capacity(tier_limits_serializer.size_hint(tier_limits.len()));
-        tier_limits_serializer.serialize(&tier_limits, &mut buffer);
+        tier_limits_serializer.serialize(&tier_limits, &mut buffer)?;
 
         // unwrap safe - db is always created with this column
         let cf = db.cf_handle(TIER_LIMITS_CF).unwrap();
-        // TODO: no unwrap
-        db.delete_cf(cf, TIER_LIMITS_NEXT_KEY.as_slice()).unwrap();
-        db.put_cf(cf, TIER_LIMITS_KEY.as_slice(), buffer).unwrap();
+        db.delete_cf(cf, TIER_LIMITS_NEXT_KEY.as_slice())?;
+        db.put_cf(cf, TIER_LIMITS_KEY.as_slice(), buffer)?;
 
-        Self {
+        Ok(Self {
             db: Arc::new(db),
             rate_limit: Default::default(),
             epoch_store,
-        }
+        })
     }
 
+    /*
     pub fn default_db_opts() -> Options {
         let mut db_opts = Options::default();
         db_opts.set_max_open_files(820);
@@ -106,10 +123,11 @@ impl UserRocksDb {
         db_opts.create_missing_column_families(true);
         db_opts
     }
+    */
 
+    /*
     fn db_open(db_path: &Path, db_opts: Options) -> Result<DB, rocksdb::Error> {
         let mut tx_counter_cf_opts = Options::default();
-        // TODO: name
         tx_counter_cf_opts.set_merge_operator_associative("counter operator", counter_operands);
 
         let db = DB::open_cf_descriptors(
@@ -124,6 +142,7 @@ impl UserRocksDb {
 
         Ok(db)
     }
+    */
 
     fn register(&self, address: Address) -> Result<Fr, RegisterError2> {
         let rln_identity_serializer = RlnUserIdentitySerializer {};
@@ -462,12 +481,13 @@ impl UserDbService2 {
         epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
         rate_limit: RateLimit,
         tier_limits: TierLimits,
-    ) -> Self {
-        Self {
-            // FIXME
-            user_db: UserRocksDb::new(db_path, tier_limits, epoch_store),
+    ) -> Result<Self, UserDbOpenError> {
+        
+        let user_db = UserRocksDb::new(db_path, tier_limits, epoch_store)?;
+        Ok(Self {
+            user_db,
             epoch_changes: epoch_changes_notifier,
-        }
+        })
     }
 
     pub fn get_user_db(&self) -> UserRocksDb {
@@ -568,7 +588,7 @@ mod tests {
             PathBuf::from(temp_folder.path()),
             Default::default(),
             epoch_store,
-        );
+        ).unwrap();
 
         let addr = Address::new([0; 20]);
         user_db.register(addr).unwrap();
@@ -601,7 +621,7 @@ mod tests {
             PathBuf::from(temp_folder.path()),
             Default::default(),
             epoch_store,
-        );
+        ).unwrap();
 
         let addr = Address::new([0; 20]);
 
@@ -634,7 +654,7 @@ mod tests {
 
         let tier_limits = BTreeMap::from([
             (
-                TierIndex::from(0),
+                TierIndex::from(1),
                 Tier {
                     name: "Basic".into(),
                     min_karma: U256::from(10),
@@ -644,7 +664,7 @@ mod tests {
                 },
             ),
             (
-                TierIndex::from(1),
+                TierIndex::from(2),
                 Tier {
                     name: "Active".into(),
                     min_karma: U256::from(50),
@@ -654,7 +674,7 @@ mod tests {
                 },
             ),
             (
-                TierIndex::from(2),
+                TierIndex::from(3),
                 Tier {
                     name: "Regular".into(),
                     min_karma: U256::from(100),
@@ -664,7 +684,7 @@ mod tests {
                 },
             ),
             (
-                TierIndex::from(3),
+                TierIndex::from(4),
                 Tier {
                     name: "Power User".into(),
                     min_karma: U256::from(500),
@@ -674,7 +694,7 @@ mod tests {
                 },
             ),
             (
-                TierIndex::from(4),
+                TierIndex::from(5),
                 Tier {
                     name: "S-Tier".into(),
                     min_karma: U256::from(5000),
@@ -684,14 +704,17 @@ mod tests {
                 },
             ),
         ]);
+        
+        let tier_limits: TierLimits = tier_limits.into();
+        tier_limits.validate().unwrap();
 
         let user_db_service = UserDbService2::new(
             temp_folder.path().to_path_buf(),
             Default::default(),
             epoch_store.clone(),
             10.into(),
-            tier_limits.into(),
-        );
+            tier_limits,
+        ).unwrap();
         let user_db = user_db_service.get_user_db();
 
         let addr_1_tx_count = 2;

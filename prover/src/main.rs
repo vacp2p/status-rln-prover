@@ -15,6 +15,7 @@ mod user_db_serialization;
 mod user_db_service;
 mod user_db_types;
 mod user_rocksdb;
+mod user_db_error;
 
 // std
 use std::net::SocketAddr;
