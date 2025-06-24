@@ -7,7 +7,7 @@ use std::ops::{
 use derive_more::{From, Into};
 use alloy::primitives::U256;
 // internal
-use crate::user_db_service::SetTierLimitsError;
+// use crate::user_db_service::SetTierLimitsError;
 use smart_contract::{Tier, TierIndex};
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, From, Into)]
@@ -123,4 +123,20 @@ impl TierLimits {
             None
         }
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SetTierLimitsError {
+    #[error("Invalid Karma amount (must be increasing)")]
+    InvalidKarmaAmount,
+    #[error("Invalid Karma max amount (min: {0} vs max: {1})")]
+    InvalidMaxAmount(U256, U256),
+    #[error("Invalid Tier limit (must be increasing)")]
+    InvalidTierLimit,
+    #[error("Invalid Tier index (must be increasing)")]
+    InvalidTierIndex,
+    #[error("Non unique Tier name")]
+    NonUniqueTierName,
+    #[error("Non active Tier")]
+    InactiveTier,
 }

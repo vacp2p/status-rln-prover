@@ -25,7 +25,7 @@ impl<I> nom::error::ParseError<I> for DeserializeError<I> {
 impl<I> ContextError<I> for DeserializeError<I> {}
 
 #[derive(Debug, Default, PartialEq)]
-pub struct EpochCounter {
+pub struct EpochCounters {
     pub epoch: u64,
     pub epoch_slice: u64,
     pub epoch_counter: u64,
@@ -36,7 +36,7 @@ struct EpochCounterSerializer {}
 
 impl EpochCounterSerializer {
     
-    fn serialize(&self, value: &EpochCounter, buffer: &mut Vec<u8>) {
+    fn serialize(&self, value: &EpochCounters, buffer: &mut Vec<u8>) {
         buffer.extend(value.epoch.to_le_bytes());
         buffer.extend(value.epoch_slice.to_le_bytes());
         buffer.extend(value.epoch_counter.to_le_bytes());
@@ -44,19 +44,19 @@ impl EpochCounterSerializer {
     }
 
     fn size_hint(&self) -> usize {
-        size_of::<EpochCounter>()
+        size_of::<EpochCounters>()
     }
 }
 
 pub struct EpochCounterDeserializer {}
 
 impl EpochCounterDeserializer {
-    pub fn deserialize<'a>(&self, buffer: &'a [u8]) -> IResult<&'a [u8], EpochCounter, DeserializeError<&'a [u8]>> {
+    pub fn deserialize<'a>(&self, buffer: &'a [u8]) -> IResult<&'a [u8], EpochCounters, DeserializeError<&'a [u8]>> {
         let (input, epoch) = le_u64(buffer)?;
         let (input, epoch_slice) = le_u64(input)?;
         let (input, epoch_counter) = le_u64(input)?;
         let (_input, epoch_slice_counter) = le_u64(input)?;
-        Ok((input, EpochCounter { epoch, epoch_slice, epoch_counter, epoch_slice_counter }))
+        Ok((input, EpochCounters { epoch, epoch_slice, epoch_counter, epoch_slice_counter }))
     }
 }
 
@@ -121,7 +121,7 @@ pub fn counter_operands(
         // TODO: check if increasing ? debug_assert otherwise?
         if acc == Default::default() {
             // Default value - so this is the first time
-            acc = EpochCounter {
+            acc = EpochCounters {
                 epoch: epoch_incr.epoch,
                 epoch_slice: epoch_incr.epoch_slice,
                 epoch_counter: epoch_incr.incr_value,
@@ -130,7 +130,7 @@ pub fn counter_operands(
             
         } else if epoch_incr.epoch != acc.epoch {
             // New epoch
-            acc = EpochCounter {
+            acc = EpochCounters {
                 epoch: epoch_incr.epoch,
                 epoch_slice: 0,
                 epoch_counter: epoch_incr.incr_value,
@@ -138,14 +138,14 @@ pub fn counter_operands(
             }
         } else if epoch_incr.epoch_slice != acc.epoch_slice {
             // New epoch slice
-            acc = EpochCounter {
+            acc = EpochCounters {
                 epoch: epoch_incr.epoch,
                 epoch_slice: epoch_incr.epoch_slice,
                 epoch_counter: acc.epoch_counter.saturating_add(epoch_incr.epoch_slice),
                 epoch_slice_counter: epoch_incr.incr_value,
             }
         } else {
-            acc = EpochCounter {
+            acc = EpochCounters {
                 epoch: acc.epoch,
                 epoch_slice: acc.epoch_slice,
                 epoch_counter: acc.epoch_counter.saturating_add(epoch_incr.incr_value),
@@ -175,7 +175,7 @@ mod tests {
         
         // EpochCounter struct
         {
-            let epoch_counter = EpochCounter {
+            let epoch_counter = EpochCounters {
                 epoch: 1,
                 epoch_slice: 42,
                 epoch_counter: 12,
@@ -262,7 +262,7 @@ mod tests {
             let get_key_1 = db.get(&key_1).unwrap().unwrap();
             let (_, get_value_2) = epoch_counter_deser.deserialize(&get_key_1).unwrap();
             
-            assert_eq!(get_value_2, EpochCounter {
+            assert_eq!(get_value_2, EpochCounters {
                 epoch: 0,
                 epoch_slice: 1,
                 epoch_counter: 5,
@@ -285,7 +285,7 @@ mod tests {
             let get_key_1 = db.get(&key_1).unwrap().unwrap();
             let (_, get_value_3) = epoch_counter_deser.deserialize(&get_key_1).unwrap();
             
-            assert_eq!(get_value_3, EpochCounter {
+            assert_eq!(get_value_3, EpochCounters {
                 epoch: 1,
                 epoch_slice: 0,
                 epoch_counter: 3,

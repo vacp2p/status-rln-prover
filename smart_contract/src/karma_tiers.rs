@@ -5,7 +5,7 @@ use alloy::{
     providers::{ProviderBuilder, WsConnect},
     sol,
 };
-use derive_more::{From, Into};
+use derive_more::From;
 use url::Url;
 // internal
 use crate::AlloyWsProvider;

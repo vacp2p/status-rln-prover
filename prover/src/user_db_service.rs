@@ -14,7 +14,7 @@ use tracing::debug;
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::{AppError, GetMerkleTreeProofError, RegisterError};
-use crate::tier::{TierLimit, TierLimits, TierName};
+use crate::tier::{SetTierLimitsError, TierLimit, TierLimits, TierName};
 use rln_proof::{RlnUserIdentity, ZerokitMerkleTree};
 use smart_contract::{KarmaAmountExt, Tier, TierIndex};
 
@@ -329,6 +329,7 @@ impl UserDb {
     }
 }
 
+/*
 #[derive(Debug, thiserror::Error)]
 pub enum SetTierLimitsError {
     #[error("Invalid Karma amount (must be increasing)")]
@@ -344,6 +345,7 @@ pub enum SetTierLimitsError {
     #[error("Non active Tier")]
     InactiveTier,
 }
+*/
 
 /// Async service to update a UserDb on epoch changes
 #[derive(Debug)]

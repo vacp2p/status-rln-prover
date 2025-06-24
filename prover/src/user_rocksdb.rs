@@ -2,43 +2,35 @@ use std::path::{Path, PathBuf};
 use std::collections::BTreeMap;
 use std::string::FromUtf8Error;
 use std::sync::Arc;
+// third-party
 use alloy::primitives::{Address, U256};
 use ark_bn254::Fr;
-use derive_more::{From, Into};
+use derive_more::{Add, From, Into};
 use parking_lot::RwLock;
-use rln::poseidon_tree::MerkleProof;
-use rln::protocol::keygen;
-use rln::utils::{bytes_le_to_fr, fr_to_bytes_le};
-use rocksdb::{
-    ColumnFamilyDescriptor, Options, WriteBatch,
-    DB,
+use rln::{
+    hashers::poseidon_hash,
+    poseidon_tree::MerkleProof,
+    protocol::keygen,
+    utils::{bytes_le_to_fr, fr_to_bytes_le},
 };
+use rocksdb::{ColumnFamilyDescriptor, Options, WriteBatch, DB};
 use nom::{
     Parser,
     multi::length_count,
-    error::{
-        context,
-        ContextError
-    },
+    error::{context, ContextError},
     number::complete::le_u32,
     bytes::complete::take,
     IResult
 };
-use rln::hashers::poseidon_hash;
 use tokio::sync::Notify;
 use tracing::debug;
+// internal
 use rln_proof::RlnUserIdentity;
 use smart_contract::{KarmaAmountExt, Tier, TierIndex};
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::AppError;
-use crate::rocksdb_operands::{
-    counter_operands,
-    EpochCounterDeserializer,
-    EpochIncr,
-    EpochIncrSerializer
-};
-use crate::tier::TierLimits;
-use crate::user_db_service::{EpochCounter, EpochSliceCounter, RateLimit, SetTierLimitsError, UserDb, UserRegistry, UserTierInfo, UserTierInfoError};
+use crate::rocksdb_operands::{counter_operands, EpochCounterDeserializer, EpochIncr, EpochIncrSerializer};
+use crate::tier::{SetTierLimitsError, TierLimit, TierLimits, TierName};
 
 pub const USER_CF: &str = "user";
 pub const TX_COUNTER_CF: &str = "tx_counter";
@@ -118,8 +110,6 @@ impl TierSerializer {
 }
 
 struct TierDeserializer {}
-
-type nomError<'a> = nom::error::Error<&'a [u8]>;
 
 #[derive(Debug, PartialEq)]
 pub enum TierDeserializeError<I> {
@@ -226,6 +216,28 @@ impl TierLimitsDeserializer {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialOrd, PartialEq, From, Into)]
+pub struct RateLimit(u64);
+
+impl RateLimit {
+    pub(crate) const ZERO: RateLimit = RateLimit(0);
+
+    pub(crate) const fn new(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+impl From<RateLimit> for Fr {
+    fn from(rate_limit: RateLimit) -> Self {
+        Fr::from(rate_limit.0)
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, From, Into, Add)]
+pub(crate) struct EpochCounter(u64);
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, From, Into, Add)]
+pub(crate) struct EpochSliceCounter(u64);
 
 #[derive(thiserror::Error, Debug)]
 pub enum RegisterError2 {
@@ -236,6 +248,25 @@ pub enum RegisterError2 {
     DbError(String),
     #[error("Merkle tree error: {0}")]
     TreeError(String),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct UserTierInfo {
+    pub(crate) current_epoch: Epoch,
+    pub(crate) current_epoch_slice: EpochSlice,
+    pub(crate) epoch_tx_count: u64,
+    pub(crate) epoch_slice_tx_count: u64,
+    pub(crate) karma_amount: U256,
+    pub(crate) tier_name: Option<TierName>,
+    pub(crate) tier_limit: Option<TierLimit>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum UserTierInfoError<E: std::error::Error> {
+    #[error("User {0} not registered")]
+    NotRegistered(Address),
+    #[error(transparent)]
+    Contract(E),
 }
 
 const TIER_LIMITS_KEY: &[u8; 7] = b"CURRENT";
@@ -256,7 +287,7 @@ impl UserRocksDb {
         // TODO: try try_from impl
         let db_opts = Self::default_db_opts();
         // FIXME: no unwrap
-        let mut db = Self::db_open(&db_path, db_opts).expect("rocksdb open error");
+        let db = Self::db_open(&db_path, db_opts).expect("rocksdb open error");
 
         // TODO: re-enable
         // debug_assert!(tier_limits.validate().is_ok());
@@ -290,7 +321,7 @@ impl UserRocksDb {
         let mut tx_counter_cf_opts = Options::default();
         // TODO: name
         tx_counter_cf_opts.set_merge_operator_associative(
-            "counter merge operator",
+            "counter operator",
             counter_operands
         );
         
@@ -310,7 +341,7 @@ impl UserRocksDb {
     fn register(&self, address: Address) -> Result<Fr, RegisterError2> {
 
         let rln_identity_serializer = RlnUserIdentitySerializer {};
-        let merke_index_serializer = MerkleTreeIndexSerializer {};
+        let merkle_index_serializer = MerkleTreeIndexSerializer {};
 
         let (identity_secret_hash, id_commitment) = keygen();
         let index = 1;
@@ -322,9 +353,9 @@ impl UserRocksDb {
         ));
 
         let key = address.as_slice();
-        let mut buffer = vec![0; rln_identity_serializer.size_hint() + merke_index_serializer.size_hint()];
+        let mut buffer = vec![0; rln_identity_serializer.size_hint() + merkle_index_serializer.size_hint()];
         rln_identity_serializer.serialize(&rln_identity, &mut buffer);
-        merke_index_serializer.serialize(&MerkleTreeIndex(index), &mut buffer);
+        merkle_index_serializer.serialize(&MerkleTreeIndex(index), &mut buffer);
         
         // unwrap safe - db is always created with this column
         let cf_user = self.db.cf_handle(USER_CF).unwrap();
@@ -354,7 +385,8 @@ impl UserRocksDb {
             },
         }
 
-        let rate_commit = poseidon_hash(&[id_commitment, Fr::from(u64::from(self.rate_limit))]);
+        // TODO / FIXME
+        let _rate_commit = poseidon_hash(&[id_commitment, Fr::from(u64::from(self.rate_limit))]);
         // TODO: merkle tree
         Ok(id_commitment)
     }
@@ -500,7 +532,7 @@ impl UserRocksDb {
 
         // FIXME: should has_user return a Result here?
         if let Ok(has_user) = self.has_user(*address) {
-            if (has_user) {
+            if has_user {
                 // FIXME: no unwrap
                 Some(self.incr_tx_counter(address, incr_value).unwrap())
             } else {
@@ -657,7 +689,7 @@ pub struct UserDbService2 {
 }
 
 impl UserDbService2 {
-    pub(crate) fn new(
+    pub fn new(
         db_path: PathBuf,
         epoch_changes_notifier: Arc<Notify>,
         epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
@@ -724,8 +756,8 @@ mod tests {
     use async_trait::async_trait;
     use claims::{assert_err, assert_matches};
     use derive_more::Display;
+    // internal
     use crate::tier::TierName;
-    use crate::user_db_service::UserDbService;
 
     #[derive(Debug, Display, thiserror::Error)]
     struct DummyError();
