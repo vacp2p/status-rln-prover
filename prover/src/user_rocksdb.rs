@@ -1,243 +1,31 @@
 use std::path::{Path, PathBuf};
-use std::collections::BTreeMap;
-use std::string::FromUtf8Error;
 use std::sync::Arc;
 // third-party
 use alloy::primitives::{Address, U256};
 use ark_bn254::Fr;
-use derive_more::{Add, From, Into};
 use parking_lot::RwLock;
-use rln::{
-    hashers::poseidon_hash,
-    poseidon_tree::MerkleProof,
-    protocol::keygen,
-    utils::{bytes_le_to_fr, fr_to_bytes_le},
-};
-use rocksdb::{ColumnFamilyDescriptor, Options, WriteBatch, DB};
-use nom::{
-    Parser,
-    multi::length_count,
-    error::{context, ContextError},
-    number::complete::le_u32,
-    bytes::complete::take,
-    IResult
-};
+use rln::{hashers::poseidon_hash, poseidon_tree::MerkleProof, protocol::keygen};
+use rocksdb::{ColumnFamilyDescriptor, DB, Options, WriteBatch};
 use tokio::sync::Notify;
 use tracing::debug;
 // internal
-use rln_proof::RlnUserIdentity;
-use smart_contract::{KarmaAmountExt, Tier, TierIndex};
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::AppError;
-use crate::rocksdb_operands::{counter_operands, EpochCounterDeserializer, EpochIncr, EpochIncrSerializer};
+use crate::rocksdb_operands::{
+    EpochCounterDeserializer, EpochIncr, EpochIncrSerializer, counter_operands,
+};
 use crate::tier::{SetTierLimitsError, TierLimit, TierLimits, TierName};
+use crate::user_db_serialization::{
+    MerkleTreeIndexSerializer, RlnUserIdentityDeserializer, RlnUserIdentitySerializer,
+    TierDeserializer, TierLimitsDeserializer, TierLimitsSerializer, TierSerializer,
+};
+use crate::user_db_types::{EpochCounter, EpochSliceCounter, MerkleTreeIndex, RateLimit};
+use rln_proof::RlnUserIdentity;
+use smart_contract::{KarmaAmountExt, Tier, TierIndex};
 
 pub const USER_CF: &str = "user";
 pub const TX_COUNTER_CF: &str = "tx_counter";
 pub const TIER_LIMITS_CF: &str = "tier_limits";
-
-#[derive(Debug, Clone, Copy, From, Into)]
-struct MerkleTreeIndex(usize);
-
-struct RlnUserIdentitySerializer {}
-
-impl RlnUserIdentitySerializer {
-    fn serialize(&self, value: &RlnUserIdentity, buffer: &mut Vec<u8>) {
-        buffer.extend(fr_to_bytes_le(&value.commitment));
-        buffer.extend(fr_to_bytes_le(&value.secret_hash));
-        buffer.extend(fr_to_bytes_le(&value.user_limit));
-    }
-
-    fn size_hint(&self) -> usize {
-        // Note: RlnUserIdentity has 3 fields of type 'Fr' (each = u256 = 32 bytes)
-        32 * 3
-    }
-}
-
-struct RlnUserIdentityDeserializer {}
-
-impl RlnUserIdentityDeserializer {
-
-    // FIXME: return a Result if buffer is not large enough?
-    fn deserialize(&self, buffer: &[u8]) -> RlnUserIdentity {
-
-        // TODO / optim - ark serialize
-        let (commitment, offset) = bytes_le_to_fr(buffer);
-        let (secret_hash, offset) = bytes_le_to_fr(&buffer[offset..]);
-        let (user_limit, _offset) = bytes_le_to_fr(&buffer[offset..]);
-
-        RlnUserIdentity {
-            commitment,
-            secret_hash,
-            user_limit,
-        }
-    }
-}
-
-struct MerkleTreeIndexSerializer {}
-
-impl MerkleTreeIndexSerializer {
-    fn serialize(&self, value: &MerkleTreeIndex, buffer: &mut Vec<u8>) {
-        buffer.extend(value.0.to_le_bytes());
-    }
-
-    fn size_hint(&self) -> usize {
-        // Note: Assume usize size == 8 bytes
-        8
-    }
-}
-
-#[derive(Default)]
-struct TierSerializer {}
-
-impl TierSerializer {
-    fn serialize(&self, value: &Tier, buffer: &mut Vec<u8>) {
-        // TODO: can we use size_of::<U256> ?
-        buffer.extend(value.min_karma.to_le_bytes::<32>().as_slice());
-        buffer.extend(value.max_karma.to_le_bytes::<32>().as_slice());
-
-        // TODO: no as
-        let name_len = value.name.len() as u32;
-        buffer.extend(name_len.to_le_bytes());
-        buffer.extend(value.name.as_bytes());
-        buffer.extend(value.tx_per_epoch.to_le_bytes().as_slice());
-        buffer.push(u8::from(value.active))
-    }
-
-    fn size_hint(&self) -> usize {
-        size_of::<Tier>()
-    }
-}
-
-struct TierDeserializer {}
-
-#[derive(Debug, PartialEq)]
-pub enum TierDeserializeError<I> {
-    Utf8Error(FromUtf8Error),
-    Nom(I, nom::error::ErrorKind),
-}
-
-impl<I> nom::error::ParseError<I> for TierDeserializeError<I> {
-    fn from_error_kind(input: I, kind: nom::error::ErrorKind) -> Self {
-        TierDeserializeError::Nom(input, kind)
-    }
-
-    fn append(_: I, _: nom::error::ErrorKind, other: Self) -> Self {
-        other
-    }
-}
-
-impl<I> ContextError<I> for TierDeserializeError<I> {}
-
-impl TierDeserializer {
-    fn deserialize<'a>(&self, buffer: &'a [u8]) -> IResult<&'a [u8], Tier, TierDeserializeError<&'a [u8]>> {
-
-        let (input, min_karma) = take(32usize)(buffer)?;
-        // TODO: fallible?
-        let min_karma = U256::from_le_slice(min_karma);
-        let (input, max_karma) = take(32usize)(input)?;
-        // TODO: fallible?
-        let max_karma = U256::from_le_slice(max_karma);
-        let (input, name_len) = le_u32(input)?;
-        // TODO: no as
-        let name_len_ = name_len as usize;
-        let (input, name) = take(name_len_)(input)?;
-        let name = String::from_utf8(name.to_vec())
-            .map_err(|e| nom::Err::Error(TierDeserializeError::Utf8Error(e)))?;
-        let (input, tx_per_epoch) = le_u32(input)?;
-        let (input, active) = take(1usize)(input)?;
-        let active = !(active[0] == 0);
-
-        Ok((input, Tier {
-            min_karma,
-            max_karma,
-            name,
-            tx_per_epoch,
-            active,
-        }))
-    }
-}
-
-#[derive(Default)]
-struct TierLimitsSerializer {
-    tier_serializer: TierSerializer,
-}
-
-impl TierLimitsSerializer {
-    fn serialize(&self, value: &TierLimits, buffer: &mut Vec<u8>) {
-
-        let len = value.len() as u32;
-        buffer.extend(len.to_le_bytes());
-
-        let mut tier_buffer = Vec::with_capacity(self.tier_serializer.size_hint());
-
-        value
-            .iter()
-            .for_each(|(k, v)| {
-                buffer.push(k.into());
-                self.tier_serializer.serialize(v, &mut tier_buffer);
-                buffer.extend_from_slice(&tier_buffer);
-                tier_buffer.clear();
-            });
-    }
-
-    fn size_hint(&self, len: usize) -> usize {
-        size_of::<u32>() + len * self.tier_serializer.size_hint()
-    }
-}
-
-struct TierLimitsDeserializer {}
-
-impl TierLimitsDeserializer {
-
-    fn deserialize<'a>(&self, buffer: &'a [u8]) -> IResult<&'a [u8], TierLimits, TierDeserializeError<&'a [u8]>> {
-
-        let deser = TierDeserializer {};
-        let (input, tiers): (&[u8], Vec<(TierIndex, Tier)>) = length_count(
-            le_u32,
-            context(
-                "Tier index & Tier deser", |input: &'a [u8]| {
-                    let (input, tier_index) = take(1usize)(input)?;
-                    let tier_index = TierIndex::from(tier_index[0]);
-                    let (input, tier) = deser.deserialize(input)?;
-                    Ok((input, (tier_index, tier)))
-                }
-            )
-        ).parse(buffer)?;
-
-        // FIXME: can avoid clone?
-        let map = BTreeMap::from_iter(tiers.clone().into_iter());
-
-        Ok((
-            input,
-            TierLimits::from(map)
-        ))
-
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialOrd, PartialEq, From, Into)]
-pub struct RateLimit(u64);
-
-impl RateLimit {
-    pub(crate) const ZERO: RateLimit = RateLimit(0);
-
-    pub(crate) const fn new(value: u64) -> Self {
-        Self(value)
-    }
-}
-
-impl From<RateLimit> for Fr {
-    fn from(rate_limit: RateLimit) -> Self {
-        Fr::from(rate_limit.0)
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, From, Into, Add)]
-pub(crate) struct EpochCounter(u64);
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, From, Into, Add)]
-pub(crate) struct EpochSliceCounter(u64);
 
 #[derive(thiserror::Error, Debug)]
 pub enum RegisterError2 {
@@ -281,9 +69,12 @@ struct UserRocksDb {
 }
 
 impl UserRocksDb {
-
     /// Returns a new `UserRocksDB` instance
-    pub fn new(db_path: PathBuf, tier_limits: TierLimits, epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>) -> Self {
+    pub fn new(
+        db_path: PathBuf,
+        tier_limits: TierLimits,
+        epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
+    ) -> Self {
         // TODO: try try_from impl
         let db_opts = Self::default_db_opts();
         // FIXME: no unwrap
@@ -317,14 +108,10 @@ impl UserRocksDb {
     }
 
     fn db_open(db_path: &Path, db_opts: Options) -> Result<DB, rocksdb::Error> {
-        
         let mut tx_counter_cf_opts = Options::default();
         // TODO: name
-        tx_counter_cf_opts.set_merge_operator_associative(
-            "counter operator",
-            counter_operands
-        );
-        
+        tx_counter_cf_opts.set_merge_operator_associative("counter operator", counter_operands);
+
         let db = DB::open_cf_descriptors(
             &db_opts,
             db_path,
@@ -339,7 +126,6 @@ impl UserRocksDb {
     }
 
     fn register(&self, address: Address) -> Result<Fr, RegisterError2> {
-
         let rln_identity_serializer = RlnUserIdentitySerializer {};
         let merkle_index_serializer = MerkleTreeIndexSerializer {};
 
@@ -349,14 +135,15 @@ impl UserRocksDb {
         let rln_identity = RlnUserIdentity::from((
             identity_secret_hash,
             id_commitment,
-            Fr::from(self.rate_limit)
+            Fr::from(self.rate_limit),
         ));
 
         let key = address.as_slice();
-        let mut buffer = vec![0; rln_identity_serializer.size_hint() + merkle_index_serializer.size_hint()];
+        let mut buffer =
+            vec![0; rln_identity_serializer.size_hint() + merkle_index_serializer.size_hint()];
         rln_identity_serializer.serialize(&rln_identity, &mut buffer);
-        merkle_index_serializer.serialize(&MerkleTreeIndex(index), &mut buffer);
-        
+        merkle_index_serializer.serialize(&MerkleTreeIndex::from(index), &mut buffer);
+
         // unwrap safe - db is always created with this column
         let cf_user = self.db.cf_handle(USER_CF).unwrap();
         // FIXME
@@ -367,22 +154,20 @@ impl UserRocksDb {
         match self.db.get_cf(cf_user, key) {
             Ok(Some(_)) => {
                 return Err(RegisterError2::AlreadyRegistered(address));
-            },
+            }
             Ok(None) => {
-
                 let mut db_batch = WriteBatch::new();
                 db_batch.put_cf(cf_user, key, buffer.as_slice());
                 // db_batch.put_cf(cf_counter, key, 0u64.to_le_bytes());
                 // db_batch.put_cf(cf_counter_slice, key, 0u64.to_le_bytes());
 
-                self.db.write(db_batch)
-                    .map_err(|e| {
-                        RegisterError2::DbError(e.to_string())
-                    })?;
-            },
+                self.db
+                    .write(db_batch)
+                    .map_err(|e| RegisterError2::DbError(e.to_string()))?;
+            }
             Err(e) => {
                 return Err(RegisterError2::DbError(e.to_string()));
-            },
+            }
         }
 
         // TODO / FIXME
@@ -392,34 +177,33 @@ impl UserRocksDb {
     }
 
     fn has_user(&self, address: Address) -> Result<bool, RegisterError2> {
-        
-       // TODO: perf get_pinned 
+        // TODO: perf get_pinned
         let cf_user = self.db.cf_handle(USER_CF).unwrap();
-       self.db
-           .get_cf(cf_user, address.as_slice())
-           .map(|value| {
-               value.is_some()
-           })
-           .map_err(|e| RegisterError2::DbError(e.to_string()))
+        self.db
+            .get_cf(cf_user, address.as_slice())
+            .map(|value| value.is_some())
+            .map_err(|e| RegisterError2::DbError(e.to_string()))
     }
 
     pub fn get_user(&self, address: Address) -> Option<RlnUserIdentity> {
-
         // unwrap safe - db is always created with this column
         let cf_user = self.db.cf_handle(USER_CF).unwrap();
         let rln_identity_deserializer = RlnUserIdentityDeserializer {};
-        match self.db
-            .get_cf(cf_user, address.as_slice()) {
+        match self.db.get_cf(cf_user, address.as_slice()) {
             Ok(Some(value)) => {
-                Some(rln_identity_deserializer.deserialize(&value))
-            },
+                // FIXME unwrap
+                Some(rln_identity_deserializer.deserialize(&value).unwrap())
+            }
             Ok(None) => None,
             Err(_e) => None,
         }
     }
 
-    fn incr_tx_counter(&self, address: &Address, incr_value: Option<u64>) -> Result<(), RegisterError2> {
-        
+    fn incr_tx_counter(
+        &self,
+        address: &Address,
+        incr_value: Option<u64>,
+    ) -> Result<(), RegisterError2> {
         let incr_value = incr_value.unwrap_or(1);
         // unwrap safe - db is always created with this column
         let cf_counter = self.db.cf_handle(TX_COUNTER_CF).unwrap();
@@ -441,53 +225,45 @@ impl UserRocksDb {
         let mut db_batch = WriteBatch::new();
         db_batch.merge_cf(cf_counter, address.as_slice(), buffer);
 
-        self.db.write(db_batch)
-            .map_err(|e| {
-                RegisterError2::DbError(e.to_string())
-            })
+        self.db
+            .write(db_batch)
+            .map_err(|e| RegisterError2::DbError(e.to_string()))
     }
-    
-    fn get_tx_counter(&self, address: &Address) -> Result<(EpochCounter, EpochSliceCounter), RegisterError2> {
 
+    fn get_tx_counter(
+        &self,
+        address: &Address,
+    ) -> Result<(EpochCounter, EpochSliceCounter), RegisterError2> {
         let counter_deser = EpochCounterDeserializer {};
 
         // unwrap safe - db is always created with this column
         let cf_counter = self.db.cf_handle(TX_COUNTER_CF).unwrap();
-        match self.db
-            .get_cf(cf_counter, address.as_slice()) {
+        match self.db.get_cf(cf_counter, address.as_slice()) {
             Ok(Some(value)) => {
                 let (_, counter) = counter_deser.deserialize(&value).unwrap();
-                
+
                 let (epoch, epoch_slice) = *self.epoch_store.read();
-                
+
                 println!("get tx_counter: {:?}", counter);
                 println!("current epoch: {:?} - slice {:?}", epoch, epoch_slice);
-                
-                // TODO / FIXME
-                
-                let cmp = (counter.epoch == epoch.0 as u64, counter.epoch_slice == epoch_slice.0 as u64);
-                
-                match cmp {
-                    (true, true) => {
-                        Ok(
-                            (counter.epoch_counter.into(), counter.epoch_slice_counter.into())
-                        )
-                    },
-                    (true, false) => {
-                        Ok(
-                            (counter.epoch_counter.into(), EpochSliceCounter::from(0))
-                        )
-                    },
-                    (false, true) => {
 
-                        Ok((EpochCounter::from(0), EpochSliceCounter::from(0)))
-                    },
-                    (false, false) => {
-                        Ok((EpochCounter::from(0), EpochSliceCounter::from(0)))
-                    },
+                // TODO / FIXME
+
+                let cmp = (
+                    counter.epoch == epoch.0 as u64,
+                    counter.epoch_slice == epoch_slice.0 as u64,
+                );
+
+                match cmp {
+                    (true, true) => Ok((
+                        counter.epoch_counter.into(),
+                        counter.epoch_slice_counter.into(),
+                    )),
+                    (true, false) => Ok((counter.epoch_counter.into(), EpochSliceCounter::from(0))),
+                    (false, true) => Ok((EpochCounter::from(0), EpochSliceCounter::from(0))),
+                    (false, false) => Ok((EpochCounter::from(0), EpochSliceCounter::from(0))),
                 }
-                
-                
+
                 /*
                 if (counter.epoch == epoch.0 as u64 && counter.epoch_slice == epoch_slice.0 as u64) {
                     Ok(
@@ -497,23 +273,20 @@ impl UserRocksDb {
                     Ok((EpochCounter::from(0), EpochSliceCounter::from(0)))
                 }
                 */
-                
-            },
+            }
             Ok(None) => {
                 // FIXME: Should we return Err or 0 ?
                 // Err(RegisterError2::DbError(String::from("Tx counter is empty")))
                 Ok((EpochCounter::from(0), EpochSliceCounter::from(0)))
-            },
-            Err(e) => {
-                Err(RegisterError2::DbError(e.to_string()))
-            },
+            }
+            Err(e) => Err(RegisterError2::DbError(e.to_string())),
         }
     }
 
     // pub
 
     fn on_new_epoch(&self) {}
-    
+
     fn on_new_epoch_slice(&self) {}
 
     pub fn on_new_user(&self, address: &Address) -> Result<Fr, RegisterError2> {
@@ -524,12 +297,7 @@ impl UserRocksDb {
         todo!()
     }
 
-    pub(crate) fn on_new_tx(
-        &self,
-        address: &Address,
-        incr_value: Option<u64>,
-    ) -> Option<()> {
-
+    pub(crate) fn on_new_tx(&self, address: &Address, incr_value: Option<u64>) -> Option<()> {
         // FIXME: should has_user return a Result here?
         if let Ok(has_user) = self.has_user(*address) {
             if has_user {
@@ -548,21 +316,20 @@ impl UserRocksDb {
         tier_index: TierIndex,
         tier: Tier,
     ) -> Result<(), SetTierLimitsError> {
-
         let cf = self.db.cf_handle(TIER_LIMITS_CF).unwrap();
         let buffer = match self.db.get_cf(cf, TIER_LIMITS_KEY.as_slice()) {
-            Ok(Some(buffer)) => {
-                buffer
-            },
+            Ok(Some(buffer)) => buffer,
             Ok(None) => {
                 unimplemented!()
-            },
+            }
             Err(e) => {
                 unimplemented!()
             }
         };
 
-        let tier_limits_deserializer = TierLimitsDeserializer {};
+        let tier_limits_deserializer = TierLimitsDeserializer {
+            tier_deserializer: TierDeserializer {},
+        };
         let (_, mut tier_limits) = tier_limits_deserializer.deserialize(&buffer).unwrap();
         tier_limits.insert(tier_index, tier);
         tier_limits.validate()?;
@@ -574,7 +341,9 @@ impl UserRocksDb {
 
         // Write
         // TODO: no unwrap
-        self.db.put_cf(cf, TIER_LIMITS_NEXT_KEY.as_slice(), buffer).unwrap();
+        self.db
+            .put_cf(cf, TIER_LIMITS_NEXT_KEY.as_slice(), buffer)
+            .unwrap();
 
         Ok(())
     }
@@ -584,21 +353,20 @@ impl UserRocksDb {
         tier_index: TierIndex,
         tier: Tier,
     ) -> Result<(), SetTierLimitsError> {
-
         let cf = self.db.cf_handle(TIER_LIMITS_CF).unwrap();
         let buffer = match self.db.get_cf(cf, TIER_LIMITS_KEY.as_slice()) {
-            Ok(Some(buffer)) => {
-                buffer
-            },
+            Ok(Some(buffer)) => buffer,
             Ok(None) => {
                 unimplemented!()
-            },
+            }
             Err(e) => {
                 unimplemented!()
             }
         };
 
-        let tier_limits_deserializer = TierLimitsDeserializer {};
+        let tier_limits_deserializer = TierLimitsDeserializer {
+            tier_deserializer: TierDeserializer {},
+        };
         let (_, mut tier_limits) = tier_limits_deserializer.deserialize(&buffer).unwrap();
         if !tier_limits.contains_key(&tier_index) {
             return Err(SetTierLimitsError::InvalidTierIndex);
@@ -613,7 +381,9 @@ impl UserRocksDb {
 
         // Write
         // TODO: no unwrap
-        self.db.put_cf(cf, TIER_LIMITS_NEXT_KEY.as_slice(), buffer).unwrap();
+        self.db
+            .put_cf(cf, TIER_LIMITS_NEXT_KEY.as_slice(), buffer)
+            .unwrap();
 
         Ok(())
     }
@@ -624,13 +394,10 @@ impl UserRocksDb {
         address: &Address,
         karma_sc: &KSC,
     ) -> Result<UserTierInfo, UserTierInfoError<E>> {
-
         // TODO: no unwrap
         if self.has_user(*address).unwrap() {
-
             // TODO: no unwrap
-            let (epoch_tx_count, epoch_slice_tx_count) = self.get_tx_counter(address)
-                .unwrap();
+            let (epoch_tx_count, epoch_slice_tx_count) = self.get_tx_counter(address).unwrap();
 
             let karma_amount = karma_sc
                 .karma_amount(address)
@@ -640,18 +407,18 @@ impl UserRocksDb {
             // let tier_limits_guard = self.tier_limits.read();
             let cf = self.db.cf_handle(TIER_LIMITS_CF).unwrap();
             let buffer = match self.db.get_cf(cf, TIER_LIMITS_KEY.as_slice()) {
-                Ok(Some(buffer)) => {
-                    buffer
-                },
+                Ok(Some(buffer)) => buffer,
                 Ok(None) => {
                     unimplemented!()
-                },
+                }
                 Err(e) => {
                     unimplemented!()
                 }
             };
 
-            let tier_limits_deserializer = TierLimitsDeserializer {};
+            let tier_limits_deserializer = TierLimitsDeserializer {
+                tier_deserializer: TierDeserializer {},
+            };
             let (_, tier_limits) = tier_limits_deserializer.deserialize(&buffer).unwrap();
             let tier_info = tier_limits.get_tier_by_karma(&karma_amount);
 
@@ -696,10 +463,9 @@ impl UserDbService2 {
         rate_limit: RateLimit,
         tier_limits: TierLimits,
     ) -> Self {
-        
         Self {
             // FIXME
-            user_db: UserRocksDb::new(db_path, tier_limits, epoch_store), 
+            user_db: UserRocksDb::new(db_path, tier_limits, epoch_store),
             epoch_changes: epoch_changes_notifier,
         }
     }
@@ -758,6 +524,7 @@ mod tests {
     use derive_more::Display;
     // internal
     use crate::tier::TierName;
+    use crate::user_db_serialization::{TierDeserializer, TierSerializer};
 
     #[derive(Debug, Display, thiserror::Error)]
     struct DummyError();
@@ -775,7 +542,7 @@ mod tests {
 
     const ADDR_1: Address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
     const ADDR_2: Address = address!("0xb20a608c624Ca5003905aA834De7156C68b2E1d0");
-    
+
     struct MockKarmaSc2 {}
 
     #[async_trait]
@@ -795,10 +562,13 @@ mod tests {
 
     #[test]
     fn test_user_register() {
-
         let temp_folder = tempfile::tempdir().unwrap();
         let epoch_store = Arc::new(RwLock::new(Default::default()));
-        let user_db = UserRocksDb::new(PathBuf::from(temp_folder.path()), Default::default(), epoch_store);
+        let user_db = UserRocksDb::new(
+            PathBuf::from(temp_folder.path()),
+            Default::default(),
+            epoch_store,
+        );
 
         let addr = Address::new([0; 20]);
         user_db.register(addr).unwrap();
@@ -809,45 +579,29 @@ mod tests {
 
         assert!(user_db.get_user(addr).is_some());
         assert_eq!(user_db.get_tx_counter(&addr).unwrap(), (0.into(), 0.into()));
-        
+
         assert!(user_db.get_user(ADDR_1).is_none());
         user_db.register(ADDR_1).unwrap();
-        
+
         // TODO: split unit test
         assert!(user_db.get_user(ADDR_1).is_some());
         assert_eq!(user_db.get_tx_counter(&addr).unwrap(), (0.into(), 0.into()));
         user_db.incr_tx_counter(&addr, Some(42)).unwrap();
-        assert_eq!(user_db.get_tx_counter(&addr).unwrap(), (42.into(), 42.into()));
+        assert_eq!(
+            user_db.get_tx_counter(&addr).unwrap(),
+            (42.into(), 42.into())
+        );
     }
 
-    #[test]
-    fn test_tier_serializer() {
-        
-        let tier = Tier {
-            name: "Basic".into(),
-            min_karma: U256::from(10),
-            max_karma: U256::from(49),
-            tx_per_epoch: 5,
-            active: true,
-        };
-        
-        let ser = TierSerializer {};
-        let deser = TierDeserializer {};
-        
-        let mut buffer = Vec::with_capacity(ser.size_hint());
-        ser.serialize(&tier, &mut buffer);
-        
-        let (_, tier_deser) = deser.deserialize(&mut buffer).unwrap();
-        
-        assert_eq!(tier, tier_deser);
-    }
-    
     #[tokio::test]
     async fn test_incr_tx_counter() {
-
         let temp_folder = tempfile::tempdir().unwrap();
         let epoch_store = Arc::new(RwLock::new(Default::default()));
-        let user_db = UserRocksDb::new(PathBuf::from(temp_folder.path()), Default::default(), epoch_store);
+        let user_db = UserRocksDb::new(
+            PathBuf::from(temp_folder.path()),
+            Default::default(),
+            epoch_store,
+        );
 
         let addr = Address::new([0; 20]);
 
@@ -873,7 +627,6 @@ mod tests {
     }
     #[tokio::test]
     async fn test_update_on_epoch_changes() {
-
         let temp_folder = tempfile::tempdir().unwrap();
         let mut epoch = Epoch::from(11);
         let mut epoch_slice = EpochSlice::from(42);
@@ -933,7 +686,7 @@ mod tests {
         ]);
 
         let user_db_service = UserDbService2::new(
-            temp_folder.path().to_path_buf(), 
+            temp_folder.path().to_path_buf(),
             Default::default(),
             epoch_store.clone(),
             10.into(),
@@ -960,11 +713,11 @@ mod tests {
                 &mut epoch_slice,
                 new_epoch_slice,
             );
-            
+
             let mut guard = epoch_store.write();
             *guard = (new_epoch, epoch_slice);
             drop(guard);
-            
+
             // FIXME / TODO
             // Pb: we get the tx counter but we would need to specify the epoch / epoch slice
             //     or get_tx_counter check against the current epoch / epoch_slice
@@ -1002,7 +755,7 @@ mod tests {
             let mut guard = epoch_store.write();
             *guard = (new_epoch, epoch_slice);
             drop(guard);
-            
+
             let addr_1_tier_info = user_db
                 .user_tier_info(&ADDR_1, &MockKarmaSc2 {})
                 .await

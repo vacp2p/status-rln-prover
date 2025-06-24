@@ -1,10 +1,4 @@
-use nom::{
-    number::complete::{
-        le_u64,
-    }, 
-    IResult,
-    error::ContextError,
-};
+use nom::{IResult, error::ContextError, number::complete::le_u64};
 use rocksdb::MergeOperands;
 
 #[derive(Debug, PartialEq)]
@@ -35,7 +29,6 @@ pub struct EpochCounters {
 struct EpochCounterSerializer {}
 
 impl EpochCounterSerializer {
-    
     fn serialize(&self, value: &EpochCounters, buffer: &mut Vec<u8>) {
         buffer.extend(value.epoch.to_le_bytes());
         buffer.extend(value.epoch_slice.to_le_bytes());
@@ -51,17 +44,27 @@ impl EpochCounterSerializer {
 pub struct EpochCounterDeserializer {}
 
 impl EpochCounterDeserializer {
-    pub fn deserialize<'a>(&self, buffer: &'a [u8]) -> IResult<&'a [u8], EpochCounters, DeserializeError<&'a [u8]>> {
+    pub fn deserialize<'a>(
+        &self,
+        buffer: &'a [u8],
+    ) -> IResult<&'a [u8], EpochCounters, DeserializeError<&'a [u8]>> {
         let (input, epoch) = le_u64(buffer)?;
         let (input, epoch_slice) = le_u64(input)?;
         let (input, epoch_counter) = le_u64(input)?;
         let (_input, epoch_slice_counter) = le_u64(input)?;
-        Ok((input, EpochCounters { epoch, epoch_slice, epoch_counter, epoch_slice_counter }))
+        Ok((
+            input,
+            EpochCounters {
+                epoch,
+                epoch_slice,
+                epoch_counter,
+                epoch_slice_counter,
+            },
+        ))
     }
 }
 
-#[derive(Debug, Default)]
-#[derive(PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct EpochIncr {
     pub epoch: u64,
     pub epoch_slice: u64,
@@ -85,11 +88,21 @@ impl EpochIncrSerializer {
 pub struct EpochIncrDeserializer {}
 
 impl EpochIncrDeserializer {
-    pub fn deserialize<'a>(&self, buffer: &'a [u8]) -> IResult<&'a [u8], EpochIncr, DeserializeError<&'a [u8]>>  {
+    pub fn deserialize<'a>(
+        &self,
+        buffer: &'a [u8],
+    ) -> IResult<&'a [u8], EpochIncr, DeserializeError<&'a [u8]>> {
         let (input, epoch) = le_u64(buffer)?;
         let (input, epoch_slice) = le_u64(input)?;
         let (input, incr_value) = le_u64(input)?;
-        Ok((input, EpochIncr { epoch, epoch_slice, incr_value }))
+        Ok((
+            input,
+            EpochIncr {
+                epoch,
+                epoch_slice,
+                incr_value,
+            },
+        ))
     }
 }
 
@@ -98,7 +111,6 @@ pub fn counter_operands(
     existing_val: Option<&[u8]>,
     operands: &MergeOperands,
 ) -> Option<Vec<u8>> {
-
     let counter_ser = EpochCounterSerializer {};
     let counter_deser = EpochCounterDeserializer {};
     let ser = EpochIncrSerializer {};
@@ -112,7 +124,6 @@ pub fn counter_operands(
 
     // Iter over merge operands (can have multiple one with DBBatch)
     let counter_value = operands.iter().fold(epoch_counter_current, |mut acc, x| {
-
         // Note: unwrap on EpochIncr deserialize error - serialization is done by the prover
         //       thus no error should never happen here
         let (_, epoch_incr) = deser.deserialize(x).unwrap();
@@ -127,7 +138,6 @@ pub fn counter_operands(
                 epoch_counter: epoch_incr.incr_value,
                 epoch_slice_counter: epoch_incr.incr_value,
             }
-            
         } else if epoch_incr.epoch != acc.epoch {
             // New epoch
             acc = EpochCounters {
@@ -149,7 +159,9 @@ pub fn counter_operands(
                 epoch: acc.epoch,
                 epoch_slice: acc.epoch_slice,
                 epoch_counter: acc.epoch_counter.saturating_add(epoch_incr.incr_value),
-                epoch_slice_counter: acc.epoch_slice_counter.saturating_add(epoch_incr.incr_value),
+                epoch_slice_counter: acc
+                    .epoch_slice_counter
+                    .saturating_add(epoch_incr.incr_value),
             }
         }
 
@@ -161,18 +173,16 @@ pub fn counter_operands(
     Some(buffer.to_vec())
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     // std
     // third-party
-    use rocksdb::{Options, WriteBatch, DB};
+    use rocksdb::{DB, Options, WriteBatch};
     use tempfile::TempDir;
 
     #[test]
     fn test_ser_der() {
-        
         // EpochCounter struct
         {
             let epoch_counter = EpochCounters {
@@ -190,7 +200,7 @@ mod tests {
             let (_, de) = deserializer.deserialize(&buffer).unwrap();
             assert_eq!(epoch_counter, de);
         }
-        
+
         // EpochIncr struct
         {
             let epoch_incr = EpochIncr {
@@ -208,7 +218,7 @@ mod tests {
             assert_eq!(epoch_incr, de);
         }
     }
-    
+
     #[test]
     fn test_operator_2() {
         let tmp_path = TempDir::new().unwrap().path().to_path_buf();
@@ -243,7 +253,7 @@ mod tests {
         // Applied EpochIncr 2x
         assert_eq!(get_value_k1.epoch_counter, 4);
         assert_eq!(get_value_k1.epoch_slice_counter, 4);
-        
+
         let get_key_2 = db.get(&key_2).unwrap();
         assert!(get_key_2.is_none());
 
@@ -261,15 +271,18 @@ mod tests {
 
             let get_key_1 = db.get(&key_1).unwrap().unwrap();
             let (_, get_value_2) = epoch_counter_deser.deserialize(&get_key_1).unwrap();
-            
-            assert_eq!(get_value_2, EpochCounters {
-                epoch: 0,
-                epoch_slice: 1,
-                epoch_counter: 5,
-                epoch_slice_counter: 1,
-            })
+
+            assert_eq!(
+                get_value_2,
+                EpochCounters {
+                    epoch: 0,
+                    epoch_slice: 1,
+                    epoch_counter: 5,
+                    epoch_slice_counter: 1,
+                }
+            )
         }
-        
+
         // new epoch
         {
             let value_3 = EpochIncr {
@@ -284,13 +297,16 @@ mod tests {
 
             let get_key_1 = db.get(&key_1).unwrap().unwrap();
             let (_, get_value_3) = epoch_counter_deser.deserialize(&get_key_1).unwrap();
-            
-            assert_eq!(get_value_3, EpochCounters {
-                epoch: 1,
-                epoch_slice: 0,
-                epoch_counter: 3,
-                epoch_slice_counter: 3,
-            })
+
+            assert_eq!(
+                get_value_3,
+                EpochCounters {
+                    epoch: 1,
+                    epoch_slice: 0,
+                    epoch_counter: 3,
+                    epoch_slice_counter: 3,
+                }
+            )
         }
     }
 }

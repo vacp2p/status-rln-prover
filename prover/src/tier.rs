@@ -1,11 +1,8 @@
 use std::collections::{BTreeMap, HashSet};
-use std::ops::{
-    ControlFlow,
-    Deref, DerefMut
-};
+use std::ops::{ControlFlow, Deref, DerefMut};
 // third-party
-use derive_more::{From, Into};
 use alloy::primitives::U256;
+use derive_more::{From, Into};
 // internal
 // use crate::user_db_service::SetTierLimitsError;
 use smart_contract::{Tier, TierIndex};
@@ -99,7 +96,6 @@ impl TierLimits {
 
     /// Given some karma amount, find the matching Tier
     pub(crate) fn get_tier_by_karma(&self, karma_amount: &U256) -> Option<(TierIndex, Tier)> {
-        
         struct Context<'a> {
             prev: Option<(&'a TierIndex, &'a Tier)>,
         }

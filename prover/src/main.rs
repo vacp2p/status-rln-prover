@@ -7,12 +7,14 @@ mod mock;
 mod proof_generation;
 mod proof_service;
 mod registry_listener;
+mod rocksdb_operands;
+mod rocksdb_operator;
 mod tier;
 mod tiers_listener;
+mod user_db_serialization;
 mod user_db_service;
+mod user_db_types;
 mod user_rocksdb;
-mod rocksdb_operator;
-mod rocksdb_operands;
 
 // std
 use std::net::SocketAddr;

@@ -25,7 +25,7 @@ mod tests {
     use super::*;
     // std
     // third-party
-    use rocksdb::{Options, DB};
+    use rocksdb::{DB, Options};
     use tempfile::TempDir;
 
     #[test]

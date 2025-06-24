@@ -15,7 +15,7 @@ use rln::{
 };
 
 /// A RLN user identity & limit
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RlnUserIdentity {
     pub commitment: Fr,
     pub secret_hash: Fr,
