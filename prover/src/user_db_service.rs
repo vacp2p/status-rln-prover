@@ -14,7 +14,7 @@ use tracing::debug;
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::{AppError, GetMerkleTreeProofError, RegisterError};
-use crate::tier::{SetTierLimitsError, TierLimit, TierLimits, TierName};
+use crate::tier::{ValidateTierLimitsError, TierLimit, TierLimits, TierName};
 use rln_proof::{RlnUserIdentity, ZerokitMerkleTree};
 use smart_contract::{KarmaAmountExt, Tier, TierIndex};
 
@@ -246,7 +246,7 @@ impl UserDb {
     pub(crate) fn on_new_tier_limits(
         &self,
         tier_limits: TierLimits,
-    ) -> Result<(), SetTierLimitsError> {
+    ) -> Result<(), ValidateTierLimitsError> {
         let tier_limits = tier_limits.clone().filter_inactive();
         tier_limits.validate()?;
         *self.tier_limits_next.write() = tier_limits;
@@ -257,7 +257,7 @@ impl UserDb {
         &self,
         tier_index: TierIndex,
         tier: Tier,
-    ) -> Result<(), SetTierLimitsError> {
+    ) -> Result<(), ValidateTierLimitsError> {
         let mut tier_limits = self.tier_limits.read().clone();
         tier_limits.insert(tier_index, tier);
         tier_limits.validate()?;
@@ -270,10 +270,10 @@ impl UserDb {
         &self,
         tier_index: TierIndex,
         tier: Tier,
-    ) -> Result<(), SetTierLimitsError> {
+    ) -> Result<(), ValidateTierLimitsError> {
         let mut tier_limits = self.tier_limits.read().clone();
         if !tier_limits.contains_key(&tier_index) {
-            return Err(SetTierLimitsError::InvalidTierIndex);
+            return Err(ValidateTierLimitsError::InvalidTierIndex);
         }
         tier_limits.entry(tier_index).and_modify(|e| *e = tier);
         tier_limits.validate()?;

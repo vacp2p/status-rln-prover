@@ -26,7 +26,7 @@ pub struct EpochCounters {
     pub epoch_slice_counter: u64,
 }
 
-struct EpochCounterSerializer {}
+pub struct EpochCounterSerializer {}
 
 impl EpochCounterSerializer {
     fn serialize(&self, value: &EpochCounters, buffer: &mut Vec<u8>) {
@@ -38,6 +38,10 @@ impl EpochCounterSerializer {
 
     fn size_hint(&self) -> usize {
         size_of::<EpochCounters>()
+    }
+    
+    pub const fn default() -> [u8; size_of::<EpochCounters>()] {
+        [0u8; size_of::<EpochCounters>()]
     }
 }
 

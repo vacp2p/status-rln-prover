@@ -11,33 +11,20 @@ use tracing::debug;
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::AppError;
-use crate::rocksdb_operands::{
-    EpochCounterDeserializer, EpochIncr, EpochIncrSerializer, counter_operands,
-};
-use crate::tier::{SetTierLimitsError, TierLimit, TierLimits, TierName};
+use crate::rocksdb_operands::{EpochCounterDeserializer, EpochIncr, EpochIncrSerializer, counter_operands, EpochCounterSerializer};
+use crate::tier::{ValidateTierLimitsError, TierLimit, TierLimits, TierName};
 use crate::user_db_serialization::{
     MerkleTreeIndexSerializer, RlnUserIdentityDeserializer, RlnUserIdentitySerializer,
     TierDeserializer, TierLimitsDeserializer, TierLimitsSerializer,
 };
 use crate::user_db_types::{EpochCounter, EpochSliceCounter, MerkleTreeIndex, RateLimit};
-use crate::user_db_error::UserDbOpenError;
+use crate::user_db_error::{RegisterError2, SetTierLimitsError, TxCounterError, UserDbOpenError};
 use rln_proof::RlnUserIdentity;
 use smart_contract::{KarmaAmountExt, Tier, TierIndex};
 
 pub const USER_CF: &str = "user";
 pub const TX_COUNTER_CF: &str = "tx_counter";
 pub const TIER_LIMITS_CF: &str = "tier_limits";
-
-#[derive(thiserror::Error, Debug)]
-pub enum RegisterError2 {
-    #[error("User (address: {0:?}) has already been registered")]
-    AlreadyRegistered(Address),
-    #[error("Db error: {0}")]
-    // DbError(String),
-    DbError(String),
-    #[error("Merkle tree error: {0}")]
-    TreeError(String),
-}
 
 #[derive(Debug, PartialEq)]
 pub struct UserTierInfo {
@@ -70,6 +57,7 @@ struct UserRocksDb {
 }
 
 impl UserRocksDb {
+    
     /// Returns a new `UserRocksDB` instance
     pub fn new(
         db_path: PathBuf,
@@ -92,8 +80,12 @@ impl UserRocksDb {
             &db_options,
             db_path,
             vec![
+                // Db column for users, key: User address, value: RlnUserIdentity
                 ColumnFamilyDescriptor::new(USER_CF, Options::default()),
+                // Db column for user tx counters, key: User address, value: EpochCounters
                 ColumnFamilyDescriptor::new(TX_COUNTER_CF, tx_counter_cf_opts.clone()),
+                // Db column for tier limits - key: current && next, value: TierLimits
+                // Note: only 2 keys in this column
                 ColumnFamilyDescriptor::new(TIER_LIMITS_CF, Options::default()),
             ],
         )?;
@@ -115,36 +107,8 @@ impl UserRocksDb {
         })
     }
 
-    /*
-    pub fn default_db_opts() -> Options {
-        let mut db_opts = Options::default();
-        db_opts.set_max_open_files(820);
-        db_opts.create_if_missing(true);
-        db_opts.create_missing_column_families(true);
-        db_opts
-    }
-    */
-
-    /*
-    fn db_open(db_path: &Path, db_opts: Options) -> Result<DB, rocksdb::Error> {
-        let mut tx_counter_cf_opts = Options::default();
-        tx_counter_cf_opts.set_merge_operator_associative("counter operator", counter_operands);
-
-        let db = DB::open_cf_descriptors(
-            &db_opts,
-            db_path,
-            vec![
-                ColumnFamilyDescriptor::new(USER_CF, Options::default()),
-                ColumnFamilyDescriptor::new(TX_COUNTER_CF, tx_counter_cf_opts.clone()),
-                ColumnFamilyDescriptor::new(TIER_LIMITS_CF, Options::default()),
-            ],
-        )?;
-
-        Ok(db)
-    }
-    */
-
     fn register(&self, address: Address) -> Result<Fr, RegisterError2> {
+        
         let rln_identity_serializer = RlnUserIdentitySerializer {};
         let merkle_index_serializer = MerkleTreeIndexSerializer {};
 
@@ -160,16 +124,15 @@ impl UserRocksDb {
         let key = address.as_slice();
         let mut buffer =
             vec![0; rln_identity_serializer.size_hint() + merkle_index_serializer.size_hint()];
-        rln_identity_serializer.serialize(&rln_identity, &mut buffer);
+        
+        // unwrap safe - this is serialized by the Prover + RlnUserIdentitySerializer is unit tested
+        rln_identity_serializer.serialize(&rln_identity, &mut buffer).unwrap();
         merkle_index_serializer.serialize(&MerkleTreeIndex::from(index), &mut buffer);
 
         // unwrap safe - db is always created with this column
         let cf_user = self.db.cf_handle(USER_CF).unwrap();
-        // FIXME
-        // let cf_counter = self.db.cf_handle(TX_COUNTER_EPOCH_CF).unwrap();
-        // let cf_counter_slice = self.db.cf_handle(TX_COUNTER_EPOCH_SLICE_CF).unwrap();
-
-        println!("get key: {:?}", key);
+        let cf_counter = self.db.cf_handle(TX_COUNTER_CF).unwrap();
+        
         match self.db.get_cf(cf_user, key) {
             Ok(Some(_)) => {
                 return Err(RegisterError2::AlreadyRegistered(address));
@@ -177,15 +140,14 @@ impl UserRocksDb {
             Ok(None) => {
                 let mut db_batch = WriteBatch::new();
                 db_batch.put_cf(cf_user, key, buffer.as_slice());
-                // db_batch.put_cf(cf_counter, key, 0u64.to_le_bytes());
-                // db_batch.put_cf(cf_counter_slice, key, 0u64.to_le_bytes());
-
+                db_batch.put_cf(cf_counter, key, EpochCounterSerializer::default().as_slice());
+                
                 self.db
                     .write(db_batch)
-                    .map_err(|e| RegisterError2::DbError(e.to_string()))?;
+                    .map_err(RegisterError2::Db)?;
             }
             Err(e) => {
-                return Err(RegisterError2::DbError(e.to_string()));
+                return Err(RegisterError2::Db(e));
             }
         }
 
@@ -195,23 +157,22 @@ impl UserRocksDb {
         Ok(id_commitment)
     }
 
-    fn has_user(&self, address: Address) -> Result<bool, RegisterError2> {
-        // TODO: perf get_pinned
+    fn has_user(&self, address: Address) -> Result<bool, rocksdb::Error> {
+        // unwrap safe - db is always created with this column
         let cf_user = self.db.cf_handle(USER_CF).unwrap();
         self.db
-            .get_cf(cf_user, address.as_slice())
+            .get_pinned_cf(cf_user, address.as_slice())
             .map(|value| value.is_some())
-            .map_err(|e| RegisterError2::DbError(e.to_string()))
     }
 
     pub fn get_user(&self, address: Address) -> Option<RlnUserIdentity> {
         // unwrap safe - db is always created with this column
         let cf_user = self.db.cf_handle(USER_CF).unwrap();
         let rln_identity_deserializer = RlnUserIdentityDeserializer {};
-        match self.db.get_cf(cf_user, address.as_slice()) {
+        match self.db.get_pinned_cf(cf_user, address.as_slice()) {
             Ok(Some(value)) => {
-                // FIXME unwrap
-                Some(rln_identity_deserializer.deserialize(&value).unwrap())
+                // Error is silent here - safe as this is controlled by the prover
+                rln_identity_deserializer.deserialize(&value).ok()
             }
             Ok(None) => None,
             Err(_e) => None,
@@ -222,11 +183,11 @@ impl UserRocksDb {
         &self,
         address: &Address,
         incr_value: Option<u64>,
-    ) -> Result<(), RegisterError2> {
+    ) -> Result<(), TxCounterError> {
+        
         let incr_value = incr_value.unwrap_or(1);
         // unwrap safe - db is always created with this column
         let cf_counter = self.db.cf_handle(TX_COUNTER_CF).unwrap();
-        // let cf_counter_epoch_slice = self.db.cf_handle(TX_COUNTER_EPOCH_SLICE_CF).unwrap();
 
         let (epoch, epoch_slice) = *self.epoch_store.read();
         // FIXME: no as
@@ -235,70 +196,68 @@ impl UserRocksDb {
             epoch_slice: epoch_slice.0 as u64,
             incr_value,
         };
-        println!("incr: {:?}", incr);
         let incr_ser = EpochIncrSerializer {};
         let mut buffer = Vec::with_capacity(incr_ser.size_hint());
         incr_ser.serialize(&incr, &mut buffer);
-        println!("incr buf: {:?}", buffer);
-
-        let mut db_batch = WriteBatch::new();
-        db_batch.merge_cf(cf_counter, address.as_slice(), buffer);
 
         self.db
-            .write(db_batch)
-            .map_err(|e| RegisterError2::DbError(e.to_string()))
+            .merge_cf(cf_counter, address.as_slice(), buffer)
+            .map_err(TxCounterError::Db)
     }
 
     fn get_tx_counter(
         &self,
         address: &Address,
-    ) -> Result<(EpochCounter, EpochSliceCounter), RegisterError2> {
-        let counter_deser = EpochCounterDeserializer {};
+    ) -> Result<(EpochCounter, EpochSliceCounter), TxCounterError> {
+        
+        let deserializer = EpochCounterDeserializer {};
 
         // unwrap safe - db is always created with this column
         let cf_counter = self.db.cf_handle(TX_COUNTER_CF).unwrap();
         match self.db.get_cf(cf_counter, address.as_slice()) {
             Ok(Some(value)) => {
-                let (_, counter) = counter_deser.deserialize(&value).unwrap();
-
+                let (_, counter) = deserializer.deserialize(&value).unwrap();
                 let (epoch, epoch_slice) = *self.epoch_store.read();
 
-                println!("get tx_counter: {:?}", counter);
-                println!("current epoch: {:?} - slice {:?}", epoch, epoch_slice);
-
-                // TODO / FIXME
-
+                // TODO: no as
                 let cmp = (
                     counter.epoch == epoch.0 as u64,
                     counter.epoch_slice == epoch_slice.0 as u64,
                 );
 
                 match cmp {
-                    (true, true) => Ok((
-                        counter.epoch_counter.into(),
-                        counter.epoch_slice_counter.into(),
-                    )),
-                    (true, false) => Ok((counter.epoch_counter.into(), EpochSliceCounter::from(0))),
-                    (false, true) => Ok((EpochCounter::from(0), EpochSliceCounter::from(0))),
-                    (false, false) => Ok((EpochCounter::from(0), EpochSliceCounter::from(0))),
+                    (true, true) => {
+                        // EpochCounter stored in DB == epoch store 
+                        // We query for an epoch / epoch slice and this is what is stored in the Db
+                        // Return the counters
+                        Ok((
+                            counter.epoch_counter.into(),
+                            counter.epoch_slice_counter.into(),
+                        ))
+                    },
+                    (true, false) => {
+                        // EpochCounter.epoch_slice (stored in Db) != epoch_store.epoch_slice
+                        // We query for an epoch slice after what is stored in Db
+                        // This can happen if no Tx has updated the epoch slice counter (yet)
+                        Ok((counter.epoch_counter.into(), EpochSliceCounter::from(0)))
+                    },
+                    (false, true) => {
+                        // EpochCounter.epoch (stored in DB) != epoch_store.epoch
+                        // We query for an epoch after what is stored in Db
+                        // This can happen if no Tx has updated the epoch counter (yet)
+                        Ok((EpochCounter::from(0), EpochSliceCounter::from(0)))
+                    },
+                    (false, false) => {
+                        // EpochCounter (stored in DB) != epoch_store
+                        // Outdated value (both for epoch & epoch slice)
+                        Ok((EpochCounter::from(0), EpochSliceCounter::from(0)))
+                    },
                 }
-
-                /*
-                if (counter.epoch == epoch.0 as u64 && counter.epoch_slice == epoch_slice.0 as u64) {
-                    Ok(
-                        (counter.epoch.into(), counter.epoch_slice_counter.into())
-                    )
-                } else {
-                    Ok((EpochCounter::from(0), EpochSliceCounter::from(0)))
-                }
-                */
             }
             Ok(None) => {
-                // FIXME: Should we return Err or 0 ?
-                // Err(RegisterError2::DbError(String::from("Tx counter is empty")))
-                Ok((EpochCounter::from(0), EpochSliceCounter::from(0)))
+                Err(TxCounterError::NotRegistered(*address))
             }
-            Err(e) => Err(RegisterError2::DbError(e.to_string())),
+            Err(e) => Err(TxCounterError::Db(e)),
         }
     }
 
@@ -316,17 +275,15 @@ impl UserRocksDb {
         todo!()
     }
 
-    pub(crate) fn on_new_tx(&self, address: &Address, incr_value: Option<u64>) -> Option<()> {
-        // FIXME: should has_user return a Result here?
-        if let Ok(has_user) = self.has_user(*address) {
-            if has_user {
-                // FIXME: no unwrap
-                Some(self.incr_tx_counter(address, incr_value).unwrap())
-            } else {
-                None
-            }
+    pub(crate) fn on_new_tx(&self, address: &Address, incr_value: Option<u64>) -> Result<(), TxCounterError> {
+        
+        let has_user = self.has_user(*address)
+            .map_err(TxCounterError::Db)?;
+        
+        if has_user {
+            self.incr_tx_counter(address, incr_value)
         } else {
-            None
+            Err(TxCounterError::NotRegistered(*address))
         }
     }
 
@@ -335,14 +292,13 @@ impl UserRocksDb {
         tier_index: TierIndex,
         tier: Tier,
     ) -> Result<(), SetTierLimitsError> {
+        
         let cf = self.db.cf_handle(TIER_LIMITS_CF).unwrap();
-        let buffer = match self.db.get_cf(cf, TIER_LIMITS_KEY.as_slice()) {
-            Ok(Some(buffer)) => buffer,
-            Ok(None) => {
-                unimplemented!()
-            }
-            Err(e) => {
-                unimplemented!()
+        let buffer = match self.db.get_cf(cf, TIER_LIMITS_KEY.as_slice())? {
+            Some(buffer) => buffer,
+            None => {
+                // Should never happen - Db is open and initialized with TierLimits 
+                panic!("")
             }
         };
 
@@ -356,15 +312,13 @@ impl UserRocksDb {
         // Serialize
         let tier_limits_serializer = TierLimitsSerializer::default();
         let mut buffer = Vec::with_capacity(tier_limits_serializer.size_hint(tier_limits.len()));
-        tier_limits_serializer.serialize(&tier_limits, &mut buffer);
+        // Unwrap safe - already validated - should always serialize
+        tier_limits_serializer.serialize(&tier_limits, &mut buffer).unwrap();
 
         // Write
-        // TODO: no unwrap
         self.db
             .put_cf(cf, TIER_LIMITS_NEXT_KEY.as_slice(), buffer)
-            .unwrap();
-
-        Ok(())
+            .map_err(SetTierLimitsError::Db)
     }
 
     pub(crate) fn on_tier_updated(
@@ -373,12 +327,9 @@ impl UserRocksDb {
         tier: Tier,
     ) -> Result<(), SetTierLimitsError> {
         let cf = self.db.cf_handle(TIER_LIMITS_CF).unwrap();
-        let buffer = match self.db.get_cf(cf, TIER_LIMITS_KEY.as_slice()) {
-            Ok(Some(buffer)) => buffer,
-            Ok(None) => {
-                unimplemented!()
-            }
-            Err(e) => {
+        let buffer = match self.db.get_cf(cf, TIER_LIMITS_KEY.as_slice())? {
+            Some(buffer) => buffer,
+            None => {
                 unimplemented!()
             }
         };
@@ -388,7 +339,7 @@ impl UserRocksDb {
         };
         let (_, mut tier_limits) = tier_limits_deserializer.deserialize(&buffer).unwrap();
         if !tier_limits.contains_key(&tier_index) {
-            return Err(SetTierLimitsError::InvalidTierIndex);
+            return Err(SetTierLimitsError::InvalidUpdateTierIndex);
         }
         tier_limits.entry(tier_index).and_modify(|e| *e = tier);
         tier_limits.validate()?;
@@ -399,10 +350,9 @@ impl UserRocksDb {
         tier_limits_serializer.serialize(&tier_limits, &mut buffer);
 
         // Write
-        // TODO: no unwrap
         self.db
             .put_cf(cf, TIER_LIMITS_NEXT_KEY.as_slice(), buffer)
-            .unwrap();
+            .map_err(SetTierLimitsError::Db)?;
 
         Ok(())
     }
@@ -495,6 +445,7 @@ impl UserDbService2 {
     }
 
     pub async fn listen_for_epoch_changes(&self) -> Result<(), AppError> {
+        
         let (mut current_epoch, mut current_epoch_slice) = *self.user_db.epoch_store.read();
 
         loop {
@@ -626,7 +577,7 @@ mod tests {
         let addr = Address::new([0; 20]);
 
         // Try to update tx counter without registering first
-        assert_eq!(user_db.on_new_tx(&addr, None), None);
+        assert_matches!(user_db.on_new_tx(&addr, None), Err(TxCounterError::NotRegistered(_)));
 
         let tier_info = user_db.user_tier_info(&addr, &MockKarmaSc {}).await;
         // User is not registered -> no tier info
@@ -637,7 +588,7 @@ mod tests {
         // Register user
         user_db.register(addr).unwrap();
         // Now update user tx counter
-        assert_eq!(user_db.on_new_tx(&addr, None), Some(()));
+        assert_matches!(user_db.on_new_tx(&addr, None), Ok(()));
         let tier_info = user_db
             .user_tier_info(&addr, &MockKarmaSc {})
             .await
