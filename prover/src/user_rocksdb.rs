@@ -540,7 +540,6 @@ mod tests {
         assert!(user_db.get_user(ADDR_1).is_none());
         user_db.register(ADDR_1).unwrap();
 
-        // TODO: split unit test
         assert!(user_db.get_user(ADDR_1).is_some());
         assert_eq!(user_db.get_tx_counter(&addr).unwrap(), (0.into(), 0.into()));
         user_db.incr_tx_counter(&addr, Some(42)).unwrap();
@@ -678,9 +677,6 @@ mod tests {
             *guard = (new_epoch, epoch_slice);
             drop(guard);
 
-            // FIXME / TODO
-            // Pb: we get the tx counter but we would need to specify the epoch / epoch slice
-            //     or get_tx_counter check against the current epoch / epoch_slice
             let addr_1_tier_info = user_db
                 .user_tier_info(&ADDR_1, &MockKarmaSc2 {})
                 .await
@@ -705,7 +701,6 @@ mod tests {
         {
             let new_epoch = epoch + 1;
             let new_epoch_slice = EpochSlice::from(0);
-            // FIXME: same here
             user_db_service.update_on_epoch_changes(
                 &mut epoch,
                 new_epoch,
