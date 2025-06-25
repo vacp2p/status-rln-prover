@@ -39,3 +39,15 @@ pub enum SetTierLimitsError {
     #[error(transparent)]
     Db(#[from] rocksdb::Error),
 }
+
+#[derive(Debug, thiserror::Error)]
+pub enum UserTierInfoError<E: std::error::Error> {
+    #[error("User {0} not registered")]
+    NotRegistered(Address),
+    #[error(transparent)]
+    Contract(E),
+    #[error(transparent)]
+    TxCounter(#[from] TxCounterError),
+    #[error(transparent)]
+    Db(#[from] rocksdb::Error),
+}
