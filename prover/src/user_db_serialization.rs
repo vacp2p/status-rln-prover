@@ -145,7 +145,7 @@ impl TierDeserializer {
             .map_err(|e| nom::Err::Error(TierDeserializeError::Utf8Error(e)))?;
         let (input, tx_per_epoch) = le_u32(input)?;
         let (input, active) = take(1usize)(input)?;
-        let active = !(active[0] == 0);
+        let active = active[0] != 0;
 
         Ok((
             input,
@@ -198,7 +198,6 @@ impl TierLimitsDeserializer {
         &self,
         buffer: &'a [u8],
     ) -> IResult<&'a [u8], TierLimits, TierDeserializeError<&'a [u8]>> {
-        
         let (input, tiers): (&[u8], BTreeMap<TierIndex, Tier>) = length_count(
             le_u32,
             context("Tier index & Tier deser", |input: &'a [u8]| {
@@ -208,7 +207,7 @@ impl TierLimitsDeserializer {
                 Ok((input, (tier_index, tier)))
             }),
         )
-        .map(|r| BTreeMap::from_iter(r))
+        .map(BTreeMap::from_iter)
         .parse(buffer)?;
 
         Ok((input, TierLimits::from(tiers)))

@@ -9,7 +9,7 @@ use futures::StreamExt;
 use tracing::error;
 // internal
 use crate::error::AppError;
-use crate::user_db_service::UserDb;
+use crate::user_db::UserDb;
 use smart_contract::{AlloyWsProvider, KarmaTiersSC, Tier, TierIndex};
 
 pub(crate) struct TiersListener {

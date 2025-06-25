@@ -23,6 +23,8 @@ pub struct AppArgs {
         help = "Websocket rpc url (e.g. wss://eth-mainnet.g.alchemy.com/v2/your-api-key)"
     )]
     pub(crate) ws_rpc_url: Option<Url>,
+    #[arg(long = "db", help = "Db path", default_value = "./storage/db")]
+    pub(crate) db_path: PathBuf,
     #[arg(short = 'k', long = "ksc", help = "Karma smart contract address")]
     pub(crate) ksc_address: Option<Address>,
     #[arg(short = 'r', long = "rlnsc", help = "RLN smart contract address")]

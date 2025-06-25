@@ -12,7 +12,8 @@ use tracing::{debug, info};
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::{AppError, ProofGenerationError, ProofGenerationStringError};
 use crate::proof_generation::{ProofGenerationData, ProofSendingData};
-use crate::user_db_service::{RateLimit, UserDb};
+use crate::user_db::UserDb;
+use crate::user_db_types::RateLimit;
 use rln_proof::{RlnData, compute_rln_proof_and_values};
 
 const PROOF_SIZE: usize = 512;
@@ -140,6 +141,7 @@ impl ProofService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     // third-party
     use alloy::primitives::{Address, address};
     use ark_groth16::{Proof as ArkProof, Proof, VerifyingKey};
@@ -256,15 +258,18 @@ mod tests {
         let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
 
         // User db
+        let temp_folder = tempfile::tempdir().unwrap();
         let user_db_service = UserDbService::new(
+            PathBuf::from(temp_folder.path()),
             Default::default(),
             epoch_store.clone(),
             10.into(),
             Default::default(),
-        );
+        )
+        .unwrap();
         let user_db = user_db_service.get_user_db();
-        user_db.on_new_user(ADDR_1).unwrap();
-        user_db.on_new_user(ADDR_2).unwrap();
+        user_db.on_new_user(&ADDR_1).unwrap();
+        user_db.on_new_user(&ADDR_2).unwrap();
 
         let rln_identifier = Arc::new(RlnIdentifier::new(b"foo bar baz"));
 
@@ -308,14 +313,17 @@ mod tests {
         let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
 
         // User db
+        let temp_folder = tempfile::tempdir().unwrap();
         let user_db_service = UserDbService::new(
+            PathBuf::from(temp_folder.path()),
             Default::default(),
             epoch_store.clone(),
             10.into(),
             Default::default(),
-        );
+        )
+        .unwrap();
         let user_db = user_db_service.get_user_db();
-        user_db.on_new_user(ADDR_1).unwrap();
+        user_db.on_new_user(&ADDR_1).unwrap();
         // user_db.on_new_user(ADDR_2).unwrap();
 
         let rln_identifier = Arc::new(RlnIdentifier::new(b"foo bar baz"));
@@ -463,16 +471,19 @@ mod tests {
         let rate_limit = RateLimit::from(1);
 
         // User db
+        let temp_folder = tempfile::tempdir().unwrap();
         let user_db_service = UserDbService::new(
+            PathBuf::from(temp_folder.path()),
             Default::default(),
             epoch_store.clone(),
             rate_limit,
             Default::default(),
-        );
+        )
+        .unwrap();
         let user_db = user_db_service.get_user_db();
-        user_db.on_new_user(ADDR_1).unwrap();
+        user_db.on_new_user(&ADDR_1).unwrap();
         let user_addr_1 = user_db.get_user(&ADDR_1).unwrap();
-        user_db.on_new_user(ADDR_2).unwrap();
+        user_db.on_new_user(&ADDR_2).unwrap();
 
         let rln_identifier = Arc::new(RlnIdentifier::new(b"foo bar baz"));
 
@@ -528,17 +539,20 @@ mod tests {
         let rate_limit = RateLimit::from(1);
 
         // User db - limit is 1 message per epoch
+        let temp_folder = tempfile::tempdir().unwrap();
         let user_db_service = UserDbService::new(
+            PathBuf::from(temp_folder.path()),
             Default::default(),
             epoch_store.clone(),
             rate_limit.into(),
             Default::default(),
-        );
+        )
+        .unwrap();
         let user_db = user_db_service.get_user_db();
-        user_db.on_new_user(ADDR_1).unwrap();
+        user_db.on_new_user(&ADDR_1).unwrap();
         let user_addr_1 = user_db.get_user(&ADDR_1).unwrap();
         debug!("user_addr_1: {:?}", user_addr_1);
-        user_db.on_new_user(ADDR_2).unwrap();
+        user_db.on_new_user(&ADDR_2).unwrap();
 
         let rln_identifier = Arc::new(RlnIdentifier::new(b"foo bar baz"));
 

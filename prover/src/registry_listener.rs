@@ -9,8 +9,9 @@ use alloy::{
 use tonic::codegen::tokio_stream::StreamExt;
 use tracing::{debug, error, info};
 // internal
-use crate::error::{AppError, HandleTransferError, RegisterError};
-use crate::user_db_service::UserDb;
+use crate::error::{AppError, HandleTransferError};
+use crate::user_db::UserDb;
+use crate::user_db_error::RegisterError;
 use smart_contract::{AlloyWsProvider, KarmaAmountExt, KarmaSC};
 
 pub(crate) struct RegistryListener {
@@ -113,7 +114,7 @@ impl RegistryListener {
 
             if should_register {
                 self.user_db
-                    .on_new_user(to_address)
+                    .on_new_user(&to_address)
                     .map_err(HandleTransferError::Register)?;
             }
         }
@@ -125,6 +126,7 @@ impl RegistryListener {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     // std
     use std::sync::Arc;
     // third-party
@@ -152,12 +154,15 @@ mod tests {
         let epoch = Epoch::from(11);
         let epoch_slice = EpochSlice::from(42);
         let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
+        let temp_folder = tempfile::tempdir().unwrap();
         let user_db_service = UserDbService::new(
+            PathBuf::from(temp_folder.path()),
             Default::default(),
             epoch_store,
             10.into(),
             Default::default(),
-        );
+        )
+        .unwrap();
         let user_db = user_db_service.get_user_db();
 
         assert!(user_db_service.get_user_db().get_user(&ADDR_2).is_none());

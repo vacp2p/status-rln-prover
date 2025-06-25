@@ -1,10 +1,10 @@
-use nom::{IResult, error::ContextError, 
-          number::complete::{
-              le_u64, le_i64
-          }
+use crate::epoch_service::{Epoch, EpochSlice};
+use nom::{
+    IResult,
+    error::ContextError,
+    number::complete::{le_i64, le_u64},
 };
 use rocksdb::MergeOperands;
-use crate::epoch_service::{Epoch, EpochSlice};
 
 #[derive(Debug, PartialEq)]
 pub enum DeserializeError<I> {
@@ -41,12 +41,16 @@ impl EpochCounterSerializer {
         buffer.extend(value.epoch_slice_counter.to_le_bytes());
     }
 
-    fn size_hint(&self) -> usize {
+    const fn _size_hint() -> usize {
         size_of::<EpochCounters>()
     }
-    
-    pub const fn default() -> [u8; size_of::<EpochCounters>()] {
-        [0u8; size_of::<EpochCounters>()]
+
+    fn size_hint(&self) -> usize {
+        Self::_size_hint()
+    }
+
+    pub const fn default() -> [u8; Self::_size_hint()] {
+        [0u8; Self::_size_hint()]
     }
 }
 
@@ -57,8 +61,8 @@ impl EpochCounterDeserializer {
         &self,
         buffer: &'a [u8],
     ) -> IResult<&'a [u8], EpochCounters, DeserializeError<&'a [u8]>> {
-        let (input, epoch) = le_i64(buffer).map(|(i, e)| { (i, Epoch::from(e)) })?;
-        let (input, epoch_slice) = le_i64(input).map(|(i, es)| {(i, EpochSlice::from(es))})?;
+        let (input, epoch) = le_i64(buffer).map(|(i, e)| (i, Epoch::from(e)))?;
+        let (input, epoch_slice) = le_i64(input).map(|(i, es)| (i, EpochSlice::from(es)))?;
         let (input, epoch_counter) = le_u64(input)?;
         let (_input, epoch_slice_counter) = le_u64(input)?;
         Ok((
@@ -101,12 +105,8 @@ impl EpochIncrDeserializer {
         &self,
         buffer: &'a [u8],
     ) -> IResult<&'a [u8], EpochIncr, DeserializeError<&'a [u8]>> {
-        let (input, epoch) = le_i64(buffer).map(|(i, e)| {
-            (i, Epoch::from(e))
-        })?;
-        let (input, epoch_slice) = le_i64(input).map(|(i, es)| {
-            (i, EpochSlice::from(es))
-        })?;
+        let (input, epoch) = le_i64(buffer).map(|(i, e)| (i, Epoch::from(e)))?;
+        let (input, epoch_slice) = le_i64(input).map(|(i, es)| (i, EpochSlice::from(es)))?;
         let (input, incr_value) = le_u64(input)?;
         Ok((
             input,
@@ -191,6 +191,7 @@ mod tests {
     use super::*;
     // std
     // third-party
+    use crate::user_db_types::EpochCounter;
     use rocksdb::{DB, Options, WriteBatch};
     use tempfile::TempDir;
 
@@ -212,6 +213,14 @@ mod tests {
             let deserializer = EpochCounterDeserializer {};
             let (_, de) = deserializer.deserialize(&buffer).unwrap();
             assert_eq!(epoch_counter, de);
+        }
+
+        {
+            let deserializer = EpochCounterDeserializer {};
+            let (_, de) = deserializer
+                .deserialize(EpochCounterSerializer::default().as_slice())
+                .unwrap();
+            assert_eq!(EpochCounters::default(), de);
         }
 
         // EpochIncr struct

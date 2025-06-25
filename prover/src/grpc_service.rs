@@ -18,9 +18,9 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::debug;
 use url::Url;
 // internal
-use crate::error::{AppError, ProofGenerationStringError, RegisterError};
+use crate::error::{AppError, ProofGenerationStringError};
 use crate::proof_generation::{ProofGenerationData, ProofSendingData};
-use crate::user_db_service::{UserDb, UserTierInfo};
+use crate::user_db::{UserDb, UserTierInfo};
 use rln_proof::RlnIdentifier;
 use smart_contract::{
     KarmaAmountExt,
@@ -39,6 +39,7 @@ pub mod prover_proto {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
         tonic::include_file_descriptor_set!("prover_descriptor");
 }
+use crate::user_db_error::RegisterError;
 use prover_proto::{
     GetUserTierInfoReply,
     GetUserTierInfoRequest,
@@ -165,7 +166,7 @@ where
             return Err(Status::invalid_argument("No sender address"));
         };
 
-        let result = self.user_db.on_new_user(user);
+        let result = self.user_db.on_new_user(&user);
 
         let status = match result {
             Ok(id_commitment) => {
@@ -466,11 +467,11 @@ impl From<UserTierInfo> for UserTierInfoResult {
 }
 
 /// UserTierInfoError to UserTierInfoError (Grpc message) conversion
-impl<E> From<crate::user_db_service::UserTierInfoError<E>> for UserTierInfoError
+impl<E> From<crate::user_db_error::UserTierInfoError<E>> for UserTierInfoError
 where
     E: std::error::Error,
 {
-    fn from(value: crate::user_db_service::UserTierInfoError<E>) -> Self {
+    fn from(value: crate::user_db_error::UserTierInfoError<E>) -> Self {
         UserTierInfoError {
             message: value.to_string(),
         }

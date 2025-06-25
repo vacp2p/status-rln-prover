@@ -1,8 +1,6 @@
 use crate::epoch_service::WaitUntilError;
-use alloy::{
-    primitives::Address,
-    transports::{RpcError, TransportErrorKind},
-};
+use crate::user_db_error::RegisterError;
+use alloy::transports::{RpcError, TransportErrorKind};
 use ark_serialize::SerializationError;
 use rln::error::ProofError;
 
@@ -64,14 +62,6 @@ impl From<ProofGenerationError> for ProofGenerationStringError {
             }
         }
     }
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum RegisterError {
-    #[error("User (address: {0:?}) has already been registered")]
-    AlreadyRegistered(Address),
-    #[error("Merkle tree error: {0}")]
-    TreeError(String),
 }
 
 #[derive(thiserror::Error, Debug, Clone)]

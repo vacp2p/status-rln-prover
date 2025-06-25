@@ -1,7 +1,6 @@
-use std::num::TryFromIntError;
-use alloy::primitives::{Address, U256};
-use ark_serialize::SerializationError;
 use crate::tier::ValidateTierLimitsError;
+use alloy::primitives::Address;
+use std::num::TryFromIntError;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum UserDbOpenError {
@@ -11,9 +10,8 @@ pub(crate) enum UserDbOpenError {
     SerializationError(#[from] TryFromIntError),
 }
 
-
 #[derive(thiserror::Error, Debug)]
-pub enum RegisterError2 {
+pub enum RegisterError {
     #[error("User (address: {0:?}) has already been registered")]
     AlreadyRegistered(Address),
     #[error(transparent)]
@@ -22,7 +20,7 @@ pub enum RegisterError2 {
     TreeError(String),
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, PartialEq)]
 pub enum TxCounterError {
     #[error("User (address: {0:?}) is not registered")]
     NotRegistered(Address),
