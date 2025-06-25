@@ -8,7 +8,7 @@ use derive_more::{From, Into};
 use smart_contract::{Tier, TierIndex};
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, From, Into)]
-pub struct TierLimit(u64);
+pub struct TierLimit(u32);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, From, Into)]
 pub struct TierName(String);

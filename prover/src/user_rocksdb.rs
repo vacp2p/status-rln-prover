@@ -394,7 +394,7 @@ impl UserRocksDb {
             };
             if let Some((_tier_index, tier)) = tier_info {
                 t.tier_name = Some(tier.name.into());
-                t.tier_limit = Some(tier.tx_per_epoch.into());
+                t.tier_limit = Some(TierLimit::from(tier.tx_per_epoch));
             }
             t
         };

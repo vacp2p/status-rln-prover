@@ -211,7 +211,7 @@ message UserTierInfoResult {
 
 message Tier {
   string name = 1;
-  uint64 quota = 2;
+  uint32 quota = 2;
 }
 
 /*
