@@ -82,8 +82,8 @@ impl ProofService {
                 };
 
                 let epoch_bytes = {
-                    let mut v = i64::from(current_epoch).to_be_bytes().to_vec();
-                    v.extend(i64::from(current_epoch_slice).to_be_bytes());
+                    let mut v = current_epoch.to_le_bytes().to_vec();
+                    v.extend(current_epoch_slice.to_le_bytes());
                     v
                 };
                 let epoch = hash_to_field(epoch_bytes.as_slice());

@@ -194,10 +194,9 @@ impl UserRocksDb {
         let cf_counter = self.get_counter_cf();
 
         let (epoch, epoch_slice) = *self.epoch_store.read();
-        // FIXME: no as
         let incr = EpochIncr {
-            epoch: epoch.0 as u64,
-            epoch_slice: epoch_slice.0 as u64,
+            epoch,
+            epoch_slice,
             incr_value,
         };
         let incr_ser = EpochIncrSerializer {};
@@ -222,10 +221,9 @@ impl UserRocksDb {
                 let (_, counter) = deserializer.deserialize(&value).unwrap();
                 let (epoch, epoch_slice) = *self.epoch_store.read();
 
-                // TODO: no as
                 let cmp = (
-                    counter.epoch == epoch.0 as u64,
-                    counter.epoch_slice == epoch_slice.0 as u64,
+                    counter.epoch == epoch,
+                    counter.epoch_slice == epoch_slice,
                 );
 
                 match cmp {

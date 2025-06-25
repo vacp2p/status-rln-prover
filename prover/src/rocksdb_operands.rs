@@ -1,5 +1,10 @@
-use nom::{IResult, error::ContextError, number::complete::le_u64};
+use nom::{IResult, error::ContextError, 
+          number::complete::{
+              le_u64, le_i64
+          }
+};
 use rocksdb::MergeOperands;
+use crate::epoch_service::{Epoch, EpochSlice};
 
 #[derive(Debug, PartialEq)]
 pub enum DeserializeError<I> {
@@ -20,8 +25,8 @@ impl<I> ContextError<I> for DeserializeError<I> {}
 
 #[derive(Debug, Default, PartialEq)]
 pub struct EpochCounters {
-    pub epoch: u64,
-    pub epoch_slice: u64,
+    pub epoch: Epoch,
+    pub epoch_slice: EpochSlice,
     pub epoch_counter: u64,
     pub epoch_slice_counter: u64,
 }
@@ -52,8 +57,8 @@ impl EpochCounterDeserializer {
         &self,
         buffer: &'a [u8],
     ) -> IResult<&'a [u8], EpochCounters, DeserializeError<&'a [u8]>> {
-        let (input, epoch) = le_u64(buffer)?;
-        let (input, epoch_slice) = le_u64(input)?;
+        let (input, epoch) = le_i64(buffer).map(|(i, e)| { (i, Epoch::from(e)) })?;
+        let (input, epoch_slice) = le_i64(input).map(|(i, es)| {(i, EpochSlice::from(es))})?;
         let (input, epoch_counter) = le_u64(input)?;
         let (_input, epoch_slice_counter) = le_u64(input)?;
         Ok((
@@ -70,8 +75,8 @@ impl EpochCounterDeserializer {
 
 #[derive(Debug, Default, PartialEq)]
 pub struct EpochIncr {
-    pub epoch: u64,
-    pub epoch_slice: u64,
+    pub epoch: Epoch,
+    pub epoch_slice: EpochSlice,
     pub incr_value: u64,
 }
 
@@ -96,8 +101,12 @@ impl EpochIncrDeserializer {
         &self,
         buffer: &'a [u8],
     ) -> IResult<&'a [u8], EpochIncr, DeserializeError<&'a [u8]>> {
-        let (input, epoch) = le_u64(buffer)?;
-        let (input, epoch_slice) = le_u64(input)?;
+        let (input, epoch) = le_i64(buffer).map(|(i, e)| {
+            (i, Epoch::from(e))
+        })?;
+        let (input, epoch_slice) = le_i64(input).map(|(i, es)| {
+            (i, EpochSlice::from(es))
+        })?;
         let (input, incr_value) = le_u64(input)?;
         Ok((
             input,
@@ -146,7 +155,7 @@ pub fn counter_operands(
             // New epoch
             acc = EpochCounters {
                 epoch: epoch_incr.epoch,
-                epoch_slice: 0,
+                epoch_slice: Default::default(),
                 epoch_counter: epoch_incr.incr_value,
                 epoch_slice_counter: epoch_incr.incr_value,
             }
@@ -155,7 +164,7 @@ pub fn counter_operands(
             acc = EpochCounters {
                 epoch: epoch_incr.epoch,
                 epoch_slice: epoch_incr.epoch_slice,
-                epoch_counter: acc.epoch_counter.saturating_add(epoch_incr.epoch_slice),
+                epoch_counter: acc.epoch_counter.saturating_add(epoch_incr.incr_value),
                 epoch_slice_counter: epoch_incr.incr_value,
             }
         } else {
@@ -190,8 +199,8 @@ mod tests {
         // EpochCounter struct
         {
             let epoch_counter = EpochCounters {
-                epoch: 1,
-                epoch_slice: 42,
+                epoch: 1.into(),
+                epoch_slice: 42.into(),
                 epoch_counter: 12,
                 epoch_slice_counter: u64::MAX,
             };
@@ -208,8 +217,8 @@ mod tests {
         // EpochIncr struct
         {
             let epoch_incr = EpochIncr {
-                epoch: 1,
-                epoch_slice: 42,
+                epoch: 1.into(),
+                epoch_slice: 42.into(),
                 incr_value: 1,
             };
 
@@ -237,8 +246,8 @@ mod tests {
         let key_2 = "baz42";
 
         let value_1 = EpochIncr {
-            epoch: 0,
-            epoch_slice: 0,
+            epoch: 0.into(),
+            epoch_slice: 0.into(),
             incr_value: 2,
         };
         let epoch_incr_ser = EpochIncrSerializer {};
@@ -264,8 +273,8 @@ mod tests {
         // new epoch slice
         {
             let value_2 = EpochIncr {
-                epoch: 0,
-                epoch_slice: 1,
+                epoch: 0.into(),
+                epoch_slice: 1.into(),
                 incr_value: 1,
             };
 
@@ -279,8 +288,8 @@ mod tests {
             assert_eq!(
                 get_value_2,
                 EpochCounters {
-                    epoch: 0,
-                    epoch_slice: 1,
+                    epoch: 0.into(),
+                    epoch_slice: 1.into(),
                     epoch_counter: 5,
                     epoch_slice_counter: 1,
                 }
@@ -290,8 +299,8 @@ mod tests {
         // new epoch
         {
             let value_3 = EpochIncr {
-                epoch: 1,
-                epoch_slice: 0,
+                epoch: 1.into(),
+                epoch_slice: 0.into(),
                 incr_value: 3,
             };
 
@@ -305,8 +314,8 @@ mod tests {
             assert_eq!(
                 get_value_3,
                 EpochCounters {
-                    epoch: 1,
-                    epoch_slice: 0,
+                    epoch: 1.into(),
+                    epoch_slice: 0.into(),
                     epoch_counter: 3,
                     epoch_slice_counter: 3,
                 }
