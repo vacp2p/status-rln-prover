@@ -95,9 +95,10 @@ pub fn compute_rln_proof_and_values(
 
 #[cfg(test)]
 mod tests {
+    use rln::poseidon_tree::PoseidonTree;
     use super::*;
     use rln::protocol::{compute_id_secret, keygen};
-    use zerokit_utils::{OptimalMerkleTree, ZerokitMerkleTree};
+    use zerokit_utils::{ZerokitMerkleTree};
 
     #[test]
     fn test_recover_secret_hash() {
@@ -105,7 +106,8 @@ mod tests {
         let epoch = hash_to_field(b"foo");
         let spam_limit = Fr::from(10);
 
-        let mut tree = OptimalMerkleTree::new(20, Default::default(), Default::default()).unwrap();
+        // let mut tree = OptimalMerkleTree::new(20, Default::default(), Default::default()).unwrap();
+        let mut tree = PoseidonTree::new(20, Default::default(), Default::default()).unwrap();
         tree.set(0, spam_limit).unwrap();
         let m_proof = tree.proof(0).unwrap();
 

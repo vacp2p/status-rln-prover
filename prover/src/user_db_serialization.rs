@@ -1,17 +1,20 @@
-use ark_ff::fields::AdditiveGroup;
 use std::collections::BTreeMap;
 use std::num::TryFromIntError;
 use std::string::FromUtf8Error;
 // third-party
 use alloy::primitives::U256;
 use ark_bn254::Fr;
+use ark_ff::fields::AdditiveGroup;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, SerializationError};
 use nom::{
     IResult, Parser,
     bytes::complete::take,
     error::{ContextError, context},
     multi::length_count,
-    number::complete::le_u32,
+    number::complete::{
+        le_u32,
+        le_u64
+    },
 };
 use rln_proof::RlnUserIdentity;
 // internal
@@ -68,13 +71,24 @@ pub(crate) struct MerkleTreeIndexSerializer {}
 
 impl MerkleTreeIndexSerializer {
     pub(crate) fn serialize(&self, value: &MerkleTreeIndex, buffer: &mut Vec<u8>) {
-        let value: usize = (*value).into();
+        let value: u64 = (*value).into();
         buffer.extend(value.to_le_bytes());
     }
 
     pub(crate) fn size_hint(&self) -> usize {
         // Note: Assume usize size == 8 bytes
-        8
+        size_of::<MerkleTreeIndex>()
+    }
+}
+
+pub(crate) struct MerkleTreeIndexDeserializer {}
+
+impl MerkleTreeIndexDeserializer {
+    pub(crate) fn deserialize<'a >(&self, buffer: &'a [u8]) -> IResult<&'a [u8], MerkleTreeIndex, nom::error::Error<&'a [u8]>> {
+        le_u64(buffer)
+            .map(|(input, idx)| {
+                (input, MerkleTreeIndex::from(idx))  
+            })
     }
 }
 
@@ -236,6 +250,22 @@ mod tests {
         let de = deserializer.deserialize(&buffer).unwrap();
 
         assert_eq!(rln_user_identity, de);
+    }
+    
+    #[test]
+    fn test_mtree_ser_der() {
+
+        let index = MerkleTreeIndex::from(4242);
+        
+        let serializer = MerkleTreeIndexSerializer {};
+        let mut buffer = Vec::with_capacity(serializer.size_hint());
+        serializer
+            .serialize(&index, &mut buffer);
+        
+        let deserializer = MerkleTreeIndexDeserializer {};
+        let (_, de) = deserializer.deserialize(&buffer).unwrap();
+
+        assert_eq!(index, de);
     }
 
     #[test]

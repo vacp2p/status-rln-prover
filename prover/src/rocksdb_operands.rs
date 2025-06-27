@@ -41,16 +41,16 @@ impl EpochCounterSerializer {
         buffer.extend(value.epoch_slice_counter.to_le_bytes());
     }
 
-    const fn _size_hint() -> usize {
+    pub(crate) const fn size_hint_() -> usize {
         size_of::<EpochCounters>()
     }
 
-    fn size_hint(&self) -> usize {
-        Self::_size_hint()
+    pub(crate) fn size_hint(&self) -> usize {
+        Self::size_hint_()
     }
 
-    pub const fn default() -> [u8; Self::_size_hint()] {
-        [0u8; Self::_size_hint()]
+    pub const fn default() -> [u8; Self::size_hint_()] {
+        [0u8; Self::size_hint_()]
     }
 }
 
@@ -119,7 +119,7 @@ impl EpochIncrDeserializer {
     }
 }
 
-pub fn counter_operands(
+pub fn epoch_counters_operands(
     _key: &[u8],
     existing_val: Option<&[u8]>,
     operands: &MergeOperands,
@@ -186,12 +186,31 @@ pub fn counter_operands(
     Some(buffer.to_vec())
 }
 
+pub fn u64_counter_operands(
+    _key: &[u8],
+    existing_val: Option<&[u8]>,
+    operands: &MergeOperands,
+) -> Option<Vec<u8>> {
+    let counter_current_value = if let Some(existing_val) = existing_val {
+        u64::from_le_bytes(existing_val.try_into().unwrap())
+    } else {
+        0
+    };
+
+    let counter_value = operands.iter().fold(counter_current_value, |mut acc, x| {
+        let incr_value = u64::from_le_bytes(x.try_into().unwrap());
+        acc = acc.saturating_add(incr_value);
+        acc
+    });
+
+    Some(counter_value.to_le_bytes().to_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     // std
     // third-party
-    use crate::user_db_types::EpochCounter;
     use rocksdb::{DB, Options, WriteBatch};
     use tempfile::TempDir;
 
@@ -240,14 +259,41 @@ mod tests {
             assert_eq!(epoch_incr, de);
         }
     }
-
+    
     #[test]
-    fn test_operator_2() {
+    fn test_counter() {
         let tmp_path = TempDir::new().unwrap().path().to_path_buf();
         let options = {
             let mut opts = Options::default();
             opts.create_if_missing(true);
-            opts.set_merge_operator("operator2", counter_operands, counter_operands);
+            opts.set_merge_operator("o", u64_counter_operands, u64_counter_operands);
+            opts
+        };
+        let db = DB::open(&options, tmp_path).unwrap();
+        let key_1 = "foo1";
+        // let key_2 = "baz42";
+        
+        let index = 42u64;
+        let buffer = index.to_le_bytes();
+        
+        let mut db_batch = WriteBatch::default();
+        db_batch.merge(key_1, &buffer);
+        db_batch.merge(key_1, &buffer);
+        db.write(db_batch).unwrap();
+        
+        let get_key_1 = db.get(&key_1).unwrap().unwrap();
+        let value = u64::from_le_bytes(get_key_1.try_into().unwrap());
+        
+        assert_eq!(value, index * 2); // 2x merge
+    }
+    
+    #[test]
+    fn test_counters() {
+        let tmp_path = TempDir::new().unwrap().path().to_path_buf();
+        let options = {
+            let mut opts = Options::default();
+            opts.create_if_missing(true);
+            opts.set_merge_operator("o", epoch_counters_operands, epoch_counters_operands);
             opts
         };
         let db = DB::open(&options, tmp_path).unwrap();

@@ -1,9 +1,18 @@
 use ark_bn254::Fr;
 use derive_more::{Add, From, Into};
 
-#[derive(Debug, Clone, Copy, From, Into)]
-pub(crate) struct MerkleTreeIndex(usize);
+/// A wrapper type over u64
+#[derive(Debug, Clone, Copy, From, Into, PartialEq)]
+pub(crate) struct MerkleTreeIndex(u64);
 
+impl From<MerkleTreeIndex> for usize {
+    fn from(value: MerkleTreeIndex) -> Self {
+        // TODO: compile time assert
+        value.0 as usize
+    }
+}
+
+/// A wrapper type over u64
 #[derive(Debug, Clone, Copy, Default, PartialOrd, PartialEq, From, Into)]
 pub struct RateLimit(u64);
 

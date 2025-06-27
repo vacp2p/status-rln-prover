@@ -259,8 +259,10 @@ mod tests {
 
         // User db
         let temp_folder = tempfile::tempdir().unwrap();
+        let temp_folder_tree = tempfile::tempdir().unwrap();
         let user_db_service = UserDbService::new(
             PathBuf::from(temp_folder.path()),
+            PathBuf::from(temp_folder_tree.path()),
             Default::default(),
             epoch_store.clone(),
             10.into(),
@@ -314,8 +316,10 @@ mod tests {
 
         // User db
         let temp_folder = tempfile::tempdir().unwrap();
+        let temp_folder_tree = tempfile::tempdir().unwrap();
         let user_db_service = UserDbService::new(
             PathBuf::from(temp_folder.path()),
+            PathBuf::from(temp_folder_tree.path()),
             Default::default(),
             epoch_store.clone(),
             10.into(),
@@ -472,8 +476,10 @@ mod tests {
 
         // User db
         let temp_folder = tempfile::tempdir().unwrap();
+        let temp_folder_tree = tempfile::tempdir().unwrap();
         let user_db_service = UserDbService::new(
             PathBuf::from(temp_folder.path()),
+            PathBuf::from(temp_folder_tree.path()),
             Default::default(),
             epoch_store.clone(),
             rate_limit,
@@ -540,11 +546,13 @@ mod tests {
 
         // User db - limit is 1 message per epoch
         let temp_folder = tempfile::tempdir().unwrap();
+        let temp_folder_tree = tempfile::tempdir().unwrap();
         let user_db_service = UserDbService::new(
             PathBuf::from(temp_folder.path()),
+            PathBuf::from(temp_folder_tree.path()),
             Default::default(),
             epoch_store.clone(),
-            rate_limit.into(),
+            rate_limit,
             Default::default(),
         )
         .unwrap();

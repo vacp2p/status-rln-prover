@@ -105,6 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // User db service
     let user_db_service = UserDbService::new(
         app_args.db_path,
+        app_args.merkle_tree_path,
         epoch_service.epoch_changes.clone(),
         epoch_service.current_epoch.clone(),
         PROVER_SPAM_LIMIT,
