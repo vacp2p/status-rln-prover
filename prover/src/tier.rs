@@ -1,17 +1,14 @@
 use std::collections::{BTreeMap, HashSet};
-use std::ops::{
-    ControlFlow,
-    Deref, DerefMut
-};
+use std::ops::{ControlFlow, Deref, DerefMut};
 // third-party
-use derive_more::{From, Into};
 use alloy::primitives::U256;
+use derive_more::{From, Into};
 // internal
-use crate::user_db_service::SetTierLimitsError;
+// use crate::user_db_service::SetTierLimitsError;
 use smart_contract::{Tier, TierIndex};
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, From, Into)]
-pub struct TierLimit(u64);
+pub struct TierLimit(u32);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, From, Into)]
 pub struct TierName(String);
@@ -47,7 +44,7 @@ impl TierLimits {
     }
 
     /// Validate tier limits (unique names, increasing min & max karma ...)
-    pub(crate) fn validate(&self) -> Result<(), SetTierLimitsError> {
+    pub(crate) fn validate(&self) -> Result<(), ValidateTierLimitsError> {
         #[derive(Default)]
         struct Context<'a> {
             tier_names: HashSet<String>,
@@ -61,30 +58,30 @@ impl TierLimits {
                 .iter()
                 .try_fold(Context::default(), |mut state, (tier_index, tier)| {
                     if !tier.active {
-                        return Err(SetTierLimitsError::InactiveTier);
+                        return Err(ValidateTierLimitsError::InactiveTier);
                     }
 
                     if *tier_index <= *state.prev_index.unwrap_or(&TierIndex::default()) {
-                        return Err(SetTierLimitsError::InvalidTierIndex);
+                        return Err(ValidateTierLimitsError::InvalidTierIndex);
                     }
 
                     if tier.min_karma >= tier.max_karma {
-                        return Err(SetTierLimitsError::InvalidMaxAmount(
+                        return Err(ValidateTierLimitsError::InvalidMaxAmount(
                             tier.min_karma,
                             tier.max_karma,
                         ));
                     }
 
                     if tier.min_karma <= *state.prev_amount.unwrap_or(&U256::ZERO) {
-                        return Err(SetTierLimitsError::InvalidKarmaAmount);
+                        return Err(ValidateTierLimitsError::InvalidKarmaAmount);
                     }
 
                     if tier.tx_per_epoch <= *state.prev_tx_per_epoch.unwrap_or(&0) {
-                        return Err(SetTierLimitsError::InvalidTierLimit);
+                        return Err(ValidateTierLimitsError::InvalidTierLimit);
                     }
 
                     if state.tier_names.contains(&tier.name) {
-                        return Err(SetTierLimitsError::NonUniqueTierName);
+                        return Err(ValidateTierLimitsError::NonUniqueTierName);
                     }
 
                     state.prev_amount = Some(&tier.min_karma);
@@ -99,7 +96,6 @@ impl TierLimits {
 
     /// Given some karma amount, find the matching Tier
     pub(crate) fn get_tier_by_karma(&self, karma_amount: &U256) -> Option<(TierIndex, Tier)> {
-        
         struct Context<'a> {
             prev: Option<(&'a TierIndex, &'a Tier)>,
         }
@@ -123,4 +119,20 @@ impl TierLimits {
             None
         }
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ValidateTierLimitsError {
+    #[error("Invalid Karma amount (must be increasing)")]
+    InvalidKarmaAmount,
+    #[error("Invalid Karma max amount (min: {0} vs max: {1})")]
+    InvalidMaxAmount(U256, U256),
+    #[error("Invalid Tier limit (must be increasing)")]
+    InvalidTierLimit,
+    #[error("Invalid Tier index (must be increasing)")]
+    InvalidTierIndex,
+    #[error("Non unique Tier name")]
+    NonUniqueTierName,
+    #[error("Non active Tier")]
+    InactiveTier,
 }

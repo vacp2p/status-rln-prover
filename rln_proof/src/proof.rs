@@ -15,7 +15,7 @@ use rln::{
 };
 
 /// A RLN user identity & limit
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RlnUserIdentity {
     pub commitment: Fr,
     pub secret_hash: Fr,
@@ -42,7 +42,6 @@ pub struct RlnIdentifier {
 
 impl RlnIdentifier {
     pub fn new(identifier: &[u8]) -> Self {
-        // TODO: valid / correct ?
         let pk_and_matrices = {
             let mut reader = Cursor::new(ZKEY_BYTES);
             read_zkey(&mut reader).unwrap()
@@ -96,8 +95,9 @@ pub fn compute_rln_proof_and_values(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rln::poseidon_tree::PoseidonTree;
     use rln::protocol::{compute_id_secret, keygen};
-    use zerokit_utils::{OptimalMerkleTree, ZerokitMerkleTree};
+    use zerokit_utils::ZerokitMerkleTree;
 
     #[test]
     fn test_recover_secret_hash() {
@@ -105,7 +105,8 @@ mod tests {
         let epoch = hash_to_field(b"foo");
         let spam_limit = Fr::from(10);
 
-        let mut tree = OptimalMerkleTree::new(20, Default::default(), Default::default()).unwrap();
+        // let mut tree = OptimalMerkleTree::new(20, Default::default(), Default::default()).unwrap();
+        let mut tree = PoseidonTree::new(20, Default::default(), Default::default()).unwrap();
         tree.set(0, spam_limit).unwrap();
         let m_proof = tree.proof(0).unwrap();
 

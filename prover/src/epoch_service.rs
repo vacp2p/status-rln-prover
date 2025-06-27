@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 // third-party
 use chrono::{DateTime, NaiveDate, NaiveDateTime, OutOfRangeError, TimeDelta, Utc};
+use derive_more::{Deref, From, Into};
 use parking_lot::RwLock;
 use tokio::sync::Notify;
 use tracing::debug;
@@ -211,8 +212,8 @@ pub enum WaitUntilError {
 }
 
 /// An Epoch (wrapper type over i64)
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct Epoch(pub(crate) i64);
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, From, Into, Deref)]
+pub(crate) struct Epoch(i64);
 
 impl Add<i64> for Epoch {
     type Output = Self;
@@ -222,39 +223,15 @@ impl Add<i64> for Epoch {
     }
 }
 
-impl From<i64> for Epoch {
-    fn from(value: i64) -> Self {
-        Self(value)
-    }
-}
-
-impl From<Epoch> for i64 {
-    fn from(value: Epoch) -> Self {
-        value.0
-    }
-}
-
 /// An Epoch slice (wrapper type over i64)
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct EpochSlice(pub(crate) i64);
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, From, Into, Deref)]
+pub(crate) struct EpochSlice(i64);
 
 impl Add<i64> for EpochSlice {
     type Output = Self;
 
     fn add(self, rhs: i64) -> Self::Output {
         Self(self.0 + rhs)
-    }
-}
-
-impl From<i64> for EpochSlice {
-    fn from(value: i64) -> Self {
-        Self(value)
-    }
-}
-
-impl From<EpochSlice> for i64 {
-    fn from(value: EpochSlice) -> Self {
-        value.0
     }
 }
 

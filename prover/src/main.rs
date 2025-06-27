@@ -7,9 +7,14 @@ mod mock;
 mod proof_generation;
 mod proof_service;
 mod registry_listener;
+mod rocksdb_operands;
 mod tier;
 mod tiers_listener;
+mod user_db;
+mod user_db_error;
+mod user_db_serialization;
 mod user_db_service;
+mod user_db_types;
 
 // std
 use std::net::SocketAddr;
@@ -38,7 +43,8 @@ use crate::proof_service::ProofService;
 use crate::registry_listener::RegistryListener;
 use crate::tier::TierLimits;
 use crate::tiers_listener::TiersListener;
-use crate::user_db_service::{RateLimit, UserDbService};
+use crate::user_db_service::UserDbService;
+use crate::user_db_types::RateLimit;
 
 const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
 const PROVER_SPAM_LIMIT: RateLimit = RateLimit::new(10_000u64);
@@ -98,11 +104,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // User db service
     let user_db_service = UserDbService::new(
+        app_args.db_path,
+        app_args.merkle_tree_path,
         epoch_service.epoch_changes.clone(),
         epoch_service.current_epoch.clone(),
         PROVER_SPAM_LIMIT,
         tier_limits,
-    );
+    )?;
 
     if app_args.mock_sc.is_some() {
         if let Some(user_filepath) = app_args.mock_user.as_ref() {
@@ -114,7 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     mock_user.address, mock_user.tx_count
                 );
                 let user_db = user_db_service.get_user_db();
-                user_db.on_new_user(mock_user.address).unwrap();
+                user_db.on_new_user(&mock_user.address).unwrap();
                 user_db
                     .on_new_tx(&mock_user.address, Some(mock_user.tx_count))
                     .unwrap();

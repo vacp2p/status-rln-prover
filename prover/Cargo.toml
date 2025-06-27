@@ -16,9 +16,9 @@ tracing-test = "0.2.5"
 alloy.workspace = true
 thiserror = "2.0"
 futures = "0.3"
-rln = { git = "https://github.com/vacp2p/zerokit", default-features = false }
 ark-bn254.workspace = true
 ark-serialize.workspace = true
+ark-ff.workspace = true
 dashmap = "6.1.0"
 scc = "2.3"
 bytesize = "2.0.1"
@@ -34,6 +34,12 @@ num-bigint = "0.4"
 async-trait.workspace = true
 serde = { version="1", features = ["derive"] }
 serde_json = "1.0"
+# rocksdb = "0.23"
+rocksdb = { git = "https://github.com/tillrohrmann/rust-rocksdb", branch="issues/836" }
+nom = "8.0"
+claims = "0.8"
+rln = { git = "https://github.com/vacp2p/zerokit", features = ["pmtree-ft"] }
+zerokit_utils = { git = "https://github.com/vacp2p/zerokit", package = "zerokit_utils", features = ["default"] }
 rln_proof = { path = "../rln_proof" }
 smart_contract = { path = "../smart_contract" }
 
@@ -42,8 +48,8 @@ tonic-build = "*"
 
 [dev-dependencies]
 criterion.workspace = true
-claims = "0.8"
 ark-groth16.workspace = true
+tempfile = "3.20"
 
 [[bench]]
 name = "user_db_heavy_write"

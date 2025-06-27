@@ -61,6 +61,12 @@ impl KarmaTiersSC::KarmaTiersSCInstance<AlloyWsProvider> {
 #[derive(Debug, Clone, Default, Copy, From, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TierIndex(u8);
 
+impl From<&TierIndex> for u8 {
+    fn from(value: &TierIndex) -> u8 {
+        value.0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tier {
     pub min_karma: U256,

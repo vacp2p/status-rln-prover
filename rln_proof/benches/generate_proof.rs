@@ -6,6 +6,7 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use ark_bn254::Fr;
 use ark_serialize::CanonicalSerialize;
 use rln::hashers::{hash_to_field, poseidon_hash};
+use rln::poseidon_tree::PoseidonTree;
 use rln::protocol::{keygen, serialize_proof_values};
 use zerokit_utils::OptimalMerkleTree;
 // internal
@@ -29,7 +30,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     // Merkle tree
     let tree_height = 20;
-    let mut tree = OptimalMerkleTree::new(tree_height, Fr::from(0), Default::default()).unwrap();
+    let mut tree = PoseidonTree::new(tree_height, Fr::from(0), Default::default()).unwrap();
     let rate_commit = poseidon_hash(&[rln_identity.commitment, rln_identity.user_limit]);
     tree.set(0, rate_commit).unwrap();
     let merkle_proof = tree.proof(0).unwrap();
