@@ -37,6 +37,7 @@ serde_json = "1.0"
 # rocksdb = "0.23"
 rocksdb = { git = "https://github.com/tillrohrmann/rust-rocksdb", branch="issues/836" }
 nom = "8.0"
+claims = "0.8"
 rln = { git = "https://github.com/vacp2p/zerokit", features = ["pmtree-ft"] }
 zerokit_utils = { git = "https://github.com/vacp2p/zerokit", package = "zerokit_utils", features = ["default"] }
 rln_proof = { path = "../rln_proof" }
@@ -47,7 +48,6 @@ tonic-build = "*"
 
 [dev-dependencies]
 criterion.workspace = true
-claims = "0.8"
 ark-groth16.workspace = true
 tempfile = "3.20"
 

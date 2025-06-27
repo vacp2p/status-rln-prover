@@ -1,8 +1,9 @@
-use crate::epoch_service::WaitUntilError;
-use crate::user_db_error::{MerkleTreeIndexError, RegisterError, UserMerkleTreeIndexError};
 use alloy::transports::{RpcError, TransportErrorKind};
 use ark_serialize::SerializationError;
 use rln::error::ProofError;
+// internal
+use crate::epoch_service::WaitUntilError;
+use crate::user_db_error::{RegisterError, UserMerkleTreeIndexError};
 
 #[derive(thiserror::Error, Debug)]
 pub enum AppError {
@@ -51,15 +52,9 @@ impl From<ProofGenerationError> for ProofGenerationStringError {
     fn from(value: ProofGenerationError) -> Self {
         match value {
             ProofGenerationError::Proof(e) => ProofGenerationStringError::Proof(e.to_string()),
-            ProofGenerationError::Serialization(e) => {
-                Self::Serialization(e.to_string())
-            }
-            ProofGenerationError::SerializationWrite(e) => {
-                Self::SerializationWrite(e.to_string())
-            }
-            ProofGenerationError::MerkleProofError(e) => {
-                Self::MerkleProofError(e)
-            }
+            ProofGenerationError::Serialization(e) => Self::Serialization(e.to_string()),
+            ProofGenerationError::SerializationWrite(e) => Self::SerializationWrite(e.to_string()),
+            ProofGenerationError::MerkleProofError(e) => Self::MerkleProofError(e),
         }
     }
 }
@@ -69,7 +64,7 @@ pub enum GetMerkleTreeProofError {
     #[error("Merkle tree error: {0}")]
     TreeError(String),
     #[error(transparent)]
-    MerkleTree(#[from] UserMerkleTreeIndexError)
+    MerkleTree(#[from] UserMerkleTreeIndexError),
 }
 
 #[derive(thiserror::Error, Debug)]

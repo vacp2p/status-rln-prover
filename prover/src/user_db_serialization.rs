@@ -11,10 +11,7 @@ use nom::{
     bytes::complete::take,
     error::{ContextError, context},
     multi::length_count,
-    number::complete::{
-        le_u32,
-        le_u64
-    },
+    number::complete::{le_u32, le_u64},
 };
 use rln_proof::RlnUserIdentity;
 // internal
@@ -84,11 +81,11 @@ impl MerkleTreeIndexSerializer {
 pub(crate) struct MerkleTreeIndexDeserializer {}
 
 impl MerkleTreeIndexDeserializer {
-    pub(crate) fn deserialize<'a >(&self, buffer: &'a [u8]) -> IResult<&'a [u8], MerkleTreeIndex, nom::error::Error<&'a [u8]>> {
-        le_u64(buffer)
-            .map(|(input, idx)| {
-                (input, MerkleTreeIndex::from(idx))  
-            })
+    pub(crate) fn deserialize<'a>(
+        &self,
+        buffer: &'a [u8],
+    ) -> IResult<&'a [u8], MerkleTreeIndex, nom::error::Error<&'a [u8]>> {
+        le_u64(buffer).map(|(input, idx)| (input, MerkleTreeIndex::from(idx)))
     }
 }
 
@@ -251,17 +248,15 @@ mod tests {
 
         assert_eq!(rln_user_identity, de);
     }
-    
+
     #[test]
     fn test_mtree_ser_der() {
-
         let index = MerkleTreeIndex::from(4242);
-        
+
         let serializer = MerkleTreeIndexSerializer {};
         let mut buffer = Vec::with_capacity(serializer.size_hint());
-        serializer
-            .serialize(&index, &mut buffer);
-        
+        serializer.serialize(&index, &mut buffer);
+
         let deserializer = MerkleTreeIndexDeserializer {};
         let (_, de) = deserializer.deserialize(&buffer).unwrap();
 

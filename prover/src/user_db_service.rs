@@ -29,7 +29,13 @@ impl UserDbService {
         rate_limit: RateLimit,
         tier_limits: TierLimits,
     ) -> Result<Self, UserDbOpenError> {
-        let user_db = UserDb::new(db_path, merkle_tree_path, epoch_store, tier_limits, rate_limit)?;
+        let user_db = UserDb::new(
+            db_path,
+            merkle_tree_path,
+            epoch_store,
+            tier_limits,
+            rate_limit,
+        )?;
         Ok(Self {
             user_db,
             epoch_changes: epoch_changes_notifier,

@@ -25,7 +25,11 @@ pub struct AppArgs {
     pub(crate) ws_rpc_url: Option<Url>,
     #[arg(long = "db", help = "Db path", default_value = "./storage/db")]
     pub(crate) db_path: PathBuf,
-    #[arg(long = "tree", help = "Merkle tree path", default_value = "./storage/tree")]
+    #[arg(
+        long = "tree",
+        help = "Merkle tree path",
+        default_value = "./storage/tree"
+    )]
     pub(crate) merkle_tree_path: PathBuf,
     #[arg(short = 'k', long = "ksc", help = "Karma smart contract address")]
     pub(crate) ksc_address: Option<Address>,

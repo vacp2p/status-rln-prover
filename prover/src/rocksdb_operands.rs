@@ -259,7 +259,7 @@ mod tests {
             assert_eq!(epoch_incr, de);
         }
     }
-    
+
     #[test]
     fn test_counter() {
         let tmp_path = TempDir::new().unwrap().path().to_path_buf();
@@ -272,21 +272,21 @@ mod tests {
         let db = DB::open(&options, tmp_path).unwrap();
         let key_1 = "foo1";
         // let key_2 = "baz42";
-        
+
         let index = 42u64;
         let buffer = index.to_le_bytes();
-        
+
         let mut db_batch = WriteBatch::default();
         db_batch.merge(key_1, &buffer);
         db_batch.merge(key_1, &buffer);
         db.write(db_batch).unwrap();
-        
+
         let get_key_1 = db.get(&key_1).unwrap().unwrap();
         let value = u64::from_le_bytes(get_key_1.try_into().unwrap());
-        
+
         assert_eq!(value, index * 2); // 2x merge
     }
-    
+
     #[test]
     fn test_counters() {
         let tmp_path = TempDir::new().unwrap().path().to_path_buf();

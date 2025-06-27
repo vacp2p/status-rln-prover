@@ -8,22 +8,30 @@ use claims::debug_assert_lt;
 use parking_lot::RwLock;
 use rln::{
     hashers::poseidon_hash,
-    poseidon_tree::{
-        MerkleProof,
-        PoseidonTree
-    },
-    protocol::keygen,
     pm_tree_adapter::PmtreeConfig,
+    poseidon_tree::{MerkleProof, PoseidonTree},
+    protocol::keygen,
 };
-use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, DB, Options, WriteBatchWithIndex, ReadOptions};
+use rocksdb::{
+    ColumnFamily, ColumnFamilyDescriptor, DB, Options, ReadOptions, WriteBatchWithIndex,
+};
 use serde::{Deserialize, Serialize};
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::GetMerkleTreeProofError;
-use crate::rocksdb_operands::{EpochCounterDeserializer, EpochCounterSerializer, EpochIncr, EpochIncrSerializer, epoch_counters_operands, u64_counter_operands};
+use crate::rocksdb_operands::{
+    EpochCounterDeserializer, EpochCounterSerializer, EpochIncr, EpochIncrSerializer,
+    epoch_counters_operands, u64_counter_operands,
+};
 use crate::tier::{TierLimit, TierLimits, TierName};
-use crate::user_db_error::{MerkleTreeIndexError, RegisterError, SetTierLimitsError, TxCounterError, UserDbOpenError, UserMerkleTreeIndexError, UserTierInfoError};
-use crate::user_db_serialization::{MerkleTreeIndexDeserializer, MerkleTreeIndexSerializer, RlnUserIdentityDeserializer, RlnUserIdentitySerializer, TierDeserializer, TierLimitsDeserializer, TierLimitsSerializer};
+use crate::user_db_error::{
+    MerkleTreeIndexError, RegisterError, SetTierLimitsError, TxCounterError, UserDbOpenError,
+    UserMerkleTreeIndexError, UserTierInfoError,
+};
+use crate::user_db_serialization::{
+    MerkleTreeIndexDeserializer, MerkleTreeIndexSerializer, RlnUserIdentityDeserializer,
+    RlnUserIdentitySerializer, TierDeserializer, TierLimitsDeserializer, TierLimitsSerializer,
+};
 use crate::user_db_types::{EpochCounter, EpochSliceCounter, MerkleTreeIndex, RateLimit};
 use rln_proof::{RlnUserIdentity, ZerokitMerkleTree};
 use smart_contract::{KarmaAmountExt, Tier, TierIndex};
@@ -74,9 +82,8 @@ impl UserDb {
         merkle_tree_path: PathBuf,
         epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
         tier_limits: TierLimits,
-        rate_limit: RateLimit
+        rate_limit: RateLimit,
     ) -> Result<Self, UserDbOpenError> {
-
         let db_options = {
             let mut db_opts = Options::default();
             db_opts.set_max_open_files(820);
@@ -86,7 +93,8 @@ impl UserDb {
         };
 
         let mut tx_counter_cf_opts = Options::default();
-        tx_counter_cf_opts.set_merge_operator_associative("counters operator", epoch_counters_operands);
+        tx_counter_cf_opts
+            .set_merge_operator_associative("counters operator", epoch_counters_operands);
         let mut user_mtree_cf_opts = Options::default();
         user_mtree_cf_opts.set_merge_operator_associative("counter operator", u64_counter_operands);
 
@@ -127,8 +135,8 @@ impl UserDb {
                     // Check if the value is already there (e.g. after a restart)
                     // if not, we create it
                     db.merge_cf(cf_mtree, MERKLE_TREE_INDEX_KEY, 0u64.to_le_bytes())?;
-                },
-                _ => return Err(UserDbOpenError::MerkleTreeIndex(e))
+                }
+                _ => return Err(UserDbOpenError::MerkleTreeIndex(e)),
             }
         }
 
@@ -141,7 +149,7 @@ impl UserDb {
             cache_capacity: u64,
             flush_every_ms: u64,
             mode: String,
-            use_compression: bool
+            use_compression: bool,
         }
 
         let config_ = PmTreeConfigJson {
@@ -155,11 +163,7 @@ impl UserDb {
         let config_str = serde_json::to_string(&config_)?;
         // Note: in Zerokit 0.8 this is the only way to initialize a PmTreeConfig
         let config = PmtreeConfig::from_str(config_str.as_str())?;
-        let tree = PoseidonTree::new(
-            MERKLE_TREE_HEIGHT,
-            Default::default(),
-            config
-        )?;
+        let tree = PoseidonTree::new(MERKLE_TREE_HEIGHT, Default::default(), config)?;
 
         Ok(Self {
             db,
@@ -223,22 +227,31 @@ impl UserDb {
 
                 // Note: this should be updated with everything added to db_batch
                 debug_assert_lt!(
-                    MERKLE_TREE_INDEX_KEY.len() + size_of::<u64>() + (2*size_of::<Address>())
-                    + EpochCounterSerializer::size_hint_() + buffer.len(),
-                    1024);
-                let mut db_batch = WriteBatchWithIndex::new(
-                    1024,
-                    true);
+                    MERKLE_TREE_INDEX_KEY.len()
+                        + size_of::<u64>()
+                        + (2 * size_of::<Address>())
+                        + EpochCounterSerializer::size_hint_()
+                        + buffer.len(),
+                    1024
+                );
+                let mut db_batch = WriteBatchWithIndex::new(1024, true);
 
                 // Increase merkle tree index
                 db_batch.merge_cf(cf_mtree, MERKLE_TREE_INDEX_KEY, 1u64.to_le_bytes());
                 // Read the new index
                 // Unwrap safe - just used merge_cf
                 let batch_read = db_batch
-                    .get_from_batch_and_db_cf(&*self.db, cf_mtree, MERKLE_TREE_INDEX_KEY, &ReadOptions::default())?
+                    .get_from_batch_and_db_cf(
+                        &*self.db,
+                        cf_mtree,
+                        MERKLE_TREE_INDEX_KEY,
+                        &ReadOptions::default(),
+                    )?
                     .unwrap();
                 // Unwrap safe - serialization is handled by the prover
-                let (_, new_index) = merkle_index_deserializer.deserialize(batch_read.as_slice()).unwrap();
+                let (_, new_index) = merkle_index_deserializer
+                    .deserialize(batch_read.as_slice())
+                    .unwrap();
 
                 // Add index for user
                 merkle_index_serializer.serialize(&new_index, &mut buffer);
@@ -289,7 +302,10 @@ impl UserDb {
         }
     }
 
-    pub fn get_user_merkle_tree_index(&self, address: &Address) -> Result<MerkleTreeIndex, UserMerkleTreeIndexError> {
+    pub fn get_user_merkle_tree_index(
+        &self,
+        address: &Address,
+    ) -> Result<MerkleTreeIndex, UserMerkleTreeIndexError> {
         let cf_user = self.get_user_cf();
         let rln_identity_serializer = RlnUserIdentitySerializer {};
         let merkle_tree_index_deserializer = MerkleTreeIndexDeserializer {};
@@ -297,15 +313,13 @@ impl UserDb {
             Ok(Some(buffer)) => {
                 // Here we silence the error - this is safe as the prover controls this
                 let start = rln_identity_serializer.size_hint();
-                let (_, index) = merkle_tree_index_deserializer.deserialize(&buffer[start..]).unwrap();
+                let (_, index) = merkle_tree_index_deserializer
+                    .deserialize(&buffer[start..])
+                    .unwrap();
                 Ok(index)
             }
-            Ok(None) => {
-                Err(UserMerkleTreeIndexError::NotRegistered(*address))
-            },
-            Err(e) => {
-                Err(UserMerkleTreeIndexError::Db(e))
-            },
+            Ok(None) => Err(UserMerkleTreeIndexError::NotRegistered(*address)),
+            Err(e) => Err(UserMerkleTreeIndexError::Db(e)),
         }
     }
 
@@ -330,14 +344,17 @@ impl UserDb {
         // Create a transaction
         // By using a WriteBatchWithIndex, we can "read your own writes" so here we incr then read the new value
         // https://rocksdb.org/blog/2015/02/27/write-batch-with-index.html
-        let mut batch = WriteBatchWithIndex::new(
-            buffer.len() + size_of::<Address>(),
-            true);
+        let mut batch = WriteBatchWithIndex::new(buffer.len() + size_of::<Address>(), true);
         batch.merge_cf(cf_counter, address.as_slice(), buffer);
-        let res = batch.get_from_batch_and_db_cf(&*self.db, cf_counter, address.as_slice(), &ReadOptions::default())?;
+        let res = batch.get_from_batch_and_db_cf(
+            &*self.db,
+            cf_counter,
+            address.as_slice(),
+            &ReadOptions::default(),
+        )?;
         self.db.write_wbwi(&batch).map_err(TxCounterError::Db)?;
         let (_, epoch_slice_counter) = self.counters_from_key(address, res)?;
-        
+
         Ok(epoch_slice_counter)
     }
 
@@ -347,13 +364,16 @@ impl UserDb {
     ) -> Result<(EpochCounter, EpochSliceCounter), TxCounterError> {
         let cf_counter = self.get_counter_cf();
         match self.db.get_cf(cf_counter, address.as_slice()) {
-            Ok(v) => self.counters_from_key(&address, v),
+            Ok(v) => self.counters_from_key(address, v),
             Err(e) => Err(TxCounterError::Db(e)),
         }
     }
-    
-    fn counters_from_key(&self, address: &Address, key: Option<Vec<u8>>) -> Result<(EpochCounter, EpochSliceCounter), TxCounterError> {
-        
+
+    fn counters_from_key(
+        &self,
+        address: &Address,
+        key: Option<Vec<u8>>,
+    ) -> Result<(EpochCounter, EpochSliceCounter), TxCounterError> {
         let deserializer = EpochCounterDeserializer {};
 
         match key {
@@ -406,13 +426,16 @@ impl UserDb {
         self.register(*address)
     }
 
+    #[cfg(test)]
     fn get_merkle_tree_index(&self) -> Result<MerkleTreeIndex, MerkleTreeIndexError> {
         let cf_mtree = self.get_mtree_cf();
         Self::get_merkle_tree_index_(self.db.clone(), cf_mtree)
     }
 
-    fn get_merkle_tree_index_(db: Arc<DB>, cf: &ColumnFamily) -> Result<MerkleTreeIndex, MerkleTreeIndexError> {
-
+    fn get_merkle_tree_index_(
+        db: Arc<DB>,
+        cf: &ColumnFamily,
+    ) -> Result<MerkleTreeIndex, MerkleTreeIndexError> {
         let deserializer = MerkleTreeIndexDeserializer {};
 
         match db.get_cf(cf, MERKLE_TREE_INDEX_KEY) {
@@ -420,13 +443,9 @@ impl UserDb {
                 // Unwrap safe - serialization is done by the prover
                 let (_, index) = deserializer.deserialize(v.as_slice()).unwrap();
                 Ok(index)
-            },
-            Ok(None) => {
-                Err(MerkleTreeIndexError::DbUninitialized)
-            },
-            Err(e) => {
-                Err(MerkleTreeIndexError::Db(e))
-            },
+            }
+            Ok(None) => Err(MerkleTreeIndexError::DbUninitialized),
+            Err(e) => Err(MerkleTreeIndexError::Db(e)),
         }
     }
 
@@ -434,9 +453,9 @@ impl UserDb {
         &self,
         address: &Address,
     ) -> Result<MerkleProof, GetMerkleTreeProofError> {
-
-        let index = self.get_user_merkle_tree_index(address)
-            .map_err(|e| GetMerkleTreeProofError::MerkleTree(e))?;
+        let index = self
+            .get_user_merkle_tree_index(address)
+            .map_err(GetMerkleTreeProofError::MerkleTree)?;
         self.merkle_tree
             .read()
             .proof(index.into())
@@ -652,7 +671,6 @@ mod tests {
 
     #[test]
     fn test_get_tx_counter() {
-
         let temp_folder = tempfile::tempdir().unwrap();
         let temp_folder_tree = tempfile::tempdir().unwrap();
         let epoch_store = Arc::new(RwLock::new(Default::default()));
@@ -663,15 +681,17 @@ mod tests {
             Default::default(),
             Default::default(),
         )
-            .unwrap();
+        .unwrap();
 
         let addr = Address::new([0; 20]);
 
         user_db.register(addr).unwrap();
 
-        // TODO checks
-        let res_0 = user_db.get_tx_counter(&addr).unwrap();
-        let res = user_db.incr_tx_counter(&addr, Some(42)).unwrap();
+        let (ec, ecs) = user_db.get_tx_counter(&addr).unwrap();
+        assert_eq!(ec, 0.into());
+        assert_eq!(ecs, 0.into());
+        let ecs_2 = user_db.incr_tx_counter(&addr, Some(42)).unwrap();
+        assert_eq!(ecs_2, 42.into());
     }
 
     #[tokio::test]
@@ -891,22 +911,39 @@ mod tests {
                 Default::default(),
                 Default::default(),
             )
-                .unwrap();
+            .unwrap();
 
             // Register user
-            assert_eq!(user_db.get_merkle_tree_index().unwrap(), MerkleTreeIndex::from(0));
-            user_db.register(ADDR_1).unwrap();
-            assert_eq!(user_db.get_merkle_tree_index().unwrap(), MerkleTreeIndex::from(1));
-            user_db.register(ADDR_2).unwrap();
-            assert_eq!(user_db.get_merkle_tree_index().unwrap(), MerkleTreeIndex::from(2));
-            assert_eq!(user_db.get_user_merkle_tree_index(&ADDR_1).unwrap(), MerkleTreeIndex::from(1));
-            assert_eq!(user_db.get_user_merkle_tree_index(&ADDR_2).unwrap(), MerkleTreeIndex::from(2));
-
             assert_eq!(
-                user_db.on_new_tx(&ADDR_1, Some(2)), Ok(EpochSliceCounter::from(2))
+                user_db.get_merkle_tree_index().unwrap(),
+                MerkleTreeIndex::from(0)
+            );
+            user_db.register(ADDR_1).unwrap();
+            assert_eq!(
+                user_db.get_merkle_tree_index().unwrap(),
+                MerkleTreeIndex::from(1)
+            );
+            user_db.register(ADDR_2).unwrap();
+            assert_eq!(
+                user_db.get_merkle_tree_index().unwrap(),
+                MerkleTreeIndex::from(2)
             );
             assert_eq!(
-                user_db.on_new_tx(&ADDR_2, Some(1000)), Ok(EpochSliceCounter::from(1000))
+                user_db.get_user_merkle_tree_index(&ADDR_1).unwrap(),
+                MerkleTreeIndex::from(1)
+            );
+            assert_eq!(
+                user_db.get_user_merkle_tree_index(&ADDR_2).unwrap(),
+                MerkleTreeIndex::from(2)
+            );
+
+            assert_eq!(
+                user_db.on_new_tx(&ADDR_1, Some(2)),
+                Ok(EpochSliceCounter::from(2))
+            );
+            assert_eq!(
+                user_db.on_new_tx(&ADDR_2, Some(1000)),
+                Ok(EpochSliceCounter::from(1000))
             );
 
             // Should be dropped but let's make it explicit
@@ -921,47 +958,61 @@ mod tests {
                 epoch_store,
                 Default::default(),
                 Default::default(),
-            ).unwrap();
+            )
+            .unwrap();
 
             assert_eq!(user_db.has_user(&addr).unwrap(), false);
             assert_eq!(user_db.has_user(&ADDR_1).unwrap(), true);
             assert_eq!(user_db.has_user(&ADDR_2).unwrap(), true);
-            assert_eq!(user_db.get_tx_counter(&ADDR_1).unwrap(), (2.into(), 2.into()));
-            assert_eq!(user_db.get_tx_counter(&ADDR_2).unwrap(), (1000.into(), 1000.into()));
-            
-            assert_eq!(user_db.get_merkle_tree_index().unwrap(), MerkleTreeIndex::from(2));
-            assert_eq!(user_db.get_user_merkle_tree_index(&ADDR_1).unwrap(), MerkleTreeIndex::from(1));
-            assert_eq!(user_db.get_user_merkle_tree_index(&ADDR_2).unwrap(), MerkleTreeIndex::from(2));
+            assert_eq!(
+                user_db.get_tx_counter(&ADDR_1).unwrap(),
+                (2.into(), 2.into())
+            );
+            assert_eq!(
+                user_db.get_tx_counter(&ADDR_2).unwrap(),
+                (1000.into(), 1000.into())
+            );
+
+            assert_eq!(
+                user_db.get_merkle_tree_index().unwrap(),
+                MerkleTreeIndex::from(2)
+            );
+            assert_eq!(
+                user_db.get_user_merkle_tree_index(&ADDR_1).unwrap(),
+                MerkleTreeIndex::from(1)
+            );
+            assert_eq!(
+                user_db.get_user_merkle_tree_index(&ADDR_2).unwrap(),
+                MerkleTreeIndex::from(2)
+            );
         }
     }
 
+    /*
+    // Try to update tx counter without registering first
+    assert_matches!(
+        user_db.on_new_tx(&addr, None),
+        Err(TxCounterError::NotRegistered(_))
+    );
 
-
-        /*
-        // Try to update tx counter without registering first
-        assert_matches!(
-            user_db.on_new_tx(&addr, None),
-            Err(TxCounterError::NotRegistered(_))
-        );
-
-        let tier_info = user_db.user_tier_info(&addr, &MockKarmaSc {}).await;
-        // User is not registered -> no tier info
-        assert!(matches!(
-            tier_info,
-            Err(UserTierInfoError::NotRegistered(_))
-        ));
-        // Register user
-        user_db.register(addr).unwrap();
-        // Now update user tx counter
-        assert_eq!(
-            user_db.on_new_tx(&addr, None),
-            Ok(EpochSliceCounter::from(1))
-        );
-        let tier_info = user_db
-            .user_tier_info(&addr, &MockKarmaSc {})
-            .await
-            .unwrap();
-        assert_eq!(tier_info.epoch_tx_count, 1);
-        assert_eq!(tier_info.epoch_slice_tx_count, 1);
-        */
+    let tier_info = user_db.user_tier_info(&addr, &MockKarmaSc {}).await;
+    // User is not registered -> no tier info
+    assert!(matches!(
+        tier_info,
+        Err(UserTierInfoError::NotRegistered(_))
+    ));
+    // Register user
+    user_db.register(addr).unwrap();
+    // Now update user tx counter
+    assert_eq!(
+        user_db.on_new_tx(&addr, None),
+        Ok(EpochSliceCounter::from(1))
+    );
+    let tier_info = user_db
+        .user_tier_info(&addr, &MockKarmaSc {})
+        .await
+        .unwrap();
+    assert_eq!(tier_info.epoch_tx_count, 1);
+    assert_eq!(tier_info.epoch_slice_tx_count, 1);
+    */
 }

@@ -42,7 +42,6 @@ pub struct RlnIdentifier {
 
 impl RlnIdentifier {
     pub fn new(identifier: &[u8]) -> Self {
-        // TODO: valid / correct ?
         let pk_and_matrices = {
             let mut reader = Cursor::new(ZKEY_BYTES);
             read_zkey(&mut reader).unwrap()
@@ -95,10 +94,10 @@ pub fn compute_rln_proof_and_values(
 
 #[cfg(test)]
 mod tests {
-    use rln::poseidon_tree::PoseidonTree;
     use super::*;
+    use rln::poseidon_tree::PoseidonTree;
     use rln::protocol::{compute_id_secret, keygen};
-    use zerokit_utils::{ZerokitMerkleTree};
+    use zerokit_utils::ZerokitMerkleTree;
 
     #[test]
     fn test_recover_secret_hash() {
