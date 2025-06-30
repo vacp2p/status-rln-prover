@@ -23,7 +23,7 @@ use crate::rocksdb_operands::{
     EpochCounterDeserializer, EpochCounterSerializer, EpochIncr, EpochIncrSerializer,
     epoch_counters_operands, u64_counter_operands,
 };
-use crate::tier::{TierLimit, TierLimits, TierName};
+use crate::tier::{TierLimit, TierLimits, TierMatch, TierName};
 use crate::user_db_error::{
     MerkleTreeIndexError, RegisterError, SetTierLimitsError, TxCounterError, UserDbOpenError,
     UserMerkleTreeIndexError, UserTierInfoError,
@@ -563,7 +563,7 @@ impl UserDb {
             .map_err(|e| UserTierInfoError::Contract(e))?;
 
         let tier_limits = self.get_tier_limits()?;
-        let tier_info = tier_limits.get_tier_by_karma(&karma_amount);
+        let tier_match = tier_limits.get_tier_by_karma(&karma_amount);
 
         let user_tier_info = {
             let (current_epoch, current_epoch_slice) = *self.epoch_store.read();
@@ -576,10 +576,13 @@ impl UserDb {
                 tier_name: None,
                 tier_limit: None,
             };
-            if let Some((_tier_index, tier)) = tier_info {
+            
+            // FIXME: Proto changes to return AboveHighest / UnderLowest
+            if let TierMatch::Matched(_tier_index, tier) = tier_match {
                 t.tier_name = Some(tier.name.into());
                 t.tier_limit = Some(TierLimit::from(tier.tx_per_epoch));
             }
+            
             t
         };
 
