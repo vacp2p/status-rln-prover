@@ -2,11 +2,12 @@ use std::collections::{BTreeMap, HashSet};
 use std::ops::{Deref, DerefMut};
 // third-party
 use alloy::primitives::U256;
-use alloy::primitives::U256;
 use derive_more::{From, Into};
 // internal
-// use crate::user_db_service::SetTierLimitsError;
+// use crate::user_db_service::ValidateTierLimitsError;
 use smart_contract::{Tier, TierIndex};
+
+use crate::user_db_error::SetTierLimitsError;
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, From, Into)]
 pub struct TierLimit(u32);
@@ -51,6 +52,20 @@ pub enum TierMatch {
     NoActive,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum ValidateTierLimitsError {
+    #[error("Invalid Karma min amount must be greater than previous tier's max_karma")]
+    InvalidMinKarmaAmount,
+    #[error("Invalid Karma max amount must be greater than previous tier's max_karma")]
+    InvalidMaxKarmaAmount,
+    #[error("Invalid Tier limit (must be increasing)")]
+    InvalidTierLimit,
+    #[error("Non unique Tier name")]
+    NonUniqueTierName,
+    #[error("Non active Tier")]
+    InactiveTier,
+}
+
 impl TierLimits {
     /// Filter inactive Tier (rejected by function validate)
     pub(crate) fn filter_inactive(&mut self) -> Self {
@@ -74,29 +89,29 @@ impl TierLimits {
             .iter()
             .try_fold(Context::default(), |mut state, (_, tier)| {
                 if !tier.active {
-                    return Err(SetTierLimitsError::InactiveTier);
+                    return Err(ValidateTierLimitsError::InactiveTier);
                 }
 
                 if tier.min_karma >= tier.max_karma {
-                    return Err(SetTierLimitsError::InvalidMaxKarmaAmount);
+                    return Err(ValidateTierLimitsError::InvalidMaxKarmaAmount);
                 }
 
                 if tier.min_karma <= *state.prev_min_karma.unwrap_or(&U256::ZERO) {
-                    return Err(SetTierLimitsError::InvalidMinKarmaAmount);
+                    return Err(ValidateTierLimitsError::InvalidMinKarmaAmount);
                 }
 
                 if let Some(prev_max) = state.prev_max_karma {
                     if tier.min_karma <= *prev_max {
-                        return Err(SetTierLimitsError::InvalidMinKarmaAmount);
+                        return Err(ValidateTierLimitsError::InvalidMinKarmaAmount);
                     }
                 }
 
                 if tier.tx_per_epoch <= *state.prev_tx_per_epoch.unwrap_or(&0) {
-                    return Err(SetTierLimitsError::InvalidTierLimit);
+                    return Err(ValidateTierLimitsError::InvalidTierLimit);
                 }
 
                 if state.tier_names.contains(&tier.name) {
-                    return Err(SetTierLimitsError::NonUniqueTierName);
+                    return Err(ValidateTierLimitsError::NonUniqueTierName);
                 }
 
                 state.prev_min_karma = Some(&tier.min_karma);
@@ -253,7 +268,9 @@ mod tier_limits_tests {
 
         assert!(matches!(
             tier_limits.validate(),
-            Err(SetTierLimitsError::InactiveTier)
+            Err(SetTierLimitsError::Validate(
+                ValidateTierLimitsError::InactiveTier
+            ))
         ));
     }
 
@@ -322,7 +339,9 @@ mod tier_limits_tests {
 
         assert!(matches!(
             tier_limits.validate(),
-            Err(SetTierLimitsError::InvalidMinKarmaAmount)
+            Err(SetTierLimitsError::Validate(
+                ValidateTierLimitsError::InvalidMinKarmaAmount
+            ))
         ));
     }
 
@@ -342,7 +361,9 @@ mod tier_limits_tests {
 
         assert!(matches!(
             tier_limits.validate(),
-            Err(SetTierLimitsError::InvalidMaxKarmaAmount)
+            Err(SetTierLimitsError::Validate(
+                ValidateTierLimitsError::InvalidMaxKarmaAmount
+            ))
         ));
 
         let mut tier_limits = TierLimits::default();
@@ -359,7 +380,9 @@ mod tier_limits_tests {
 
         assert!(matches!(
             tier_limits.validate(),
-            Err(SetTierLimitsError::InvalidMaxKarmaAmount)
+            Err(SetTierLimitsError::Validate(
+                ValidateTierLimitsError::InvalidMaxKarmaAmount
+            ))
         ));
     }
 
@@ -391,7 +414,9 @@ mod tier_limits_tests {
 
         assert!(matches!(
             tier_limits.validate(),
-            Err(SetTierLimitsError::InvalidMinKarmaAmount)
+            Err(SetTierLimitsError::Validate(
+                ValidateTierLimitsError::InvalidMinKarmaAmount
+            ))
         ));
 
         // Case 2: Decreasing min_karma values
@@ -420,7 +445,9 @@ mod tier_limits_tests {
 
         assert!(matches!(
             tier_limits.validate(),
-            Err(SetTierLimitsError::InvalidMinKarmaAmount)
+            Err(SetTierLimitsError::Validate(
+                ValidateTierLimitsError::InvalidMinKarmaAmount
+            ))
         ));
     }
 
@@ -452,7 +479,9 @@ mod tier_limits_tests {
 
         assert!(matches!(
             tier_limits.validate(),
-            Err(SetTierLimitsError::InvalidTierLimit)
+            Err(SetTierLimitsError::Validate(
+                ValidateTierLimitsError::InvalidTierLimit
+            ))
         ));
 
         // Case 2: Decreasing tx_per_epoch values
@@ -481,7 +510,9 @@ mod tier_limits_tests {
 
         assert!(matches!(
             tier_limits.validate(),
-            Err(SetTierLimitsError::InvalidTierLimit)
+            Err(SetTierLimitsError::Validate(
+                ValidateTierLimitsError::InvalidTierLimit
+            ))
         ));
     }
 
@@ -512,7 +543,9 @@ mod tier_limits_tests {
 
         assert!(matches!(
             tier_limits.validate(),
-            Err(SetTierLimitsError::NonUniqueTierName)
+            Err(SetTierLimitsError::Validate(
+                ValidateTierLimitsError::NonUniqueTierName
+            ))
         ));
     }
 
@@ -568,7 +601,7 @@ mod tier_limits_tests {
             assert_eq!(index, TierIndex::from(0));
             assert_eq!(tier.name, "Basic");
         } else {
-            panic!("Expected UnderLowestTier, got {:?}", result);
+            panic!("Expected UnderLowest, got {:?}", result);
         }
 
         // Case 2: Karma below all tiers
@@ -577,7 +610,7 @@ mod tier_limits_tests {
             assert_eq!(index, TierIndex::from(0));
             assert_eq!(tier.name, "Basic");
         } else {
-            panic!("Expected UnderLowestTier, got {:?}", result);
+            panic!("Expected UnderLowest, got {:?}", result);
         }
 
         // Case 3: Exact match on min_karma (start of first tier)
@@ -586,7 +619,7 @@ mod tier_limits_tests {
             assert_eq!(index, TierIndex::from(0));
             assert_eq!(tier.name, "Basic");
         } else {
-            panic!("Expected MatchedTier, got {:?}", result);
+            panic!("Expected Matched, got {:?}", result);
         }
 
         // Case 4: Exact match on a tier boundary (start of second tier)
@@ -595,7 +628,7 @@ mod tier_limits_tests {
             assert_eq!(index, TierIndex::from(1));
             assert_eq!(tier.name, "Active");
         } else {
-            panic!("Expected MatchedTier, got {:?}", result);
+            panic!("Expected Matched, got {:?}", result);
         }
 
         // Case 5: Karma within a tier range (between third tier)
@@ -604,7 +637,7 @@ mod tier_limits_tests {
             assert_eq!(index, TierIndex::from(2));
             assert_eq!(tier.name, "Regular");
         } else {
-            panic!("Expected MatchedTier, got {:?}", result);
+            panic!("Expected Matched, got {:?}", result);
         }
 
         // Case 6: Exact match on max_karma (end of the third tier)
@@ -613,7 +646,7 @@ mod tier_limits_tests {
             assert_eq!(index, TierIndex::from(2));
             assert_eq!(tier.name, "Regular");
         } else {
-            panic!("Expected MatchedTier, got {:?}", result);
+            panic!("Expected Matched, got {:?}", result);
         }
 
         // Case 7: Karma above all tiers
@@ -622,7 +655,7 @@ mod tier_limits_tests {
             assert_eq!(index, TierIndex::from(2));
             assert_eq!(tier.name, "Regular");
         } else {
-            panic!("Expected AboveHighestTier, got {:?}", result);
+            panic!("Expected AboveHighest, got {:?}", result);
         }
     }
 

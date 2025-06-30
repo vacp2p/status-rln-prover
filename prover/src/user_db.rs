@@ -17,7 +17,6 @@ use rocksdb::{
 };
 use serde::{Deserialize, Serialize};
 // internal
-use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::GetMerkleTreeProofError;
 use crate::rocksdb_operands::{
     EpochCounterDeserializer, EpochCounterSerializer, EpochIncr, EpochIncrSerializer,
@@ -33,6 +32,10 @@ use crate::user_db_serialization::{
     RlnUserIdentitySerializer, TierDeserializer, TierLimitsDeserializer, TierLimitsSerializer,
 };
 use crate::user_db_types::{EpochCounter, EpochSliceCounter, MerkleTreeIndex, RateLimit};
+use crate::{
+    epoch_service::{Epoch, EpochSlice},
+    tier::TierMatch,
+};
 use rln_proof::{RlnUserIdentity, ZerokitMerkleTree};
 use smart_contract::{KarmaAmountExt, Tier, TierIndex};
 
@@ -563,7 +566,7 @@ impl UserDb {
             .map_err(|e| UserTierInfoError::Contract(e))?;
 
         let tier_limits = self.get_tier_limits()?;
-        let tier_info = tier_limits.get_tier_by_karma(&karma_amount);
+        let tier_match = tier_limits.get_tier_by_karma(&karma_amount);
 
         let user_tier_info = {
             let (current_epoch, current_epoch_slice) = *self.epoch_store.read();
@@ -576,7 +579,7 @@ impl UserDb {
                 tier_name: None,
                 tier_limit: None,
             };
-            if let Some((_tier_index, tier)) = tier_info {
+            if let TierMatch::Matched(_tier_index, tier) = tier_match {
                 t.tier_name = Some(tier.name.into());
                 t.tier_limit = Some(TierLimit::from(tier.tx_per_epoch));
             }
