@@ -1,6 +1,6 @@
 use std::ops::Add;
 use std::time::Duration;
-// third-party
+// Third-party
 use chrono::{DateTime, NaiveDate, NaiveDateTime, OutOfRangeError, TimeDelta, Utc};
 use derive_more::{Deref, From, Into};
 use tokio::{
@@ -23,7 +23,7 @@ pub struct EpochService {
     epoch_slice_duration: Duration,
     /// Sender to notify when an epoch / epoch slice has just changed
     epoch_sender: Sender<(Epoch, EpochSlice)>,
-    /// Receiver that can be cloned for consumers
+    /// Receiver that can be cloned for receivers
     epoch_receiver: Receiver<(Epoch, EpochSlice)>,
     /// Genesis time (aka when the service has been started at the first time)
     genesis: DateTime<Utc>,
@@ -96,7 +96,7 @@ impl EpochService {
             EpochService::compute_current_epoch_slice(now_date, self.epoch_slice_duration, now);
         debug!("current epoch slice: {}", current_epoch_slice);
 
-        // time to wait to next epoch slice
+        // Time to wait to next epoch slice
         let day_start = DateTime::from_naive_utc_and_offset(now_date.into(), Utc);
         // Note:
         // unwrap safe -> epoch_slice_duration < epoch duration checked in constructor
@@ -240,6 +240,7 @@ mod tests {
     use super::*;
     use chrono::{NaiveDate, NaiveDateTime, TimeDelta};
     use futures::TryFutureExt;
+    use parking_lot::Mutex;
     use std::sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -365,8 +366,7 @@ mod tests {
 
     #[test]
     fn test_compute_epoch_slice_count() {
-        // test the computation of the number of epoch slices in an epoch
-
+        // Test the computation of the number of epoch slices in an epoch
         assert_eq!(
             EpochService::compute_epoch_slice_count(
                 Duration::from_secs(TimeDelta::days(1).num_seconds() as u64),
@@ -461,9 +461,8 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_notify() {
+    async fn test_notify_with_one_receiver() {
         // Test epoch_service is really notifying when an epoch or epoch slice has just changed
-
         let epoch_slice_duration = Duration::from_secs(10);
         let epoch_service = EpochService::try_from((epoch_slice_duration, Utc::now())).unwrap();
         let mut epoch_changes = epoch_service.epoch_changes();
@@ -489,5 +488,89 @@ mod tests {
         );
         assert!(matches!(res, Err(AppErrorExt::Elapsed)));
         assert_eq!(counter_0.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_notify_with_multiple_receivers_and_borrow_check() {
+        // Test that multiple receivers using changed().await + borrow() work correctly
+        // Each receiver should see the same sequence of changes
+
+        let epoch_slice_duration = Duration::from_secs(10);
+        let epoch_service = EpochService::try_from((epoch_slice_duration, Utc::now())).unwrap();
+
+        let receiver_count = 5;
+        let counters: Vec<Arc<AtomicU64>> = (0..receiver_count)
+            .map(|_| Arc::new(AtomicU64::new(0)))
+            .collect();
+        let notifications_seen: Vec<Arc<Mutex<Vec<(Epoch, EpochSlice)>>>> = (0..receiver_count)
+            .map(|_| Arc::new(Mutex::new(Vec::new())))
+            .collect();
+
+        let mut receiver_tasks = Vec::new();
+
+        // Spawn multiple receivers, each with its own receiver
+        for i in 0..receiver_count {
+            let mut epoch_changes = epoch_service.epoch_changes();
+            let counter = counters[i].clone();
+            let notifications = notifications_seen[i].clone();
+
+            let task = tokio::spawn(async move {
+                loop {
+                    epoch_changes.changed().await.unwrap();
+                    debug!("[receiver {}] Epoch update using borrow()...", i);
+
+                    let current_value = *epoch_changes.borrow();
+                    debug!("[receiver {}] Read value: {:?}", i, current_value);
+
+                    notifications.lock().push(current_value);
+                    counter.fetch_add(1, Ordering::SeqCst);
+                }
+            });
+            receiver_tasks.push(task);
+        }
+
+        let producer_task = epoch_service.listen_for_new_epoch();
+
+        // Wait for 3 epoch slices + 500 ms (to wait to receive notification + counter incr)
+        let res = tokio::time::timeout(
+            epoch_slice_duration * 3 + Duration::from_millis(500),
+            async {
+                tokio::select! {
+                    _ = producer_task => {},
+                    _ = futures::future::join_all(receiver_tasks) => {},
+                }
+            },
+        )
+        .await;
+
+        assert!(res.is_err());
+
+        // Check that all receivers got the same number of notifications
+        for (i, counter) in counters.iter().enumerate() {
+            let count = counter.load(Ordering::SeqCst);
+            debug!("receiver {} count: {}", i, count);
+            assert_eq!(
+                count, 3,
+                "receiver {} should have 3 notifications, got {}",
+                i, count
+            );
+        }
+
+        // Check that all receivers saw the same sequence of notifications
+        let first_receiver_notifications = notifications_seen[0].lock().clone();
+        for i in 1..receiver_count {
+            let receiver_notifications = notifications_seen[i].lock().clone();
+            assert_eq!(
+                first_receiver_notifications, receiver_notifications,
+                "receiver {} saw different notifications than receiver 0",
+                i
+            );
+        }
+
+        debug!(
+            "All receivers saw the same sequence: {:?}",
+            first_receiver_notifications
+        );
     }
 }
