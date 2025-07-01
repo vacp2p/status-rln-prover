@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::ops::Add;
 // third-party
 use alloy::{
     primitives::{Address, U256},
@@ -64,6 +65,14 @@ pub struct TierIndex(u8);
 impl From<&TierIndex> for u8 {
     fn from(value: &TierIndex) -> u8 {
         value.0
+    }
+}
+
+impl Add<u8> for TierIndex {
+    type Output = TierIndex;
+
+    fn add(self, rhs: u8) -> Self::Output {
+        Self(self.0 + rhs)
     }
 }
 
