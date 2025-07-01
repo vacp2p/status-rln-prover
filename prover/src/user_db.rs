@@ -332,7 +332,7 @@ impl UserDb {
         let incr_value = incr_value.unwrap_or(1);
         let cf_counter = self.get_counter_cf();
 
-        let (epoch, epoch_slice) = *self.epoch_changes.borrow();
+        let (epoch, epoch_slice) = { *self.epoch_changes.borrow() };
         let incr = EpochIncr {
             epoch,
             epoch_slice,
@@ -380,7 +380,7 @@ impl UserDb {
         match key {
             Some(value) => {
                 let (_, counter) = deserializer.deserialize(&value).unwrap();
-                let (epoch, epoch_slice) = *self.epoch_changes.borrow();
+                let (epoch, epoch_slice) = { *self.epoch_changes.borrow() };
 
                 let cmp = (counter.epoch == epoch, counter.epoch_slice == epoch_slice);
 
@@ -567,7 +567,7 @@ impl UserDb {
         let tier_match = tier_limits.get_tier_by_karma(&karma_amount);
 
         let user_tier_info = {
-            let (current_epoch, current_epoch_slice) = *self.epoch_changes.borrow();
+            let (current_epoch, current_epoch_slice) = { *self.epoch_changes.borrow() };
             let mut t = UserTierInfo {
                 current_epoch,
                 current_epoch_slice,

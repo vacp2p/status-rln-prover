@@ -57,7 +57,7 @@ impl ProofService {
 
             let proof_generation_data = received.unwrap();
 
-            let (current_epoch, current_epoch_slice) = *self.epoch_changes.borrow();
+            let (current_epoch, current_epoch_slice) = { *self.epoch_changes.borrow() };
             let user_db = self.user_db.clone();
             let proof_generation_data_ = proof_generation_data.clone();
             let rate_limit = self.rate_limit;
