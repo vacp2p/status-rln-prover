@@ -8,7 +8,6 @@ use ark_serialize::CanonicalSerialize;
 use rln::hashers::{hash_to_field, poseidon_hash};
 use rln::poseidon_tree::PoseidonTree;
 use rln::protocol::{keygen, serialize_proof_values};
-use zerokit_utils::OptimalMerkleTree;
 // internal
 use rln_proof::{
     RlnData, RlnIdentifier, RlnUserIdentity, ZerokitMerkleTree, compute_rln_proof_and_values,

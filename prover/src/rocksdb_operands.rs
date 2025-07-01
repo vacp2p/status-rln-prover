@@ -45,6 +45,7 @@ impl EpochCounterSerializer {
         size_of::<EpochCounters>()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn size_hint(&self) -> usize {
         Self::size_hint_()
     }
@@ -209,7 +210,6 @@ pub fn u64_counter_operands(
 #[cfg(test)]
 mod tests {
     use super::*;
-    // std
     // third-party
     use rocksdb::{DB, Options, WriteBatch};
     use tempfile::TempDir;

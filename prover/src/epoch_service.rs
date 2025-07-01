@@ -1,19 +1,18 @@
 use std::ops::Add;
-use std::sync::Arc;
 use std::time::Duration;
 // third-party
 use chrono::{DateTime, NaiveDate, NaiveDateTime, OutOfRangeError, TimeDelta, Utc};
 use derive_more::{Deref, From, Into};
-use parking_lot::RwLock;
-use tokio::sync::Notify;
+use tokio::{
+    sync::watch::{Receiver, Sender, channel},
+    time::{Instant, sleep_until},
+};
 use tracing::debug;
 // internal
 use crate::error::AppError;
 
 /// Duration of an epoch (1 day)
 const EPOCH_DURATION: Duration = Duration::from_secs(TimeDelta::days(1).num_seconds() as u64);
-/// Minimum duration returned by EpochService::compute_wait_until()
-const WAIT_UNTIL_MIN_DURATION: Duration = Duration::from_secs(5);
 
 /// An Epoch tracking service
 ///
@@ -22,41 +21,41 @@ const WAIT_UNTIL_MIN_DURATION: Duration = Duration::from_secs(5);
 pub struct EpochService {
     /// A subdivision of an epoch (in minutes or seconds)
     epoch_slice_duration: Duration,
-    /// Current epoch and epoch slice
-    pub current_epoch: Arc<RwLock<(Epoch, EpochSlice)>>,
+    /// Sender to notify when an epoch / epoch slice has just changed
+    epoch_sender: Sender<(Epoch, EpochSlice)>,
+    /// Receiver that can be cloned for consumers
+    epoch_receiver: Receiver<(Epoch, EpochSlice)>,
     /// Genesis time (aka when the service has been started at the first time)
     genesis: DateTime<Utc>,
-    /// Channel to notify when an epoch / epoch slice has just changed
-    pub epoch_changes: Arc<Notify>,
 }
 
 impl EpochService {
+    pub fn epoch_changes(&self) -> Receiver<(Epoch, EpochSlice)> {
+        self.epoch_receiver.clone()
+    }
+
     pub(crate) async fn listen_for_new_epoch(&self) -> Result<(), AppError> {
         let epoch_slice_count =
             Self::compute_epoch_slice_count(EPOCH_DURATION, self.epoch_slice_duration);
         debug!("epoch slice in an epoch: {}", epoch_slice_count);
 
-        let (mut current_epoch, mut current_epoch_slice, mut wait_until) =
+        let (mut current_epoch, mut current_epoch_slice, mut wait_until) = loop {
             match self.compute_wait_until(&|| Utc::now(), &|| tokio::time::Instant::now()) {
-                Ok((current_epoch, current_epoch_slice, wait_until)) => {
-                    (current_epoch, current_epoch_slice, wait_until)
+                Ok(result) => break result,
+                Err(WaitUntilError::OutOfRange(_)) => {
+                    // If we're at a boundary, just wait a tiny bit and recalculate
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                    continue;
                 }
-                Err(_e) => {
-                    // sleep and try again (only one retry)
-                    tokio::time::sleep(WAIT_UNTIL_MIN_DURATION).await;
-                    self.compute_wait_until(&|| Utc::now(), &|| tokio::time::Instant::now())?
-                }
-            };
-
-        debug!("wait until: {:?}", wait_until);
-        *self.current_epoch.write() = (current_epoch.into(), current_epoch_slice.into());
+            }
+        };
 
         loop {
             debug!("wait until: {:?}", wait_until);
             // XXX: Should we check the drift between now() and wait_until ?
-            tokio::time::sleep_until(wait_until).await;
+            sleep_until(wait_until).await;
             {
-                let now_ = tokio::time::Instant::now();
+                let now_ = Instant::now();
                 debug!("awake at: {:?}, drift by: {:?}", now_, now_ - wait_until);
             }
             // Note: could use checked_add() here, but it's quite impossible to have an overflow here
@@ -69,17 +68,15 @@ impl EpochService {
                 current_epoch_slice = 0;
                 current_epoch += 1;
             }
-            *self.current_epoch.write() = (current_epoch.into(), current_epoch_slice.into());
+
+            self.epoch_sender
+                .send((current_epoch.into(), current_epoch_slice.into()))
+                .unwrap();
             debug!(
                 "epoch: {}, epoch slice: {}",
                 current_epoch, current_epoch_slice
             );
-
-            // println!("Epoch changed: {}", current_epoch);
-            self.epoch_changes.notify_one();
         }
-
-        // Ok(())
     }
 
     fn compute_wait_until<T, F: Fn() -> DateTime<Utc>, TF: Fn() -> T>(
@@ -92,7 +89,6 @@ impl EpochService {
     {
         let (current_epoch, now_date) = EpochService::compute_current_epoch(self.genesis, now);
         debug!("current_epoch: {}", current_epoch);
-        // self.current_epoch.store(current_epoch, Ordering::SeqCst);
 
         let current_epoch_slice =
             EpochService::compute_current_epoch_slice(now_date, self.epoch_slice_duration, now);
@@ -115,9 +111,6 @@ impl EpochService {
         let wait_until = (epoch_slice_next - now())
             .to_std()
             .map_err(WaitUntilError::OutOfRange)?;
-        if wait_until < WAIT_UNTIL_MIN_DURATION {
-            return Err(WaitUntilError::TooLow(wait_until, WAIT_UNTIL_MIN_DURATION));
-        }
 
         let wait_until = now2() + wait_until;
         Ok((current_epoch, current_epoch_slice, wait_until))
@@ -146,7 +139,7 @@ impl EpochService {
     fn compute_current_epoch_slice<F: Fn() -> DateTime<Utc>>(
         now_date: NaiveDate,
         epoch_slice_duration: Duration,
-        now: F,
+        now: &F,
     ) -> i64 {
         debug_assert!(epoch_slice_duration.as_secs() > 0);
         debug_assert!(i32::try_from(epoch_slice_duration.as_secs()).is_ok());
@@ -180,13 +173,12 @@ impl TryFrom<(Duration, DateTime<Utc>)> for EpochService {
     fn try_from(
         (epoch_slice_duration, genesis): (Duration, DateTime<Utc>),
     ) -> Result<Self, Self::Error> {
-        if genesis >= Utc::now() {
+        if genesis > Utc::now() {
             return Err(EpochServiceInitError::InvalidGenesis);
         }
 
         if epoch_slice_duration.as_secs() == 0
             || i32::try_from(epoch_slice_duration.as_secs()).is_err()
-            || epoch_slice_duration < WAIT_UNTIL_MIN_DURATION
             || epoch_slice_duration >= (EPOCH_DURATION / 2)
         {
             return Err(EpochServiceInitError::InvalidEpochSliceDuration);
@@ -194,11 +186,19 @@ impl TryFrom<(Duration, DateTime<Utc>)> for EpochService {
 
         // TODO: should we check the division: epoch_duration / epoch_slice_duration ?
 
+        // Calculate current epoch and slice
+        let now = Utc::now();
+        let (current_epoch, now_date) = Self::compute_current_epoch(genesis, &|| now);
+        let current_epoch_slice =
+            Self::compute_current_epoch_slice(now_date, epoch_slice_duration, &|| now);
+        let (epoch_sender, epoch_receiver) =
+            channel((Epoch(current_epoch), EpochSlice(current_epoch_slice)));
+
         Ok(Self {
             epoch_slice_duration,
-            current_epoch: Arc::new(Default::default()),
+            epoch_sender,
+            epoch_receiver,
             genesis,
-            epoch_changes: Arc::new(Default::default()),
         })
     }
 }
@@ -207,8 +207,6 @@ impl TryFrom<(Duration, DateTime<Utc>)> for EpochService {
 pub enum WaitUntilError {
     #[error("Computation error: {0}")]
     OutOfRange(#[from] OutOfRangeError),
-    #[error("Wait until is too low: {0:?} (min value: {1:?}")]
-    TooLow(Duration, Duration),
 }
 
 /// An Epoch (wrapper type over i64)
@@ -240,21 +238,14 @@ mod tests {
     use super::*;
     use chrono::{NaiveDate, NaiveDateTime, TimeDelta};
     use futures::TryFutureExt;
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    };
     use tracing_test::traced_test;
 
-    /*
-    #[tokio::test]
-    async fn test_wait_until_0() {
-        let wait_until = tokio::time::Instant::now() + Duration::from_secs(10);
-        println!("Should wait until: {:?}", wait_until);
-        tokio::time::sleep(Duration::from_secs(3)).await;
-        tokio::time::sleep_until(wait_until).await;
-        println!("Wake up at: {:?}", tokio::time::Instant::now());
-    }
-    */
-
     #[test]
+    #[traced_test]
     fn test_wait_until() {
         // Check wait_until is correctly computed
 
@@ -263,7 +254,6 @@ mod tests {
 
         {
             // standard wait until in epoch 0, epoch slice 1
-
             let genesis: DateTime<Utc> = DateTime::from_naive_utc_and_offset(datetime_0, Utc);
             let epoch_slice_duration = Duration::from_secs(60);
             let epoch_service = EpochService::try_from((epoch_slice_duration, genesis)).unwrap();
@@ -289,7 +279,6 @@ mod tests {
 
         {
             // standard wait until (but in epoch 1)
-
             let genesis: DateTime<Utc> = DateTime::from_naive_utc_and_offset(datetime_0, Utc);
             let epoch_slice_duration = Duration::from_secs(60);
             let epoch_service = EpochService::try_from((epoch_slice_duration, genesis)).unwrap();
@@ -319,27 +308,56 @@ mod tests {
         }
 
         {
-            // Check for WaitUntilError::TooLow
-
+            // Check edge case: when current time is very close to next epoch slice
             let genesis: DateTime<Utc> =
                 chrono::DateTime::from_naive_utc_and_offset(datetime_0, Utc);
             let epoch_slice_duration = Duration::from_secs(60);
             let epoch_service = EpochService::try_from((epoch_slice_duration, genesis)).unwrap();
-            let epoch_slice_duration_minus_1 =
-                epoch_slice_duration - WAIT_UNTIL_MIN_DURATION + Duration::from_secs(1);
 
             let now = || {
-                let mut now_0: NaiveDateTime = date_0
-                    .and_hms_opt(0, 0, epoch_slice_duration_minus_1.as_secs() as u32)
-                    .unwrap();
-                // Set now_0 to be in epoch slice 1
-                now_0 += epoch_slice_duration;
+                // Set time to 59 seconds into epoch slice 0 (1 second before slice 1)
+                let now_0: NaiveDateTime = date_0.and_hms_opt(0, 0, 59).unwrap();
                 chrono::DateTime::from_naive_utc_and_offset(now_0, chrono::Utc)
             };
 
-            let res = epoch_service.compute_wait_until(&now, &now);
+            let (epoch, epoch_slice, wait_until): (_, _, Duration) = epoch_service
+                .compute_wait_until(&now, &|| Duration::from_secs(0))
+                .unwrap();
 
-            assert!(matches!(res, Err(WaitUntilError::TooLow(_, _))));
+            assert_eq!(epoch, 0);
+            assert_eq!(epoch_slice, 0);
+            // Should wait just 1 second until next slice
+            assert_eq!(wait_until, Duration::from_secs(1));
+        }
+
+        {
+            // Check OutOfRange case: when time advances between now() calls
+            let genesis: DateTime<Utc> =
+                chrono::DateTime::from_naive_utc_and_offset(datetime_0, Utc);
+            let epoch_slice_duration = Duration::from_secs(60);
+            let epoch_service = EpochService::try_from((epoch_slice_duration, genesis)).unwrap();
+
+            // Simulate time passing between calls
+            let call_count = std::cell::Cell::new(0);
+            let now = || {
+                let count = call_count.get();
+                call_count.set(count + 1);
+
+                // first 3 calls: return consistent time in epoch slice 0
+                if count < 3 {
+                    let now_0: NaiveDateTime = date_0.and_hms_opt(0, 0, 30).unwrap();
+                    chrono::DateTime::from_naive_utc_and_offset(now_0, chrono::Utc)
+                } else {
+                    // fourth call: past next epoch slice boundary
+                    let now_0: NaiveDateTime = date_0.and_hms_opt(0, 1, 1).unwrap();
+                    chrono::DateTime::from_naive_utc_and_offset(now_0, chrono::Utc)
+                }
+            };
+
+            let res = epoch_service.compute_wait_until(&now, &|| Duration::from_secs(0));
+
+            // expect OutOfRange error
+            assert!(matches!(res, Err(WaitUntilError::OutOfRange(_))));
         }
     }
 
@@ -416,25 +434,17 @@ mod tests {
 
         // Note: 4-minute diff -> expect == 2
         assert_eq!(
-            EpochService::compute_current_epoch_slice(now_date, epoch_slice_duration, now_f),
+            EpochService::compute_current_epoch_slice(now_date, epoch_slice_duration, &now_f),
             2
         );
         // Note: 5 minutes and 59 seconds diff -> still expect == 2
         assert_eq!(
-            EpochService::compute_current_epoch_slice(
-                now_date,
-                epoch_slice_duration,
-                Box::new(now_f_2)
-            ),
+            EpochService::compute_current_epoch_slice(now_date, epoch_slice_duration, &now_f_2),
             2
         );
         // Note: 6 minutes diff -> expect == 3
         assert_eq!(
-            EpochService::compute_current_epoch_slice(
-                now_date,
-                epoch_slice_duration,
-                Box::new(now_f_3)
-            ),
+            EpochService::compute_current_epoch_slice(now_date, epoch_slice_duration, &now_f_3),
             3
         );
     }
@@ -454,7 +464,7 @@ mod tests {
 
         let epoch_slice_duration = Duration::from_secs(10);
         let epoch_service = EpochService::try_from((epoch_slice_duration, Utc::now())).unwrap();
-        let notifier = epoch_service.epoch_changes.clone();
+        let mut epoch_changes = epoch_service.epoch_changes();
         let counter_0 = Arc::new(AtomicU64::new(0));
         let counter = counter_0.clone();
 
@@ -462,16 +472,15 @@ mod tests {
             epoch_service
                 .listen_for_new_epoch()
                 .map_err(|e| AppErrorExt::AppError(e)),
-            // Wait for 3 epoch slices + 100 ms (to wait to receive notif + counter incr)
+            // Wait for 3 epoch slices + 500 ms (to wait to receive notification + counter incr)
             tokio::time::timeout(
                 epoch_slice_duration * 3 + Duration::from_millis(500),
                 async move {
                     loop {
-                        notifier.notified().await;
+                        epoch_changes.changed().await.unwrap();
                         debug!("[Notified] Epoch update...");
                         let _v = counter.fetch_add(1, Ordering::SeqCst);
                     }
-                    // Ok::<(), AppErrorExt>(())
                 }
             )
             .map_err(|_e| AppErrorExt::Elapsed)
