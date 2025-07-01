@@ -69,9 +69,11 @@ impl EpochService {
                 current_epoch += 1;
             }
 
-            self.epoch_sender
-                .send((current_epoch.into(), current_epoch_slice.into()))
-                .unwrap();
+            {
+                self.epoch_sender
+                    .send((current_epoch.into(), current_epoch_slice.into()))
+                    .unwrap();
+            }
             debug!(
                 "epoch: {}, epoch slice: {}",
                 current_epoch, current_epoch_slice

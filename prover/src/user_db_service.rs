@@ -40,12 +40,12 @@ impl UserDbService {
     }
 
     pub async fn listen_for_epoch_changes(&self) -> Result<(), AppError> {
-        let (mut current_epoch, mut current_epoch_slice) = *self.user_db.epoch_changes.borrow();
+        let (mut current_epoch, mut current_epoch_slice) = { *self.user_db.epoch_changes.borrow() };
         let mut epoch_changes = self.user_db.epoch_changes.clone();
 
         loop {
             epoch_changes.changed().await.unwrap();
-            let (new_epoch, new_epoch_slice) = *self.user_db.epoch_changes.borrow();
+            let (new_epoch, new_epoch_slice) = { *self.user_db.epoch_changes.borrow() };
             debug!(
                 "new epoch: {:?}, new epoch slice: {:?}",
                 new_epoch, new_epoch_slice
