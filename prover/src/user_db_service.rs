@@ -1,9 +1,7 @@
 // std
-use parking_lot::RwLock;
 use std::path::PathBuf;
-use std::sync::Arc;
 // third-party
-use tokio::sync::Notify;
+use tokio::sync::watch::Receiver;
 use tracing::debug;
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
@@ -17,29 +15,24 @@ use crate::user_db_types::RateLimit;
 #[derive(Debug)]
 pub struct UserDbService {
     user_db: UserDb,
-    epoch_changes: Arc<Notify>,
 }
 
 impl UserDbService {
     pub fn new(
         db_path: PathBuf,
         merkle_tree_path: PathBuf,
-        epoch_changes_notifier: Arc<Notify>,
-        epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
+        epoch_changes: Receiver<(Epoch, EpochSlice)>,
         rate_limit: RateLimit,
         tier_limits: TierLimits,
     ) -> Result<Self, UserDbOpenError> {
         let user_db = UserDb::new(
             db_path,
             merkle_tree_path,
-            epoch_store,
+            epoch_changes,
             tier_limits,
             rate_limit,
         )?;
-        Ok(Self {
-            user_db,
-            epoch_changes: epoch_changes_notifier,
-        })
+        Ok(Self { user_db })
     }
 
     pub fn get_user_db(&self) -> UserDb {
@@ -47,11 +40,12 @@ impl UserDbService {
     }
 
     pub async fn listen_for_epoch_changes(&self) -> Result<(), AppError> {
-        let (mut current_epoch, mut current_epoch_slice) = *self.user_db.epoch_store.read();
+        let (mut current_epoch, mut current_epoch_slice) = *self.user_db.epoch_changes.borrow();
+        let mut epoch_changes = self.user_db.epoch_changes.clone();
 
         loop {
-            self.epoch_changes.notified().await;
-            let (new_epoch, new_epoch_slice) = *self.user_db.epoch_store.read();
+            epoch_changes.changed().await.unwrap();
+            let (new_epoch, new_epoch_slice) = *self.user_db.epoch_changes.borrow();
             debug!(
                 "new epoch: {:?}, new epoch slice: {:?}",
                 new_epoch, new_epoch_slice

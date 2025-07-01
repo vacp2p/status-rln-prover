@@ -132,13 +132,12 @@ impl RegistryListener {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     // std
-    use std::sync::Arc;
+    use std::path::PathBuf;
     // third-party
     use alloy::primitives::address;
     use async_trait::async_trait;
-    use parking_lot::RwLock;
+    use tokio::sync::watch::channel;
     // internal
     use crate::epoch_service::{Epoch, EpochSlice};
     use crate::user_db_service::UserDbService;
@@ -159,14 +158,13 @@ mod tests {
     async fn test_handle_transfer_event() {
         let epoch = Epoch::from(11);
         let epoch_slice = EpochSlice::from(42);
-        let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
+        let (_, epoch_changes) = channel((epoch, epoch_slice));
         let temp_folder = tempfile::tempdir().unwrap();
         let temp_folder_tree = tempfile::tempdir().unwrap();
         let user_db_service = UserDbService::new(
             PathBuf::from(temp_folder.path()),
             PathBuf::from(temp_folder_tree.path()),
-            Default::default(),
-            epoch_store,
+            epoch_changes,
             10.into(),
             Default::default(),
         )

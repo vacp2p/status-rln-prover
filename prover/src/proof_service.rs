@@ -1,10 +1,8 @@
 use std::io::{Cursor, Write};
-use std::sync::Arc;
 // third-party
 use ark_bn254::Fr;
 use ark_serialize::CanonicalSerialize;
 use async_channel::Receiver;
-use parking_lot::RwLock;
 use rln::hashers::hash_to_field;
 use rln::protocol::serialize_proof_values;
 use tracing::{debug, info};
@@ -23,7 +21,7 @@ pub struct ProofService {
     receiver: Receiver<ProofGenerationData>,
     broadcast_sender:
         tokio::sync::broadcast::Sender<Result<ProofSendingData, ProofGenerationStringError>>,
-    current_epoch: Arc<RwLock<(Epoch, EpochSlice)>>,
+    epoch_changes: tokio::sync::watch::Receiver<(Epoch, EpochSlice)>,
     user_db: UserDb,
     rate_limit: RateLimit,
 }
@@ -34,7 +32,7 @@ impl ProofService {
         broadcast_sender: tokio::sync::broadcast::Sender<
             Result<ProofSendingData, ProofGenerationStringError>,
         >,
-        current_epoch: Arc<RwLock<(Epoch, EpochSlice)>>,
+        epoch_changes: tokio::sync::watch::Receiver<(Epoch, EpochSlice)>,
         user_db: UserDb,
         rate_limit: RateLimit,
     ) -> Self {
@@ -42,7 +40,7 @@ impl ProofService {
         Self {
             receiver,
             broadcast_sender,
-            current_epoch,
+            epoch_changes,
             user_db,
             rate_limit,
         }
@@ -59,7 +57,7 @@ impl ProofService {
 
             let proof_generation_data = received.unwrap();
 
-            let (current_epoch, current_epoch_slice) = *self.current_epoch.read();
+            let (current_epoch, current_epoch_slice) = *self.epoch_changes.borrow();
             let user_db = self.user_db.clone();
             let proof_generation_data_ = proof_generation_data.clone();
             let rate_limit = self.rate_limit;
@@ -141,15 +139,14 @@ impl ProofService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // std
-    use std::path::PathBuf;
+    use std::{path::PathBuf, sync::Arc};
     // third-party
     use alloy::primitives::{Address, address};
     use ark_groth16::{Proof as ArkProof, Proof, VerifyingKey};
     use ark_serialize::CanonicalDeserialize;
     use claims::assert_matches;
     use futures::TryFutureExt;
-    use tokio::sync::broadcast;
+    use tokio::sync::{broadcast, watch::channel};
     use tracing::info;
     // third-party: zerokit
     use rln::{
@@ -259,7 +256,7 @@ mod tests {
         // Epoch
         let epoch = Epoch::from(11);
         let epoch_slice = EpochSlice::from(42);
-        let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
+        let (_, epoch_changes) = channel((epoch, epoch_slice));
 
         // User db
         let temp_folder = tempfile::tempdir().unwrap();
@@ -267,8 +264,7 @@ mod tests {
         let user_db_service = UserDbService::new(
             PathBuf::from(temp_folder.path()),
             PathBuf::from(temp_folder_tree.path()),
-            Default::default(),
-            epoch_store.clone(),
+            epoch_changes.clone(),
             10.into(),
             Default::default(),
         )
@@ -283,7 +279,7 @@ mod tests {
         let proof_service = ProofService::new(
             proof_rx,
             broadcast_sender,
-            epoch_store,
+            epoch_changes,
             user_db.clone(),
             RateLimit::from(10),
         );
@@ -316,7 +312,7 @@ mod tests {
         // Epoch
         let epoch = Epoch::from(11);
         let epoch_slice = EpochSlice::from(42);
-        let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
+        let (_, epoch_changes) = channel((epoch, epoch_slice));
 
         // User db
         let temp_folder = tempfile::tempdir().unwrap();
@@ -324,8 +320,7 @@ mod tests {
         let user_db_service = UserDbService::new(
             PathBuf::from(temp_folder.path()),
             PathBuf::from(temp_folder_tree.path()),
-            Default::default(),
-            epoch_store.clone(),
+            epoch_changes.clone(),
             10.into(),
             Default::default(),
         )
@@ -340,7 +335,7 @@ mod tests {
         let proof_service = ProofService::new(
             proof_rx,
             broadcast_sender,
-            epoch_store,
+            epoch_changes,
             user_db.clone(),
             RateLimit::from(10),
         );
@@ -474,7 +469,7 @@ mod tests {
         // Epoch
         let epoch = Epoch::from(11);
         let epoch_slice = EpochSlice::from(42);
-        let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
+        let (_, epoch_changes) = channel((epoch, epoch_slice));
 
         // Limits
         let rate_limit = RateLimit::from(1);
@@ -485,8 +480,7 @@ mod tests {
         let user_db_service = UserDbService::new(
             PathBuf::from(temp_folder.path()),
             PathBuf::from(temp_folder_tree.path()),
-            Default::default(),
-            epoch_store.clone(),
+            epoch_changes.clone(),
             rate_limit,
             Default::default(),
         )
@@ -502,7 +496,7 @@ mod tests {
         let proof_service = ProofService::new(
             proof_rx,
             broadcast_sender,
-            epoch_store,
+            epoch_changes,
             user_db.clone(),
             rate_limit,
         );
@@ -543,7 +537,7 @@ mod tests {
         // Epoch
         let epoch = Epoch::from(11);
         let epoch_slice = EpochSlice::from(42);
-        let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
+        let (_, epoch_changes) = channel((epoch, epoch_slice));
 
         // Limits
         let rate_limit = RateLimit::from(1);
@@ -554,8 +548,7 @@ mod tests {
         let user_db_service = UserDbService::new(
             PathBuf::from(temp_folder.path()),
             PathBuf::from(temp_folder_tree.path()),
-            Default::default(),
-            epoch_store.clone(),
+            epoch_changes.clone(),
             rate_limit,
             Default::default(),
         )
@@ -572,7 +565,7 @@ mod tests {
         let proof_service = ProofService::new(
             proof_rx,
             broadcast_sender,
-            epoch_store,
+            epoch_changes,
             user_db.clone(),
             rate_limit,
         );
