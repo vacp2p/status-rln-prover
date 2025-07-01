@@ -121,7 +121,6 @@ where
         // Update the counter as soon as possible (should help to prevent spamming...)
         let counter = self.user_db.on_new_tx(&sender, None).unwrap_or_default();
 
-        // FIXME: hardcoded
         if req.transaction_hash.len() != PROVER_TX_HASH_BYTESIZE {
             return Err(Status::invalid_argument(
                 "Invalid transaction hash (should be 32 bytes)",
