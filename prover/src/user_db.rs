@@ -57,6 +57,16 @@ pub struct UserTierInfo {
     pub(crate) tier_limit: Option<TierLimit>,
 }
 
+#[derive(Serialize, Deserialize)]
+struct PmTreeConfigJson {
+    path: PathBuf,
+    temporary: bool,
+    cache_capacity: u64,
+    flush_every_ms: u64,
+    mode: String,
+    use_compression: bool,
+}
+
 #[derive(Clone)]
 pub(crate) struct UserDb {
     db: Arc<DB>,
@@ -141,17 +151,7 @@ impl UserDb {
         }
 
         // merkle tree
-
-        #[derive(Serialize, Deserialize)]
-        struct PmTreeConfigJson {
-            path: PathBuf,
-            temporary: bool,
-            cache_capacity: u64,
-            flush_every_ms: u64,
-            mode: String,
-            use_compression: bool,
-        }
-
+        
         let config_ = PmTreeConfigJson {
             path: merkle_tree_path,
             temporary: false,
@@ -217,11 +217,13 @@ impl UserDb {
 
         let cf_user = self.get_user_cf();
 
-        let index = match self.db.get_cf(cf_user, key) {
+        let _index = match self.db.get_cf(cf_user, key) {
             Ok(Some(_)) => {
                 return Err(RegisterError::AlreadyRegistered(address));
             }
             Ok(None) => {
+                let rate_commit = poseidon_hash(&[id_commitment, Fr::from(u64::from(self.rate_limit))]);
+                
                 let cf_mtree = self.get_mtree_cf();
                 let cf_counter = self.get_counter_cf();
 
@@ -252,6 +254,13 @@ impl UserDb {
                 let (_, new_index) = merkle_index_deserializer
                     .deserialize(batch_read.as_slice())
                     .unwrap();
+                
+                // Note: write to Merkle tree in the Db transaction so if the write fails
+                //       the Db transaction will also fails
+                self.merkle_tree
+                    .write()
+                    .set(new_index.into(), rate_commit)
+                    .map_err(|e| RegisterError::TreeError(e.to_string()))?;
 
                 // Add index for user
                 merkle_index_serializer.serialize(&new_index, &mut buffer);
@@ -272,12 +281,6 @@ impl UserDb {
             }
         };
 
-        let rate_commit = poseidon_hash(&[id_commitment, Fr::from(u64::from(self.rate_limit))]);
-        // FIXME: what to do if write to merkle tree fails? Should we include this in the Db transaction as well?
-        self.merkle_tree
-            .write()
-            .set(index.into(), rate_commit)
-            .map_err(|e| RegisterError::TreeError(e.to_string()))?;
 
         Ok(id_commitment)
     }
@@ -577,7 +580,6 @@ impl UserDb {
                 tier_limit: None,
             };
             
-            // FIXME: Proto changes to return AboveHighest / UnderLowest
             if let TierMatch::Matched(_tier_index, tier) = tier_match {
                 t.tier_name = Some(tier.name.into());
                 t.tier_limit = Some(TierLimit::from(tier.tx_per_epoch));
@@ -739,166 +741,7 @@ mod tests {
         assert_eq!(tier_info.epoch_tx_count, 1);
         assert_eq!(tier_info.epoch_slice_tx_count, 1);
     }
-
-    /*
-    #[tokio::test]
-    async fn test_update_on_epoch_changes() {
-
-        let temp_folder = tempfile::tempdir().unwrap();
-        let mut epoch = Epoch::from(11);
-        let mut epoch_slice = EpochSlice::from(42);
-        let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
-        let user_db = UserRocksDb::new(
-            PathBuf::from(temp_folder.path()),
-            Default::default(),
-            epoch_store,
-        ).unwrap();
-
-        let tier_limits = BTreeMap::from([
-            (
-                TierIndex::from(1),
-                Tier {
-                    name: "Basic".into(),
-                    min_karma: U256::from(10),
-                    max_karma: U256::from(49),
-                    tx_per_epoch: 5,
-                    active: true,
-                },
-            ),
-            (
-                TierIndex::from(2),
-                Tier {
-                    name: "Active".into(),
-                    min_karma: U256::from(50),
-                    max_karma: U256::from(99),
-                    tx_per_epoch: 10,
-                    active: true,
-                },
-            ),
-            (
-                TierIndex::from(3),
-                Tier {
-                    name: "Regular".into(),
-                    min_karma: U256::from(100),
-                    max_karma: U256::from(499),
-                    tx_per_epoch: 15,
-                    active: true,
-                },
-            ),
-            (
-                TierIndex::from(4),
-                Tier {
-                    name: "Power User".into(),
-                    min_karma: U256::from(500),
-                    max_karma: U256::from(4999),
-                    tx_per_epoch: 20,
-                    active: true,
-                },
-            ),
-            (
-                TierIndex::from(5),
-                Tier {
-                    name: "S-Tier".into(),
-                    min_karma: U256::from(5000),
-                    max_karma: U256::from(9999),
-                    tx_per_epoch: 25,
-                    active: true,
-                },
-            ),
-        ]);
-
-        let tier_limits: TierLimits = tier_limits.into();
-        tier_limits.validate().unwrap();
-
-        let user_db_service = UserDbService2::new(
-            temp_folder.path().to_path_buf(),
-            Default::default(),
-            epoch_store.clone(),
-            10.into(),
-            tier_limits,
-        ).unwrap();
-        let user_db = user_db_service.get_user_db();
-
-        let addr_1_tx_count = 2;
-        let addr_2_tx_count = 820;
-        user_db.register(ADDR_1).unwrap();
-        user_db.incr_tx_counter(&ADDR_1, Some(addr_1_tx_count));
-        println!("user_db tx counter: {:?}", user_db.get_tx_counter(&ADDR_1));
-        user_db.register(ADDR_2).unwrap();
-        user_db.incr_tx_counter(&ADDR_2, Some(addr_2_tx_count));
-
-        // incr epoch slice (42 -> 43)
-        {
-            let new_epoch = epoch;
-            let new_epoch_slice = epoch_slice + 1;
-            // FIXME: UserRocksDb rely on EpochStore so is there still need for this func?
-            user_db_service.update_on_epoch_changes(
-                &mut epoch,
-                new_epoch,
-                &mut epoch_slice,
-                new_epoch_slice,
-            );
-
-            let mut guard = epoch_store.write();
-            *guard = (new_epoch, epoch_slice);
-            drop(guard);
-
-            let addr_1_tier_info = user_db
-                .user_tier_info(&ADDR_1, &MockKarmaSc2 {})
-                .await
-                .unwrap();
-            assert_eq!(addr_1_tier_info.epoch_tx_count, addr_1_tx_count);
-            assert_eq!(addr_1_tier_info.epoch_slice_tx_count, 0);
-            assert_eq!(addr_1_tier_info.tier_name, Some(TierName::from("Basic")));
-
-            let addr_2_tier_info = user_db
-                .user_tier_info(&ADDR_2, &MockKarmaSc2 {})
-                .await
-                .unwrap();
-            assert_eq!(addr_2_tier_info.epoch_tx_count, addr_2_tx_count);
-            assert_eq!(addr_2_tier_info.epoch_slice_tx_count, 0);
-            assert_eq!(
-                addr_2_tier_info.tier_name,
-                Some(TierName::from("Power User"))
-            );
-        }
-
-        // incr epoch (11 -> 12, epoch slice reset)
-        {
-            let new_epoch = epoch + 1;
-            let new_epoch_slice = EpochSlice::from(0);
-            user_db_service.update_on_epoch_changes(
-                &mut epoch,
-                new_epoch,
-                &mut epoch_slice,
-                new_epoch_slice,
-            );
-            let mut guard = epoch_store.write();
-            *guard = (new_epoch, epoch_slice);
-            drop(guard);
-
-            let addr_1_tier_info = user_db
-                .user_tier_info(&ADDR_1, &MockKarmaSc2 {})
-                .await
-                .unwrap();
-            assert_eq!(addr_1_tier_info.epoch_tx_count, 0);
-            assert_eq!(addr_1_tier_info.epoch_slice_tx_count, 0);
-            assert_eq!(addr_1_tier_info.tier_name, Some(TierName::from("Basic")));
-
-            let addr_2_tier_info = user_db
-                .user_tier_info(&ADDR_2, &MockKarmaSc2 {})
-                .await
-                .unwrap();
-            assert_eq!(addr_2_tier_info.epoch_tx_count, 0);
-            assert_eq!(addr_2_tier_info.epoch_slice_tx_count, 0);
-            assert_eq!(
-                addr_2_tier_info.tier_name,
-                Some(TierName::from("Power User"))
-            );
-        }
-    }
-    */
-
+    
     #[tokio::test]
     async fn test_persistent_storage() {
         let temp_folder = tempfile::tempdir().unwrap();
@@ -991,31 +834,48 @@ mod tests {
         }
     }
 
-    /*
-    // Try to update tx counter without registering first
-    assert_matches!(
-        user_db.on_new_tx(&addr, None),
-        Err(TxCounterError::NotRegistered(_))
-    );
+    #[tokio::test]
+    async fn test_user_reg_merkle_tree_fail() {
+        
+        // Try to register some users but init UserDb so the merkle tree write will fail (after 1st register)
+        // This tests ensures that the DB and the MerkleTree stays in sync
+        
+        let temp_folder = tempfile::tempdir().unwrap();
+        let temp_folder_tree = tempfile::tempdir().unwrap();
+        let epoch_store = Arc::new(RwLock::new(Default::default()));
 
-    let tier_info = user_db.user_tier_info(&addr, &MockKarmaSc {}).await;
-    // User is not registered -> no tier info
-    assert!(matches!(
-        tier_info,
-        Err(UserTierInfoError::NotRegistered(_))
-    ));
-    // Register user
-    user_db.register(addr).unwrap();
-    // Now update user tx counter
-    assert_eq!(
-        user_db.on_new_tx(&addr, None),
-        Ok(EpochSliceCounter::from(1))
-    );
-    let tier_info = user_db
-        .user_tier_info(&addr, &MockKarmaSc {})
-        .await
-        .unwrap();
-    assert_eq!(tier_info.epoch_tx_count, 1);
-    assert_eq!(tier_info.epoch_slice_tx_count, 1);
-    */
+        let mut user_db = UserDb::new(
+            PathBuf::from(temp_folder.path()),
+            PathBuf::from(temp_folder_tree.path()),
+            epoch_store.clone(),
+            Default::default(),
+            Default::default(),
+        )
+            .unwrap();
+        
+        let temp_folder_tree_2 = tempfile::tempdir().unwrap();
+        let config_ = PmTreeConfigJson {
+            path: temp_folder_tree_2.path().to_path_buf(),
+            temporary: false,
+            cache_capacity: 100_000,
+            flush_every_ms: 12_000,
+            mode: "HighThroughput".to_string(),
+            use_compression: false,
+        };
+        let config_str = serde_json::to_string(&config_).unwrap();
+        let config = PmtreeConfig::from_str(config_str.as_str()).unwrap();
+        let tree = PoseidonTree::new(1, Default::default(), config).unwrap();
+        let tree = Arc::new(RwLock::new(tree));
+        user_db.merkle_tree = tree.clone();
+
+        assert_eq!(tree.read().leaves_set(), 0);
+        user_db.register(ADDR_1).unwrap();
+        assert_eq!(tree.read().leaves_set(), 2);
+        let res = user_db.register(ADDR_2);
+        assert_matches!(res, Err(RegisterError::TreeError(_)));
+        assert_eq!(user_db.has_user(&ADDR_1), Ok(true));
+        assert_eq!(user_db.has_user(&ADDR_2), Ok(false));
+        assert_eq!(tree.read().leaves_set(), 2);
+    }
+    
 }
