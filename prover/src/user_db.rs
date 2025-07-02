@@ -325,6 +325,10 @@ impl UserDb {
             Err(e) => Err(UserMerkleTreeIndexError::Db(e)),
         }
     }
+    
+    pub fn remove_user(&self, _address: &Address) {
+        todo!()
+    } 
 
     fn incr_tx_counter(
         &self,
