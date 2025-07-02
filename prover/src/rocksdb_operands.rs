@@ -1,3 +1,4 @@
+use claims::debug_assert_ge;
 use crate::epoch_service::{Epoch, EpochSlice};
 use nom::{
     IResult,
@@ -140,9 +141,10 @@ pub fn epoch_counters_operands(
         // Note: unwrap on EpochIncr deserialize error - serialization is done by the prover
         //       thus no error should never happen here
         let (_, epoch_incr) = deser.deserialize(x).unwrap();
-
-        // TODO - optim: partial deser ?
-        // TODO: check if increasing ? debug_assert otherwise?
+        
+        debug_assert_ge!(epoch_incr.epoch, acc.epoch);
+        debug_assert!(epoch_incr.epoch_slice > acc.epoch_slice || epoch_incr.epoch_slice == EpochSlice::from(0));
+        
         if acc == Default::default() {
             // Default value - so this is the first time
             acc = EpochCounters {
