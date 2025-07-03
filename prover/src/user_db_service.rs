@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use tokio::sync::watch::Receiver;
 use tracing::debug;
 // internal
-use crate::epoch_service::{Epoch, EpochSlice};
+use crate::epoch_service::{Epoch, EpochServiceError, EpochSlice};
 use crate::error::AppError;
 use crate::tier::TierLimits;
 use crate::user_db::UserDb;
@@ -44,7 +44,12 @@ impl UserDbService {
         let mut epoch_changes = self.user_db.epoch_changes.clone();
 
         loop {
-            epoch_changes.changed().await.unwrap();
+            if let Err(recv_error) = epoch_changes.changed().await {
+                debug!("Error receiving epoch change: {:?}", recv_error);
+                return Err(AppError::EpochError(EpochServiceError::SenderClosed(
+                    recv_error,
+                )));
+            }
             let (new_epoch, new_epoch_slice) = { *self.user_db.epoch_changes.borrow() };
             debug!(
                 "new epoch: {:?}, new epoch slice: {:?}",

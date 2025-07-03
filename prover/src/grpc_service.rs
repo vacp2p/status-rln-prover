@@ -79,7 +79,6 @@ pub struct ProverService<KSC: KarmaAmountExt, RLNSC: RLNRegister> {
     proof_sender: Sender<ProofGenerationData>,
     user_db: UserDb,
     rln_identifier: Arc<RlnIdentifier>,
-    #[allow(clippy::type_complexity)]
     broadcast_channel: (
         broadcast::Sender<Result<ProofSendingData, ProofGenerationStringError>>,
         broadcast::Receiver<Result<ProofSendingData, ProofGenerationStringError>>,
@@ -300,7 +299,6 @@ where
 
 pub(crate) struct GrpcProverService {
     pub proof_sender: Sender<ProofGenerationData>,
-    #[allow(clippy::type_complexity)]
     pub broadcast_channel: (
         broadcast::Sender<Result<ProofSendingData, ProofGenerationStringError>>,
         broadcast::Receiver<Result<ProofSendingData, ProofGenerationStringError>>,

@@ -2,7 +2,7 @@ use alloy::transports::{RpcError, TransportErrorKind};
 use ark_serialize::SerializationError;
 use rln::error::ProofError;
 // internal
-use crate::epoch_service::WaitUntilError;
+use crate::epoch_service::EpochServiceError;
 use crate::user_db_error::{RegisterError, UserMerkleTreeIndexError};
 
 #[derive(thiserror::Error, Debug)]
@@ -16,7 +16,7 @@ pub enum AppError {
     #[error("Rpc transport error 2: {0}")]
     RpcTransportError(#[from] RpcError<TransportErrorKind>),
     #[error("Epoch service error: {0}")]
-    EpochError(#[from] WaitUntilError),
+    EpochError(#[from] EpochServiceError),
     #[error(transparent)]
     RegistryError(#[from] HandleTransferError),
     #[error(transparent)]
