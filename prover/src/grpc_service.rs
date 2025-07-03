@@ -178,8 +178,10 @@ where
 
                     // Fail to register user on smart contract
                     // Remove the user in internal Db
-                    // TODO
-                    self.user_db.remove_user(&user);
+                    if !self.user_db.remove_user(&user, false) {
+                        // Fails if DB & SC are inconsistent
+                        panic!("Unable to register user to SC and to remove it from DB...");
+                    }
                     return Err(Status::from_error(Box::new(e)));
                 }
 

@@ -193,6 +193,10 @@ pub fn u64_counter_operands(
     existing_val: Option<&[u8]>,
     operands: &MergeOperands,
 ) -> Option<Vec<u8>> {
+    
+    // Counter value is stored as u64
+    // But value passed (in merge / merge_cf) is i64 so we can decrease or increase the counter
+    
     let counter_current_value = if let Some(existing_val) = existing_val {
         u64::from_le_bytes(existing_val.try_into().unwrap())
     } else {
@@ -200,8 +204,8 @@ pub fn u64_counter_operands(
     };
 
     let counter_value = operands.iter().fold(counter_current_value, |mut acc, x| {
-        let incr_value = u64::from_le_bytes(x.try_into().unwrap());
-        acc = acc.saturating_add(incr_value);
+        let incr_value = i64::from_le_bytes(x.try_into().unwrap());
+        acc = acc.saturating_add_signed(incr_value);
         acc
     });
 

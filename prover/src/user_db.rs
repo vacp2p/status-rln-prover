@@ -12,10 +12,9 @@ use rln::{
     poseidon_tree::{MerkleProof, PoseidonTree},
     protocol::keygen,
 };
-use rocksdb::{
-    ColumnFamily, ColumnFamilyDescriptor, DB, Options, ReadOptions, WriteBatchWithIndex,
-};
+use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, DB, Options, ReadOptions, WriteBatchWithIndex, WriteBatch};
 use serde::{Deserialize, Serialize};
+use tracing::error;
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::GetMerkleTreeProofError;
@@ -238,8 +237,6 @@ impl UserDb {
                 );
                 let mut db_batch = WriteBatchWithIndex::new(1024, true);
 
-                // Increase merkle tree index
-                db_batch.merge_cf(cf_mtree, MERKLE_TREE_INDEX_KEY, 1u64.to_le_bytes());
                 // Read the new index
                 // Unwrap safe - just used merge_cf
                 let batch_read = db_batch
@@ -250,6 +247,8 @@ impl UserDb {
                         &ReadOptions::default(),
                     )?
                     .unwrap();
+                // Increase merkle tree index
+                db_batch.merge_cf(cf_mtree, MERKLE_TREE_INDEX_KEY, 1i64.to_le_bytes());
                 // Unwrap safe - serialization is handled by the prover
                 let (_, new_index) = merkle_index_deserializer
                     .deserialize(batch_read.as_slice())
@@ -326,9 +325,46 @@ impl UserDb {
         }
     }
     
-    pub fn remove_user(&self, _address: &Address) {
-        todo!()
-    } 
+    /// Remove user
+    /// 
+    /// Warning: don't use this func. if user is registered in a smart contract (unless you == 💪)
+    ///          This function is intended to be used if registration to the smart contract fails
+    pub(crate) fn remove_user(&self, address: &Address, sc_registered: bool) -> bool {
+        
+        let cf_user = self.get_user_cf();
+        let cf_counter = self.get_counter_cf();
+
+        let mut db_batch = WriteBatch::new();
+        
+        if !sc_registered {
+            
+            let user_index = self.get_user_merkle_tree_index(address);
+            let user_index = match user_index {
+                Ok(user_index) => user_index,
+                Err(UserMerkleTreeIndexError::NotRegistered(_)) => { return true; }
+                _ => {
+                    error!("Error getting user index: {:?}", user_index);
+                    return false;
+                }
+            };
+            
+            if usize::from(user_index) == self.merkle_tree.read().leaves_set() {
+                // Only delete it if this is the last index
+                if let Err(e) = self.merkle_tree.write().delete(user_index.into()) {
+                    error!("Error deleting user in merkle tree: {:?}", e);
+                    return false;
+                }
+            }
+        }
+        
+        // Remove user
+        db_batch.delete_cf(cf_user, address.as_slice());
+        // Remove user tx counter
+        db_batch.delete_cf(cf_counter, address.as_slice());
+        self.db.write(db_batch).unwrap();
+        
+        true
+    }
 
     fn incr_tx_counter(
         &self,
@@ -838,8 +874,8 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_user_reg_merkle_tree_fail() {
+    #[test]
+    fn test_user_reg_merkle_tree_fail() {
         
         // Try to register some users but init UserDb so the merkle tree write will fail (after 1st register)
         // This tests ensures that the DB and the MerkleTree stays in sync
@@ -881,5 +917,36 @@ mod tests {
         assert_eq!(user_db.has_user(&ADDR_2), Ok(false));
         assert_eq!(tree.read().leaves_set(), 2);
     }
-    
+
+    #[test]
+    fn test_user_remove() {
+
+        let temp_folder = tempfile::tempdir().unwrap();
+        let temp_folder_tree = tempfile::tempdir().unwrap();
+        let epoch_store = Arc::new(RwLock::new(Default::default()));
+
+        let user_db = UserDb::new(
+            PathBuf::from(temp_folder.path()),
+            PathBuf::from(temp_folder_tree.path()),
+            epoch_store.clone(),
+            Default::default(),
+            Default::default(),
+        )
+            .unwrap();
+
+        user_db.register(ADDR_1).unwrap();
+        let mtree_index_add_addr_1 = user_db.merkle_tree.read().leaves_set();
+        user_db.register(ADDR_2).unwrap();
+        let mtree_index_add_addr_2 = user_db.merkle_tree.read().leaves_set();
+        assert_ne!(mtree_index_add_addr_1, mtree_index_add_addr_2);
+        user_db.remove_user(&ADDR_2, false);
+        let mtree_index_after_rm_addr_2 = user_db.merkle_tree.read().leaves_set();
+        assert_eq!(user_db.has_user(&ADDR_1), Ok(true));
+        assert_eq!(user_db.has_user(&ADDR_2), Ok(false));
+        // No reuse of index in PmTree (as this is a generic impl and could lead to security issue:
+        // like replay attack...)
+        assert_eq!(mtree_index_after_rm_addr_2, mtree_index_add_addr_2);
+        
+    }
+
 }
