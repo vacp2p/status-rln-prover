@@ -46,7 +46,6 @@ impl EpochCounterSerializer {
         size_of::<EpochCounters>()
     }
 
-    #[allow(dead_code)]
     pub(crate) fn size_hint(&self) -> usize {
         Self::size_hint_()
     }

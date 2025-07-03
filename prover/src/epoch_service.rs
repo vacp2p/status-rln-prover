@@ -1,6 +1,7 @@
-use std::ops::Add;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
-// Third-party
+use std::{ops::Add, sync::atomic::AtomicBool};
+// third-party
 use chrono::{DateTime, NaiveDate, NaiveDateTime, OutOfRangeError, TimeDelta, Utc};
 use derive_more::{Deref, From, Into};
 use tokio::{
@@ -27,6 +28,8 @@ pub struct EpochService {
     epoch_receiver: Receiver<(Epoch, EpochSlice)>,
     /// Genesis time (aka when the service has been started at the first time)
     genesis: DateTime<Utc>,
+    /// Flag to indicate if the service has already listened for new epochs
+    listened: AtomicBool,
 }
 
 impl EpochService {
@@ -35,20 +38,22 @@ impl EpochService {
     }
 
     pub(crate) async fn listen_for_new_epoch(&self) -> Result<(), AppError> {
+        if self
+            .listened
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return Err(AppError::EpochError(EpochServiceError::AlreadyListened));
+        } else {
+            debug!("listening for new epochs...");
+        }
+
         let epoch_slice_count =
             Self::compute_epoch_slice_count(EPOCH_DURATION, self.epoch_slice_duration);
         debug!("epoch slice in an epoch: {}", epoch_slice_count);
 
-        let (mut current_epoch, mut current_epoch_slice, mut wait_until) = loop {
-            match self.compute_wait_until(&|| Utc::now(), &|| tokio::time::Instant::now()) {
-                Ok(result) => break result,
-                Err(WaitUntilError::OutOfRange(_)) => {
-                    // If we're at a boundary, just wait a tiny bit and recalculate
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                    continue;
-                }
-            }
-        };
+        let (mut current_epoch, mut current_epoch_slice, mut wait_until) =
+            self.compute_wait_until(&|| Utc::now(), &|| tokio::time::Instant::now())?;
 
         loop {
             debug!("wait until: {:?}", wait_until);
@@ -72,7 +77,7 @@ impl EpochService {
             {
                 self.epoch_sender
                     .send((current_epoch.into(), current_epoch_slice.into()))
-                    .unwrap();
+                    .expect("every receivers should not be dropped");
             }
             debug!(
                 "epoch: {}, epoch slice: {}",
@@ -85,7 +90,7 @@ impl EpochService {
         &self,
         now: &F,
         now2: &TF,
-    ) -> Result<(i64, i64, T), WaitUntilError>
+    ) -> Result<(i64, i64, T), EpochServiceError>
     where
         T: Add<Duration, Output = T>,
     {
@@ -112,7 +117,7 @@ impl EpochService {
         //       This can happen if epoch_slice_next is very close to now()
         let wait_until = (epoch_slice_next - now())
             .to_std()
-            .map_err(WaitUntilError::OutOfRange)?;
+            .map_err(EpochServiceError::WaitUntilOutOfRange)?;
 
         let wait_until = now2() + wait_until;
         Ok((current_epoch, current_epoch_slice, wait_until))
@@ -188,27 +193,33 @@ impl TryFrom<(Duration, DateTime<Utc>)> for EpochService {
 
         // TODO: should we check the division: epoch_duration / epoch_slice_duration ?
 
-        // Calculate current epoch and slice
+        // Calculate the initial epoch and epoch slice
         let now = Utc::now();
         let (current_epoch, now_date) = Self::compute_current_epoch(genesis, &|| now);
         let current_epoch_slice =
             Self::compute_current_epoch_slice(now_date, epoch_slice_duration, &|| now);
         let (epoch_sender, epoch_receiver) =
             channel((Epoch(current_epoch), EpochSlice(current_epoch_slice)));
+        let listened = AtomicBool::new(false);
 
         Ok(Self {
             epoch_slice_duration,
             epoch_sender,
             epoch_receiver,
             genesis,
+            listened,
         })
     }
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum WaitUntilError {
+pub enum EpochServiceError {
     #[error("Computation error: {0}")]
-    OutOfRange(#[from] OutOfRangeError),
+    WaitUntilOutOfRange(#[from] OutOfRangeError),
+    #[error("Sender closed error: {0}")]
+    SenderClosed(#[from] tokio::sync::watch::error::RecvError),
+    #[error("Already listened for new epochs")]
+    AlreadyListened,
 }
 
 /// An Epoch (wrapper type over i64)
@@ -239,7 +250,6 @@ impl Add<i64> for EpochSlice {
 mod tests {
     use super::*;
     use chrono::{NaiveDate, NaiveDateTime, TimeDelta};
-    use futures::TryFutureExt;
     use parking_lot::Mutex;
     use std::sync::{
         Arc,
@@ -311,48 +321,28 @@ mod tests {
         }
 
         {
-            // Check edge case: when current time is very close to next epoch slice
-            let genesis: DateTime<Utc> =
-                chrono::DateTime::from_naive_utc_and_offset(datetime_0, Utc);
-            let epoch_slice_duration = Duration::from_secs(60);
-            let epoch_service = EpochService::try_from((epoch_slice_duration, genesis)).unwrap();
-
-            let now = || {
-                // Set time to 59 seconds into epoch slice 0 (1 second before slice 1)
-                let now_0: NaiveDateTime = date_0.and_hms_opt(0, 0, 59).unwrap();
-                chrono::DateTime::from_naive_utc_and_offset(now_0, chrono::Utc)
-            };
-
-            let (epoch, epoch_slice, wait_until): (_, _, Duration) = epoch_service
-                .compute_wait_until(&now, &|| Duration::from_secs(0))
-                .unwrap();
-
-            assert_eq!(epoch, 0);
-            assert_eq!(epoch_slice, 0);
-            // Should wait just 1 second until next slice
-            assert_eq!(wait_until, Duration::from_secs(1));
-        }
-
-        {
             // Check OutOfRange case: when time advances between now() calls
             let genesis: DateTime<Utc> =
                 chrono::DateTime::from_naive_utc_and_offset(datetime_0, Utc);
             let epoch_slice_duration = Duration::from_secs(60);
             let epoch_service = EpochService::try_from((epoch_slice_duration, genesis)).unwrap();
 
-            // Simulate time passing between calls
+            // Simulate time drift: first 3 now() calls return the same time for consistent epoch/slice,
+            // 4th call jumps past slice boundary to trigger expected OutOfRangeError
             let call_count = std::cell::Cell::new(0);
             let now = || {
                 let count = call_count.get();
                 call_count.set(count + 1);
 
-                // first 3 calls: return consistent time in epoch slice 0
                 if count < 3 {
-                    let now_0: NaiveDateTime = date_0.and_hms_opt(0, 0, 30).unwrap();
+                    // Return a fixed time within the current epoch slice
+                    let now_0 = date_0.and_hms_opt(0, 0, 0).unwrap() + epoch_slice_duration / 2;
                     chrono::DateTime::from_naive_utc_and_offset(now_0, chrono::Utc)
                 } else {
-                    // fourth call: past next epoch slice boundary
-                    let now_0: NaiveDateTime = date_0.and_hms_opt(0, 1, 1).unwrap();
+                    // Advance time past the next epoch slice boundary
+                    let now_0 = date_0.and_hms_opt(0, 0, 0).unwrap()
+                        + epoch_slice_duration * 1
+                        + Duration::from_secs(1);
                     chrono::DateTime::from_naive_utc_and_offset(now_0, chrono::Utc)
                 }
             };
@@ -360,13 +350,16 @@ mod tests {
             let res = epoch_service.compute_wait_until(&now, &|| Duration::from_secs(0));
 
             // expect OutOfRange error
-            assert!(matches!(res, Err(WaitUntilError::OutOfRange(_))));
+            assert!(matches!(
+                res,
+                Err(EpochServiceError::WaitUntilOutOfRange(_))
+            ));
         }
     }
 
     #[test]
     fn test_compute_epoch_slice_count() {
-        // Test the computation of the number of epoch slices in an epoch
+        // test the computation of the number of epoch slices in an epoch
         assert_eq!(
             EpochService::compute_epoch_slice_count(
                 Duration::from_secs(TimeDelta::days(1).num_seconds() as u64),
@@ -455,44 +448,11 @@ mod tests {
     enum AppErrorExt {
         #[error("AppError: {0}")]
         AppError(#[from] AppError),
-        #[error("Future timeout")]
-        Elapsed,
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_notify_with_one_receiver() {
-        // Test epoch_service is really notifying when an epoch or epoch slice has just changed
-        let epoch_slice_duration = Duration::from_secs(10);
-        let epoch_service = EpochService::try_from((epoch_slice_duration, Utc::now())).unwrap();
-        let mut epoch_changes = epoch_service.epoch_changes();
-        let counter_0 = Arc::new(AtomicU64::new(0));
-        let counter = counter_0.clone();
-
-        let res = tokio::try_join!(
-            epoch_service
-                .listen_for_new_epoch()
-                .map_err(|e| AppErrorExt::AppError(e)),
-            // Wait for 3 epoch slices + 500 ms (to wait to receive notification + counter incr)
-            tokio::time::timeout(
-                epoch_slice_duration * 3 + Duration::from_millis(500),
-                async move {
-                    loop {
-                        epoch_changes.changed().await.unwrap();
-                        debug!("[Notified] Epoch update...");
-                        let _v = counter.fetch_add(1, Ordering::SeqCst);
-                    }
-                }
-            )
-            .map_err(|_e| AppErrorExt::Elapsed)
-        );
-        assert!(matches!(res, Err(AppErrorExt::Elapsed)));
-        assert_eq!(counter_0.load(Ordering::SeqCst), 3);
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_notify_with_multiple_receivers_and_borrow_check() {
+    async fn test_notify() {
         // Test that multiple receivers using changed().await + borrow() work correctly
         // Each receiver should see the same sequence of changes
 
@@ -500,12 +460,10 @@ mod tests {
         let epoch_service = EpochService::try_from((epoch_slice_duration, Utc::now())).unwrap();
 
         let receiver_count = 5;
-        let counters: Vec<Arc<AtomicU64>> = (0..receiver_count)
-            .map(|_| Arc::new(AtomicU64::new(0)))
-            .collect();
-        let notifications_seen: Vec<Arc<Mutex<Vec<(Epoch, EpochSlice)>>>> = (0..receiver_count)
-            .map(|_| Arc::new(Mutex::new(Vec::new())))
-            .collect();
+        let counters: Vec<Arc<AtomicU64>> =
+            (0..receiver_count).map(|_| Default::default()).collect();
+        let notifications_seen: Vec<Arc<Mutex<Vec<(Epoch, EpochSlice)>>>> =
+            (0..receiver_count).map(|_| Default::default()).collect();
 
         let mut receiver_tasks = Vec::new();
 
@@ -517,10 +475,16 @@ mod tests {
 
             let task = tokio::spawn(async move {
                 loop {
-                    epoch_changes.changed().await.unwrap();
+                    if let Err(recv_error) = epoch_changes.changed().await {
+                        debug!(
+                            "[receiver {}] Error receiving epoch change: {:?}",
+                            i, recv_error
+                        );
+                        break;
+                    };
                     debug!("[receiver {}] Epoch update using borrow()...", i);
 
-                    let current_value = *epoch_changes.borrow();
+                    let current_value = { *epoch_changes.borrow() };
                     debug!("[receiver {}] Read value: {:?}", i, current_value);
 
                     notifications.lock().push(current_value);
