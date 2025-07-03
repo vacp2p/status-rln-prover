@@ -15,14 +15,16 @@ mod user_db_error;
 mod user_db_serialization;
 mod user_db_service;
 mod user_db_types;
+mod config;
 
 // std
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::time::Duration;
 // third-party
 use alloy::primitives::U256;
 use chrono::{DateTime, Utc};
-use clap::Parser;
+use clap::{CommandFactory};
 use rln_proof::RlnIdentifier;
 use smart_contract::KarmaTiersSC::KarmaTiersSCInstance;
 use smart_contract::TIER_LIMITS;
@@ -35,7 +37,7 @@ use tracing::{
 };
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 // internal
-use crate::args::AppArgs;
+use crate::args::{AppArgs, AppArgsConfig};
 use crate::epoch_service::EpochService;
 use crate::grpc_service::GrpcProverService;
 use crate::mock::read_mock_user;
@@ -65,8 +67,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(filter)
         .init();
 
-    let app_args = AppArgs::parse();
+    // let app_args = AppArgs::parse();
+    let app_args = <AppArgs as CommandFactory>::command().get_matches();
     debug!("Arguments: {:?}", app_args);
+
+    let app_ars_config = if !app_args.get_flag("no_config") {
+        // Unwrap safe - default value provided
+        let config_path = app_args.get_one::<PathBuf>("config_path").unwrap();
+        debug!("Reading config path: {:?}...", config_path);
+        let config_str = std::fs::read_to_string(config_path)?;
+        let config: AppArgsConfig = toml::from_str(config_str.as_str())?;
+        debug!("Config: {:?}", config);
+        config
+    } else {
+        AppArgsConfig::default()
+    };
+
+    // Merge command line args & config
+    let app_args = AppArgs::from_merged(app_args, Some(app_ars_config));
+    debug!("Arguments (merged with config): {:?}", app_args);
 
     // Application cli arguments checks
     if app_args.ws_rpc_url.is_some() {
@@ -85,6 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to create epoch service");
 
     let mut tier_limits = if app_args.ws_rpc_url.is_some() {
+
         TierLimits::from(
             KarmaTiersSCInstance::get_tiers(
                 app_args.ws_rpc_url.clone().unwrap(),
@@ -153,17 +173,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // proof service
-    // FIXME: bound
-    let (tx, rx) = tokio::sync::broadcast::channel(2);
-    // TODO: bounded channel
-    let (proof_sender, proof_receiver) = async_channel::unbounded();
+    // TODO: config?
+    let (tx, rx) = tokio::sync::broadcast::channel(100);
+    // TODO: config?
+    let (proof_sender, proof_receiver) = async_channel::bounded(100);
 
     // grpc
 
     let rln_identifier = RlnIdentifier::new(RLN_IDENTIFIER_NAME);
     let addr = SocketAddr::new(app_args.ip, app_args.port);
     debug!("Listening on: {}", addr);
-    // TODO: broadcast subscribe?
     let prover_grpc_service = {
         let mut service = GrpcProverService {
             proof_sender,

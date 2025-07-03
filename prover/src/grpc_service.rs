@@ -205,6 +205,7 @@ where
     ) -> Result<Response<Self::GetProofsStream>, Status> {
         debug!("get_proofs request: {:?}", request);
         // FIXME: channel size or unbounded channel?
+        // TODO: document channel & broadcast channel use (to easy reading)
         let (tx, rx) = mpsc::channel(100);
         let mut rx2 = self.broadcast_channel.0.subscribe();
         tokio::spawn(async move {
@@ -348,7 +349,7 @@ impl GrpcProverService {
         let r = RlnProverServer::new(prover_service)
             .max_decoding_message_size(PROVER_SERVICE_MESSAGE_DECODING_MAX_SIZE.as_u64() as usize)
             .max_encoding_message_size(PROVER_SERVICE_MESSAGE_ENCODING_MAX_SIZE.as_u64() as usize)
-            // TODO: perf?
+            // TODO: perf? config?
             //.accept_compressed(CompressionEncoding::Gzip)
             //.send_compressed(CompressionEncoding::Gzip)
             ;
@@ -409,7 +410,7 @@ impl GrpcProverService {
         let r = RlnProverServer::new(prover_service)
             .max_decoding_message_size(PROVER_SERVICE_MESSAGE_DECODING_MAX_SIZE.as_u64() as usize)
             .max_encoding_message_size(PROVER_SERVICE_MESSAGE_ENCODING_MAX_SIZE.as_u64() as usize)
-            // TODO: perf?
+            // TODO: perf? config?
             //.accept_compressed(CompressionEncoding::Gzip)
             //.send_compressed(CompressionEncoding::Gzip)
             ;

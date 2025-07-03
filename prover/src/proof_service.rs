@@ -405,7 +405,7 @@ mod tests {
         let share1 = (proof_values_0.x, proof_values_0.y);
         let share2 = (proof_values_1.x, proof_values_1.y);
 
-        // TODO: should we check external nullifier as well?
+        // Note: if not in test, should check for external nullifier
         let recovered_identity_secret_hash = compute_id_secret(share1, share2)
             .map_err(|e| AppErrorExt::RecoverSecretFailed(e))?;
 
