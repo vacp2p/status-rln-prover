@@ -16,6 +16,7 @@ use rocksdb::{
     ColumnFamily, ColumnFamilyDescriptor, DB, Options, ReadOptions, WriteBatchWithIndex,
 };
 use serde::{Deserialize, Serialize};
+use tokio::sync::watch::Receiver;
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::GetMerkleTreeProofError;
@@ -62,7 +63,7 @@ pub(crate) struct UserDb {
     db: Arc<DB>,
     merkle_tree: Arc<RwLock<PoseidonTree>>,
     rate_limit: RateLimit,
-    pub(crate) epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
+    pub(crate) epoch_changes: Receiver<(Epoch, EpochSlice)>,
 }
 
 impl std::fmt::Debug for UserDb {
@@ -70,7 +71,7 @@ impl std::fmt::Debug for UserDb {
         fmt.debug_struct("UserDb")
             .field("db", &self.db)
             .field("rate limit", &self.rate_limit)
-            .field("epoch store", &self.epoch_store)
+            .field("epoch changes", &self.epoch_changes)
             .finish()
     }
 }
@@ -80,7 +81,7 @@ impl UserDb {
     pub fn new(
         db_path: PathBuf,
         merkle_tree_path: PathBuf,
-        epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
+        epoch_changes: Receiver<(Epoch, EpochSlice)>,
         tier_limits: TierLimits,
         rate_limit: RateLimit,
     ) -> Result<Self, UserDbOpenError> {
@@ -169,7 +170,7 @@ impl UserDb {
             db,
             merkle_tree: Arc::new(RwLock::new(tree)),
             rate_limit,
-            epoch_store,
+            epoch_changes,
         })
     }
 
@@ -331,7 +332,7 @@ impl UserDb {
         let incr_value = incr_value.unwrap_or(1);
         let cf_counter = self.get_counter_cf();
 
-        let (epoch, epoch_slice) = *self.epoch_store.read();
+        let (epoch, epoch_slice) = { *self.epoch_changes.borrow() };
         let incr = EpochIncr {
             epoch,
             epoch_slice,
@@ -379,7 +380,7 @@ impl UserDb {
         match key {
             Some(value) => {
                 let (_, counter) = deserializer.deserialize(&value).unwrap();
-                let (epoch, epoch_slice) = *self.epoch_store.read();
+                let (epoch, epoch_slice) = { *self.epoch_changes.borrow() };
 
                 let cmp = (counter.epoch == epoch, counter.epoch_slice == epoch_slice);
 
@@ -566,7 +567,7 @@ impl UserDb {
         let tier_match = tier_limits.get_tier_by_karma(&karma_amount);
 
         let user_tier_info = {
-            let (current_epoch, current_epoch_slice) = *self.epoch_store.read();
+            let (current_epoch, current_epoch_slice) = { *self.epoch_changes.borrow() };
             let mut t = UserTierInfo {
                 current_epoch,
                 current_epoch_slice,
@@ -576,13 +577,13 @@ impl UserDb {
                 tier_name: None,
                 tier_limit: None,
             };
-            
+
             // FIXME: Proto changes to return AboveHighest / UnderLowest
             if let TierMatch::Matched(_tier_index, tier) = tier_match {
                 t.tier_name = Some(tier.name.into());
                 t.tier_limit = Some(TierLimit::from(tier.tx_per_epoch));
             }
-            
+
             t
         };
 
@@ -593,12 +594,12 @@ impl UserDb {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // std
     // third-party
     use alloy::primitives::address;
     use async_trait::async_trait;
     use claims::assert_matches;
     use derive_more::Display;
+    use tokio::sync::watch::channel;
 
     #[derive(Debug, Display, thiserror::Error)]
     struct DummyError();
@@ -640,11 +641,11 @@ mod tests {
     fn test_user_register() {
         let temp_folder = tempfile::tempdir().unwrap();
         let temp_folder_tree = tempfile::tempdir().unwrap();
-        let epoch_store = Arc::new(RwLock::new(Default::default()));
+        let (_, epock_changes) = channel(Default::default());
         let user_db = UserDb::new(
             PathBuf::from(temp_folder.path()),
             PathBuf::from(temp_folder_tree.path()),
-            epoch_store,
+            epock_changes,
             Default::default(),
             Default::default(),
         )
@@ -676,11 +677,11 @@ mod tests {
     fn test_get_tx_counter() {
         let temp_folder = tempfile::tempdir().unwrap();
         let temp_folder_tree = tempfile::tempdir().unwrap();
-        let epoch_store = Arc::new(RwLock::new(Default::default()));
+        let (_, epock_changes) = channel(Default::default());
         let user_db = UserDb::new(
             PathBuf::from(temp_folder.path()),
             PathBuf::from(temp_folder_tree.path()),
-            epoch_store,
+            epock_changes,
             Default::default(),
             Default::default(),
         )
@@ -701,11 +702,11 @@ mod tests {
     async fn test_incr_tx_counter() {
         let temp_folder = tempfile::tempdir().unwrap();
         let temp_folder_tree = tempfile::tempdir().unwrap();
-        let epoch_store = Arc::new(RwLock::new(Default::default()));
+        let (_, epock_changes) = channel(Default::default());
         let user_db = UserDb::new(
             PathBuf::from(temp_folder.path()),
             PathBuf::from(temp_folder_tree.path()),
-            epoch_store,
+            epock_changes,
             Default::default(),
             Default::default(),
         )
@@ -903,14 +904,14 @@ mod tests {
     async fn test_persistent_storage() {
         let temp_folder = tempfile::tempdir().unwrap();
         let temp_folder_tree = tempfile::tempdir().unwrap();
-        let epoch_store = Arc::new(RwLock::new(Default::default()));
+        let (_, epock_changes) = channel(Default::default());
 
         let addr = Address::new([0; 20]);
         {
             let user_db = UserDb::new(
                 PathBuf::from(temp_folder.path()),
                 PathBuf::from(temp_folder_tree.path()),
-                epoch_store.clone(),
+                epock_changes.clone(),
                 Default::default(),
                 Default::default(),
             )
@@ -958,7 +959,7 @@ mod tests {
             let user_db = UserDb::new(
                 PathBuf::from(temp_folder.path()),
                 PathBuf::from(temp_folder_tree.path()),
-                epoch_store,
+                epock_changes,
                 Default::default(),
                 Default::default(),
             )

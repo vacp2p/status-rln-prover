@@ -106,8 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let user_db_service = UserDbService::new(
         app_args.db_path,
         app_args.merkle_tree_path,
-        epoch_service.epoch_changes.clone(),
-        epoch_service.current_epoch.clone(),
+        epoch_service.epoch_changes(),
         PROVER_SPAM_LIMIT,
         tier_limits,
     )?;
@@ -187,14 +186,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for _i in 0..PROOF_SERVICE_COUNT {
         let proof_recv = proof_receiver.clone();
         let broadcast_sender = tx.clone();
-        let current_epoch = epoch_service.current_epoch.clone();
+        let epoch_changes = epoch_service.epoch_changes();
         let user_db = user_db_service.get_user_db();
 
         set.spawn(async {
             let proof_service = ProofService::new(
                 proof_recv,
                 broadcast_sender,
-                current_epoch,
+                epoch_changes,
                 user_db,
                 PROVER_SPAM_LIMIT,
             );

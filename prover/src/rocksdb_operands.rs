@@ -209,7 +209,6 @@ pub fn u64_counter_operands(
 #[cfg(test)]
 mod tests {
     use super::*;
-    // std
     // third-party
     use rocksdb::{DB, Options, WriteBatch};
     use tempfile::TempDir;
