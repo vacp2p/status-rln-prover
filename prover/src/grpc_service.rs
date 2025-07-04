@@ -173,10 +173,7 @@ where
                 let id_co =
                     U256::from_le_slice(BigUint::from(id_commitment).to_bytes_le().as_slice());
 
-                if let Err(e) = self.karma_rln_sc
-                    .register(id_co)
-                    .await {
-
+                if let Err(e) = self.karma_rln_sc.register(id_co).await {
                     // Fail to register user on smart contract
                     // Remove the user in internal Db
                     if !self.user_db.remove_user(&user, false) {

@@ -154,8 +154,8 @@ mod tests {
     // third-party: zerokit
     use rln::{
         circuit::{Curve, zkey_from_folder},
-        protocol::{compute_id_secret, deserialize_proof_values, verify_proof},
         error::ComputeIdSecretError,
+        protocol::{compute_id_secret, deserialize_proof_values, verify_proof},
     };
     // internal
     use crate::user_db_service::UserDbService;
@@ -406,8 +406,8 @@ mod tests {
         let share2 = (proof_values_1.x, proof_values_1.y);
 
         // Note: if not in test, should check for external nullifier
-        let recovered_identity_secret_hash = compute_id_secret(share1, share2)
-            .map_err(|e| AppErrorExt::RecoverSecretFailed(e))?;
+        let recovered_identity_secret_hash =
+            compute_id_secret(share1, share2).map_err(|e| AppErrorExt::RecoverSecretFailed(e))?;
 
         debug!(
             "recovered_identity_secret_hash: {:?}",

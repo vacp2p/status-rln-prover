@@ -23,10 +23,7 @@ use std::time::Duration;
 // third-party
 use alloy::primitives::U256;
 use chrono::{DateTime, Utc};
-use clap::{CommandFactory};
-use rln_proof::RlnIdentifier;
-use smart_contract::KarmaTiersSC::KarmaTiersSCInstance;
-use smart_contract::TIER_LIMITS;
+use clap::CommandFactory;
 use tokio::task::JoinSet;
 use tracing::level_filters::LevelFilter;
 use tracing::{
@@ -36,6 +33,9 @@ use tracing::{
 };
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 // internal
+use rln_proof::RlnIdentifier;
+use smart_contract::KarmaTiersSC::KarmaTiersSCInstance;
+use smart_contract::TIER_LIMITS;
 use crate::args::{AppArgs, AppArgsConfig};
 use crate::epoch_service::EpochService;
 use crate::grpc_service::GrpcProverService;
@@ -102,7 +102,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to create epoch service");
 
     let mut tier_limits = if app_args.ws_rpc_url.is_some() {
-
         TierLimits::from(
             KarmaTiersSCInstance::get_tiers(
                 app_args.ws_rpc_url.clone().unwrap(),
@@ -171,10 +170,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // proof service
-    let (tx, rx) = tokio::sync::broadcast::channel(
-        app_args.broadcast_channel_size);
-    let (proof_sender, proof_receiver) = async_channel::bounded(
-        app_args.transaction_channel_size);
+    let (tx, rx) = tokio::sync::broadcast::channel(app_args.broadcast_channel_size);
+    let (proof_sender, proof_receiver) = async_channel::bounded(app_args.transaction_channel_size);
 
     // grpc
 

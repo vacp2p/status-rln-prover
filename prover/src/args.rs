@@ -2,9 +2,9 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 // third-party
 use alloy::primitives::Address;
+use clap::ArgAction::SetTrue;
 use clap::Parser;
 use clap_config::ClapConfig;
-use clap::ArgAction::SetTrue;
 use url::Url;
 
 /// Broadcast channel size
@@ -63,7 +63,10 @@ pub struct AppArgs {
     pub(crate) tsc_address: Option<Address>,
     #[arg(
         help_heading = "mock",
-        long = "mock-sc", help = "Test only - mock smart contracts", action)]
+        long = "mock-sc",
+        help = "Test only - mock smart contracts",
+        action
+    )]
     pub(crate) mock_sc: Option<bool>,
     #[arg(
         help_heading = "mock",
@@ -121,12 +124,11 @@ pub struct AppArgs {
 
 #[cfg(test)]
 mod tests {
-    use clap::CommandFactory;
     use super::*;
+    use clap::CommandFactory;
 
     #[test]
     fn test_args_config_merge() {
-
         let config_port = 42942;
         let config = AppArgsConfig {
             ip: None,
@@ -151,4 +153,3 @@ mod tests {
         }
     }
 }
-
