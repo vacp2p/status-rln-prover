@@ -799,16 +799,17 @@ mod tests {
             )
             .unwrap();
 
-            // Register user
             assert_eq!(
                 user_db.get_merkle_tree_index().unwrap(),
                 MerkleTreeIndex::from(0)
             );
+            // Register user
             user_db.register(ADDR_1).unwrap();
             assert_eq!(
                 user_db.get_merkle_tree_index().unwrap(),
                 MerkleTreeIndex::from(1)
             );
+            // + 1 user
             user_db.register(ADDR_2).unwrap();
             assert_eq!(
                 user_db.get_merkle_tree_index().unwrap(),
@@ -816,11 +817,11 @@ mod tests {
             );
             assert_eq!(
                 user_db.get_user_merkle_tree_index(&ADDR_1).unwrap(),
-                MerkleTreeIndex::from(1)
+                MerkleTreeIndex::from(0)
             );
             assert_eq!(
                 user_db.get_user_merkle_tree_index(&ADDR_2).unwrap(),
-                MerkleTreeIndex::from(2)
+                MerkleTreeIndex::from(1)
             );
 
             assert_eq!(
@@ -865,11 +866,11 @@ mod tests {
             );
             assert_eq!(
                 user_db.get_user_merkle_tree_index(&ADDR_1).unwrap(),
-                MerkleTreeIndex::from(1)
+                MerkleTreeIndex::from(0)
             );
             assert_eq!(
                 user_db.get_user_merkle_tree_index(&ADDR_2).unwrap(),
-                MerkleTreeIndex::from(2)
+                MerkleTreeIndex::from(1)
             );
         }
     }
@@ -908,9 +909,14 @@ mod tests {
         let tree = Arc::new(RwLock::new(tree));
         user_db.merkle_tree = tree.clone();
 
+        let addr = Address::new([0; 20]);
+
         assert_eq!(tree.read().leaves_set(), 0);
+        user_db.register(addr).unwrap();
+        assert_eq!(tree.read().leaves_set(), 1);
         user_db.register(ADDR_1).unwrap();
         assert_eq!(tree.read().leaves_set(), 2);
+
         let res = user_db.register(ADDR_2);
         assert_matches!(res, Err(RegisterError::TreeError(_)));
         assert_eq!(user_db.has_user(&ADDR_1), Ok(true));
