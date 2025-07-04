@@ -71,16 +71,21 @@ impl RegistryListener {
                         }
                         Err(e) => {
                             error!("Unexpected error: {}", e);
-                            // FIXME: return / continue?
+                            // Note: Err(e) == HandleTransferError::FetchBalanceOf
+                            //       if we cannot fetch the user balance, something is seriously wrong
+                            //       and the prover will fail here
                             return Err(AppError::RegistryError(e));
                         }
                     };
                 }
                 Err(e) => {
-                    eprintln!("Error decoding log data: {:?}", e);
+                    error!("Error decoding log data: {:?}", e);
                     // It's also useful to print the raw log data for debugging
-                    eprintln!("Raw log topics: {:?}", log.topics());
-                    eprintln!("Raw log data: {:?}", log.data());
+                    error!("Raw log topics: {:?}", log.topics());
+                    error!("Raw log data: {:?}", log.data());
+                    // Note: - Assume that SC code has been updated but not the Prover
+                    //       - Assume that in the update process, the Prover has not been shutdown (yet)
+                    //         in order to avoid a too long service interruption?
                 }
             }
         }
@@ -107,7 +112,8 @@ impl RegistryListener {
                     let balance = karma_sc
                         .karma_amount(&to_address)
                         .await
-                        .map_err(|e| HandleTransferError::BalanceOf(e.into()))?;
+                        .map_err(|e| HandleTransferError::FetchBalanceOf(e.into()))?;
+                    // Only register the user if he has a minimal amount of Karma token
                     balance >= self.minimal_amount
                 }
             };

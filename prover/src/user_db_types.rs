@@ -7,7 +7,10 @@ pub(crate) struct MerkleTreeIndex(u64);
 
 impl From<MerkleTreeIndex> for usize {
     fn from(value: MerkleTreeIndex) -> Self {
-        // TODO: compile time assert
+        const _: () = assert!(
+            size_of::<u64>() == size_of::<usize>(),
+            "Expect usize to have the same size as of u64"
+        );
         value.0 as usize
     }
 }

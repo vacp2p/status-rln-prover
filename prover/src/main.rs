@@ -18,14 +18,12 @@ mod user_db_types;
 
 // std
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::time::Duration;
 // third-party
 use alloy::primitives::U256;
 use chrono::{DateTime, Utc};
-use clap::Parser;
-use rln_proof::RlnIdentifier;
-use smart_contract::KarmaTiersSC::KarmaTiersSCInstance;
-use smart_contract::TIER_LIMITS;
+use clap::CommandFactory;
 use tokio::task::JoinSet;
 use tracing::level_filters::LevelFilter;
 use tracing::{
@@ -35,7 +33,10 @@ use tracing::{
 };
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 // internal
-use crate::args::AppArgs;
+use rln_proof::RlnIdentifier;
+use smart_contract::KarmaTiersSC::KarmaTiersSCInstance;
+use smart_contract::TIER_LIMITS;
+use crate::args::{AppArgs, AppArgsConfig};
 use crate::epoch_service::EpochService;
 use crate::grpc_service::GrpcProverService;
 use crate::mock::read_mock_user;
@@ -48,7 +49,6 @@ use crate::user_db_types::RateLimit;
 
 const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
 const PROVER_SPAM_LIMIT: RateLimit = RateLimit::new(10_000u64);
-const PROOF_SERVICE_COUNT: u8 = 8;
 const GENESIS: DateTime<Utc> = DateTime::from_timestamp(1431648000, 0).unwrap();
 const PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION: U256 =
     U256::from_le_slice(10u64.to_le_bytes().as_slice());
@@ -65,8 +65,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(filter)
         .init();
 
-    let app_args = AppArgs::parse();
+    // let app_args = AppArgs::parse();
+    let app_args = <AppArgs as CommandFactory>::command().get_matches();
     debug!("Arguments: {:?}", app_args);
+
+    let app_ars_config = if !app_args.get_flag("no_config") {
+        // Unwrap safe - default value provided
+        let config_path = app_args.get_one::<PathBuf>("config_path").unwrap();
+        debug!("Reading config path: {:?}...", config_path);
+        let config_str = std::fs::read_to_string(config_path)?;
+        let config: AppArgsConfig = toml::from_str(config_str.as_str())?;
+        debug!("Config: {:?}", config);
+        config
+    } else {
+        AppArgsConfig::default()
+    };
+
+    // Merge command line args & config
+    let app_args = AppArgs::from_merged(app_args, Some(app_ars_config));
+    debug!("Arguments (merged with config): {:?}", app_args);
 
     // Application cli arguments checks
     if app_args.ws_rpc_url.is_some() {
@@ -104,8 +121,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // User db service
     let user_db_service = UserDbService::new(
-        app_args.db_path,
-        app_args.merkle_tree_path,
+        app_args.db_path.clone(),
+        app_args.merkle_tree_path.clone(),
         epoch_service.epoch_changes.clone(),
         epoch_service.current_epoch.clone(),
         PROVER_SPAM_LIMIT,
@@ -153,17 +170,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // proof service
-    // FIXME: bound
-    let (tx, rx) = tokio::sync::broadcast::channel(2);
-    // TODO: bounded channel
-    let (proof_sender, proof_receiver) = async_channel::unbounded();
+    let (tx, rx) = tokio::sync::broadcast::channel(app_args.broadcast_channel_size);
+    let (proof_sender, proof_receiver) = async_channel::bounded(app_args.transaction_channel_size);
 
     // grpc
 
     let rln_identifier = RlnIdentifier::new(RLN_IDENTIFIER_NAME);
     let addr = SocketAddr::new(app_args.ip, app_args.port);
     debug!("Listening on: {}", addr);
-    // TODO: broadcast subscribe?
     let prover_grpc_service = {
         let mut service = GrpcProverService {
             proof_sender,
@@ -173,6 +187,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             user_db: user_db_service.get_user_db(),
             karma_sc_info: None,
             rln_sc_info: None,
+            proof_sender_channel_size: app_args.proof_sender_channel_size,
         };
 
         if app_args.ws_rpc_url.is_some() {
@@ -184,7 +199,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let mut set = JoinSet::new();
-    for _i in 0..PROOF_SERVICE_COUNT {
+    for _i in 0..app_args.proof_service_count {
         let proof_recv = proof_receiver.clone();
         let broadcast_sender = tx.clone();
         let current_epoch = epoch_service.current_epoch.clone();

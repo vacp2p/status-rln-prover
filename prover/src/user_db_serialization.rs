@@ -50,7 +50,7 @@ impl RlnUserIdentityDeserializer {
         let (co_buffer, rem_buffer) = buffer.split_at(compressed_size);
         let commitment: Fr = CanonicalDeserialize::deserialize_compressed(co_buffer)?;
         let (secret_buffer, user_limit_buffer) = rem_buffer.split_at(compressed_size);
-        // TODO: IdSecret
+        // TODO: IdSecret (wait for Zerokit PR: https://github.com/vacp2p/zerokit/pull/320)
         let secret_hash: Fr = CanonicalDeserialize::deserialize_compressed(secret_buffer)?;
         let user_limit: Fr = CanonicalDeserialize::deserialize_compressed(user_limit_buffer)?;
 

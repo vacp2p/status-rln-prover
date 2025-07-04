@@ -141,6 +141,7 @@ impl ProofService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // std
     use std::path::PathBuf;
     // third-party
     use alloy::primitives::{Address, address};
@@ -153,6 +154,7 @@ mod tests {
     // third-party: zerokit
     use rln::{
         circuit::{Curve, zkey_from_folder},
+        error::ComputeIdSecretError,
         protocol::{compute_id_secret, deserialize_proof_values, verify_proof},
     };
     // internal
@@ -177,6 +179,8 @@ mod tests {
         ProofVerification,
         #[error("Exiting...")]
         Exit,
+        #[error(transparent)]
+        RecoverSecretFailed(ComputeIdSecretError),
         #[error("Recovered secret")]
         RecoveredSecret(Fr),
     }
@@ -401,8 +405,9 @@ mod tests {
         let share1 = (proof_values_0.x, proof_values_0.y);
         let share2 = (proof_values_1.x, proof_values_1.y);
 
-        // TODO: should we check external nullifier as well?
-        let recovered_identity_secret_hash = compute_id_secret(share1, share2).unwrap();
+        // Note: if not in test, should check for external nullifier
+        let recovered_identity_secret_hash =
+            compute_id_secret(share1, share2).map_err(|e| AppErrorExt::RecoverSecretFailed(e))?;
 
         debug!(
             "recovered_identity_secret_hash: {:?}",
@@ -526,7 +531,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
     #[tracing_test::traced_test]
     async fn test_user_spamming_same_signal() {
         // Recover secret from a user spamming the system
@@ -574,7 +578,7 @@ mod tests {
         );
 
         info!("Starting...");
-        let _res = tokio::try_join!(
+        let res = tokio::try_join!(
             proof_service.serve().map_err(AppErrorExt::AppError),
             proof_reveal_secret(&mut broadcast_receiver),
             proof_sender_2(
@@ -586,7 +590,6 @@ mod tests {
             ),
         );
 
-        // TODO: wait for Zerokit 0.8
-        // assert_matches!(res, Err(AppErrorExt::Exit));
+        assert_matches!(res, Err(AppErrorExt::RecoverSecretFailed(_)));
     }
 }

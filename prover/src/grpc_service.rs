@@ -85,6 +85,7 @@ pub struct ProverService<KSC: KarmaAmountExt, RLNSC: RLNRegister> {
     ),
     karma_sc: KSC,
     karma_rln_sc: RLNSC,
+    proof_sender_channel_size: usize,
 }
 
 #[tonic::async_trait]
@@ -121,7 +122,6 @@ where
         // Update the counter as soon as possible (should help to prevent spamming...)
         let counter = self.user_db.on_new_tx(&sender, None).unwrap_or_default();
 
-        // FIXME: hardcoded
         if req.transaction_hash.len() != PROVER_TX_HASH_BYTESIZE {
             return Err(Status::invalid_argument(
                 "Invalid transaction hash (should be 32 bytes)",
@@ -173,11 +173,15 @@ where
                 let id_co =
                     U256::from_le_slice(BigUint::from(id_commitment).to_bytes_le().as_slice());
 
-                // TODO: on error, remove from user_db?
-                self.karma_rln_sc
-                    .register(id_co)
-                    .await
-                    .map_err(|e| Status::from_error(Box::new(e)))?;
+                if let Err(e) = self.karma_rln_sc.register(id_co).await {
+                    // Fail to register user on smart contract
+                    // Remove the user in internal Db
+                    if !self.user_db.remove_user(&user, false) {
+                        // Fails if DB & SC are inconsistent
+                        panic!("Unable to register user to SC and to remove it from DB...");
+                    }
+                    return Err(Status::from_error(Box::new(e)));
+                }
 
                 RegistrationStatus::Success
             }
@@ -198,8 +202,9 @@ where
         request: Request<RlnProofFilter>,
     ) -> Result<Response<Self::GetProofsStream>, Status> {
         debug!("get_proofs request: {:?}", request);
-        // FIXME: channel size or unbounded channel?
-        let (tx, rx) = mpsc::channel(100);
+        // Channel to send proof to the connected grpc client (aka the Verifier)
+        let (tx, rx) = mpsc::channel(self.proof_sender_channel_size);
+        // Channel to receive a RLN proof (from one proof service)
         let mut rx2 = self.broadcast_channel.0.subscribe();
         tokio::spawn(async move {
             // FIXME: Should we send the error here?
@@ -308,6 +313,7 @@ pub(crate) struct GrpcProverService {
     pub user_db: UserDb,
     pub karma_sc_info: Option<(Url, Address)>,
     pub rln_sc_info: Option<(Url, Address)>,
+    pub proof_sender_channel_size: usize,
 }
 
 impl GrpcProverService {
@@ -333,6 +339,7 @@ impl GrpcProverService {
             ),
             karma_sc,
             karma_rln_sc,
+            proof_sender_channel_size: self.proof_sender_channel_size,
         };
 
         let reflection_service = tonic_reflection::server::Builder::configure()
@@ -342,7 +349,7 @@ impl GrpcProverService {
         let r = RlnProverServer::new(prover_service)
             .max_decoding_message_size(PROVER_SERVICE_MESSAGE_DECODING_MAX_SIZE.as_u64() as usize)
             .max_encoding_message_size(PROVER_SERVICE_MESSAGE_ENCODING_MAX_SIZE.as_u64() as usize)
-            // TODO: perf?
+            // Note: TODO - can be enabled later if network is a bottleneck
             //.accept_compressed(CompressionEncoding::Gzip)
             //.send_compressed(CompressionEncoding::Gzip)
             ;
@@ -357,7 +364,7 @@ impl GrpcProverService {
                 // Method::OPTIONS
             ])
             // Allow requests from any origin
-            // FIXME: config?
+            // Note: TODO - to be enabled in a future version
             .allow_origin(Any)
             .allow_headers(Any);
 
@@ -394,6 +401,7 @@ impl GrpcProverService {
             ),
             karma_sc: MockKarmaSc {},
             karma_rln_sc: MockKarmaRLNSc {},
+            proof_sender_channel_size: self.proof_sender_channel_size,
         };
 
         let reflection_service = tonic_reflection::server::Builder::configure()
@@ -403,7 +411,7 @@ impl GrpcProverService {
         let r = RlnProverServer::new(prover_service)
             .max_decoding_message_size(PROVER_SERVICE_MESSAGE_DECODING_MAX_SIZE.as_u64() as usize)
             .max_encoding_message_size(PROVER_SERVICE_MESSAGE_ENCODING_MAX_SIZE.as_u64() as usize)
-            // TODO: perf?
+            // Note: can be enabled later if network is a bottleneck
             //.accept_compressed(CompressionEncoding::Gzip)
             //.send_compressed(CompressionEncoding::Gzip)
             ;
@@ -418,7 +426,7 @@ impl GrpcProverService {
                 // Method::OPTIONS
             ])
             // Allow requests from any origin
-            // FIXME: config?
+            // Note: TODO - to be enabled in a future version
             .allow_origin(Any)
             .allow_headers(Any);
 

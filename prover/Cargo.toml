@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-clap = { version = "4.5.37", features = ["derive"] }
+clap = { version = "4.5.37", features = ["derive", "wrap_help"] }
 tonic = { version = "0.13", features = ["gzip"] }
 tonic-reflection = "*"
 tonic-web = "*"
+tower-http = { version = "0.6.4", features = ["cors"] }
 prost = "0.13"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
@@ -19,12 +20,9 @@ futures = "0.3"
 ark-bn254.workspace = true
 ark-serialize.workspace = true
 ark-ff.workspace = true
-dashmap = "6.1.0"
-scc = "2.3"
 bytesize = "2.0.1"
 chrono = "0.4.41"
 parking_lot = "0.12"
-tower-http = { version = "0.6.4", features = ["cors"] }
 http = "*"
 async-channel = "2.3.1"
 rand = "0.8.5"
@@ -38,6 +36,8 @@ serde_json = "1.0"
 rocksdb = { git = "https://github.com/tillrohrmann/rust-rocksdb", branch="issues/836" }
 nom = "8.0"
 claims = "0.8"
+clap_config = "0.1"
+toml = "0.8"
 rln = { git = "https://github.com/vacp2p/zerokit", features = ["pmtree-ft"] }
 zerokit_utils = { git = "https://github.com/vacp2p/zerokit", package = "zerokit_utils", features = ["default"] }
 rln_proof = { path = "../rln_proof" }

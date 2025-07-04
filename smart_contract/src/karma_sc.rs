@@ -18,7 +18,7 @@ pub trait KarmaAmountExt {
 }
 
 sol! {
-    // https://github.com/vacp2p/staking-reward-streamer/pull/220
+    // https://github.com/vacp2p/staking-reward-streamer/blob/main/src/Karma.sol
     #[sol(rpc)]
     contract KarmaSC {
         // From: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC20/IERC20.sol#L16
