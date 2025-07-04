@@ -15,7 +15,6 @@ mod user_db_error;
 mod user_db_serialization;
 mod user_db_service;
 mod user_db_types;
-mod config;
 
 // std
 use std::net::SocketAddr;
