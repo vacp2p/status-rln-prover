@@ -157,7 +157,7 @@ pub enum ValidateTierLimitsError {
 }
 
 #[cfg(test)]
-mod tier_limits_tests {
+mod tests {
     use super::*;
     use alloy::primitives::U256;
     use claims::assert_matches;
