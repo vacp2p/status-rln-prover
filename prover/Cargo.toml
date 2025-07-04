@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-clap = { version = "4.5.37", features = ["derive"] }
+clap = { version = "4.5.37", features = ["derive", "wrap_help"] }
 tonic = { version = "0.13", features = ["gzip"] }
 tonic-reflection = "*"
 tonic-web = "*"
@@ -20,8 +20,6 @@ futures = "0.3"
 ark-bn254.workspace = true
 ark-serialize.workspace = true
 ark-ff.workspace = true
-# dashmap = "6.1.0"
-# scc = "2.3"
 bytesize = "2.0.1"
 chrono = "0.4.41"
 parking_lot = "0.12"

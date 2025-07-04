@@ -50,7 +50,6 @@ use crate::user_db_types::RateLimit;
 
 const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
 const PROVER_SPAM_LIMIT: RateLimit = RateLimit::new(10_000u64);
-const PROOF_SERVICE_COUNT: u8 = 8;
 const GENESIS: DateTime<Utc> = DateTime::from_timestamp(1431648000, 0).unwrap();
 const PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION: U256 =
     U256::from_le_slice(10u64.to_le_bytes().as_slice());
@@ -124,8 +123,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // User db service
     let user_db_service = UserDbService::new(
-        app_args.db_path,
-        app_args.merkle_tree_path,
+        app_args.db_path.clone(),
+        app_args.merkle_tree_path.clone(),
         epoch_service.epoch_changes.clone(),
         epoch_service.current_epoch.clone(),
         PROVER_SPAM_LIMIT,
@@ -173,10 +172,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // proof service
-    // TODO: config?
-    let (tx, rx) = tokio::sync::broadcast::channel(100);
-    // TODO: config?
-    let (proof_sender, proof_receiver) = async_channel::bounded(100);
+    let (tx, rx) = tokio::sync::broadcast::channel(
+        app_args.broadcast_channel_size);
+    let (proof_sender, proof_receiver) = async_channel::bounded(
+        app_args.transaction_channel_size);
 
     // grpc
 
@@ -192,6 +191,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             user_db: user_db_service.get_user_db(),
             karma_sc_info: None,
             rln_sc_info: None,
+            proof_sender_channel_size: app_args.proof_sender_channel_size,
         };
 
         if app_args.ws_rpc_url.is_some() {
@@ -203,7 +203,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let mut set = JoinSet::new();
-    for _i in 0..PROOF_SERVICE_COUNT {
+    for _i in 0..app_args.proof_service_count {
         let proof_recv = proof_receiver.clone();
         let broadcast_sender = tx.clone();
         let current_epoch = epoch_service.current_epoch.clone();
