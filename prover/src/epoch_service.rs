@@ -216,8 +216,6 @@ impl TryFrom<(Duration, DateTime<Utc>)> for EpochService {
 pub enum EpochServiceError {
     #[error("Computation error: {0}")]
     WaitUntilOutOfRange(#[from] OutOfRangeError),
-    #[error("Sender closed error: {0}")]
-    SenderClosed(#[from] tokio::sync::watch::error::RecvError),
     #[error("Already listened for new epochs")]
     AlreadyListened,
 }
