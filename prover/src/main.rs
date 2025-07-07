@@ -409,7 +409,7 @@ mod tests {
         info!("Starting prover...");
         let prover_handle = task::spawn(run_prover(app_args));
         // Wait for the prover to be ready
-        // FIXME
+        // Note: if unit test is failing - maybe add an optional notification when service is ready
         tokio::time::sleep(Duration::from_secs(5)).await;
         info!("Registering some users...");
         register_users(port, addresses.clone()).await;
@@ -420,7 +420,6 @@ mod tests {
         prover_handle.abort();
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
-
 
     #[tokio::test]
     #[traced_test]
@@ -457,12 +456,10 @@ mod tests {
         info!("Starting prover...");
         let prover_handle = task::spawn(run_prover(app_args));
         // Wait for the prover to be ready
-        // FIXME
+        // Note: if unit test is failing - maybe add an optional notification when service is ready
         tokio::time::sleep(Duration::from_secs(5)).await;
         info!("Registering some users...");
         register_users(port, addresses.clone()).await;
-
-        // let res = proof_sender(addresses.clone(), 100).await;
 
         info!("Sending tx and collecting proofs...");
         let proof_count = 1;
@@ -480,5 +477,4 @@ mod tests {
         prover_handle.abort();
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
-
 }
