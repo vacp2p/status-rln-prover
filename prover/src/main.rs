@@ -255,7 +255,6 @@ mod tests {
     use alloy::{
         primitives::{Address, U256},
     };
-    use claims::assert_ok;
     use tracing::info;
     use tracing_test::traced_test;
     use futures::FutureExt;
@@ -272,14 +271,15 @@ mod tests {
     };
     use crate::grpc_service::prover_proto::rln_prover_client::RlnProverClient;
 
-    async fn proof_sender(addresses: Vec<Address>, proof_count: usize) {
+    async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
 
         let chain_id = GrpcU256 {
             // FIXME: LE or BE?
             value: U256::from(1).to_le_bytes::<32>().to_vec(),
         };
 
-        let mut client = RlnProverClient::connect("http://127.0.0.1:50051").await.unwrap();
+        let url = format!("http://127.0.0.1:{}", port);
+        let mut client = RlnProverClient::connect(url).await.unwrap();
 
         let addr = GrpcAddress {
             value: addresses[0].to_vec(),
@@ -291,7 +291,7 @@ mod tests {
         let tx_hash = U256::from(42).to_le_bytes::<32>().to_vec();
 
         let request_0 = SendTransactionRequest {
-            gas_price: None,
+            gas_price: Some(wei),
             sender: Some(addr),
             chain_id: Some(chain_id),
             transaction_hash: tx_hash,
@@ -299,13 +299,15 @@ mod tests {
 
         let request = tonic::Request::new(request_0);
         let response: Response<SendTransactionReply> = client.send_transaction(request).await.unwrap();
+        assert_eq!(response.into_inner().result, true);
     }
 
-    async fn proof_collector() -> Vec<RlnProofReply> {
+    async fn proof_collector(port: u16) -> Vec<RlnProofReply> {
 
-        let mut result= Arc::new(RwLock::new(vec![]));
+        let result= Arc::new(RwLock::new(vec![]));
 
-        let mut client = RlnProverClient::connect("http://127.0.0.1:50051").await.unwrap();
+        let url = format!("http://127.0.0.1:{}", port);
+        let mut client = RlnProverClient::connect(url).await.unwrap();
 
         let request_0 = RlnProofFilter {
             address: None,
@@ -323,13 +325,14 @@ mod tests {
             }
         };
 
-        let res = tokio::time::timeout(Duration::from_secs(10), receiver).await;
+        let _res = tokio::time::timeout(Duration::from_secs(10), receiver).await;
         std::mem::take(&mut *result.write())
     }
 
-    async fn register_users(addresses: Vec<Address>) {
+    async fn register_users(port: u16, addresses: Vec<Address>) {
 
-        let mut client = RlnProverClient::connect("http://127.0.0.1:50051").await.unwrap();
+        let url = format!("http://127.0.0.1:{}", port);
+        let mut client = RlnProverClient::connect(url).await.unwrap();
 
         for address in addresses {
 
@@ -343,16 +346,16 @@ mod tests {
             let request = tonic::Request::new(request_0);
             let response: Response<RegisterUserReply> = client.register_user(request).await.unwrap();
 
-            // FIXME: test fail ??
-            // assert_eq!(
-            //     RegistrationStatus::from_i32(response.into_inner().status).unwrap(),
-            //     RegistrationStatus::Success);
+            assert_eq!(
+                RegistrationStatus::try_from(response.into_inner().status).unwrap(),
+                RegistrationStatus::Success);
         }
     }
 
-    async fn query_user_info(addresses: Vec<Address>) -> Vec<GetUserTierInfoReply> {
+    async fn query_user_info(port: u16, addresses: Vec<Address>) -> Vec<GetUserTierInfoReply> {
 
-        let mut client = RlnProverClient::connect("http://127.0.0.1:50051").await.unwrap();
+        let url = format!("http://127.0.0.1:{}", port);
+        let mut client = RlnProverClient::connect(url).await.unwrap();
 
         let mut result = vec![];
         for address in addresses {
@@ -373,7 +376,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_register_users() {
+    async fn test_grpc_register_users() {
 
         let addresses = vec![
             Address::from_str("0xd8da6bf26964af9d7eed9e03e53415d37aa96045").unwrap(),
@@ -383,9 +386,10 @@ mod tests {
         let temp_folder = tempfile::tempdir().unwrap();
         let temp_folder_tree = tempfile::tempdir().unwrap();
 
+        let port = 50051;
         let app_args = AppArgs {
             ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-            port: 50051,
+            port,
             ws_rpc_url: None,
             db_path: temp_folder.path().to_path_buf(),
             merkle_tree_path: temp_folder_tree.path().to_path_buf(),
@@ -408,9 +412,9 @@ mod tests {
         // FIXME
         tokio::time::sleep(Duration::from_secs(5)).await;
         info!("Registering some users...");
-        let res = register_users(addresses.clone()).await;
+        register_users(port, addresses.clone()).await;
         info!("Query info for these new users...");
-        let res = query_user_info(addresses.clone()).await;
+        let res = query_user_info(port, addresses.clone()).await;
         assert_eq!(res.len(), addresses.len());
         info!("Aborting prover...");
         prover_handle.abort();
@@ -420,7 +424,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_gen_proof() {
+    async fn test_grpc_gen_proof() {
 
         let addresses = vec![
             Address::from_str("0xd8da6bf26964af9d7eed9e03e53415d37aa96045").unwrap(),
@@ -430,9 +434,10 @@ mod tests {
         let temp_folder = tempfile::tempdir().unwrap();
         let temp_folder_tree = tempfile::tempdir().unwrap();
 
+        let port = 50052;
         let app_args = AppArgs {
             ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-            port: 50051,
+            port,
             ws_rpc_url: None,
             db_path: temp_folder.path().to_path_buf(),
             merkle_tree_path: temp_folder_tree.path().to_path_buf(),
@@ -455,7 +460,7 @@ mod tests {
         // FIXME
         tokio::time::sleep(Duration::from_secs(5)).await;
         info!("Registering some users...");
-        let res = register_users(addresses.clone()).await;
+        register_users(port, addresses.clone()).await;
 
         // let res = proof_sender(addresses.clone(), 100).await;
 
@@ -463,10 +468,10 @@ mod tests {
         let proof_count = 1;
         let mut set = JoinSet::new();
         set.spawn(
-            proof_sender(addresses.clone(), proof_count)
+            proof_sender(port, addresses.clone(), proof_count)
                 .map(|_| vec![]) // JoinSet require having the same return type
         );
-        set.spawn(proof_collector());
+        set.spawn(proof_collector(port));
         let res = set.join_all().await;
 
         assert_eq!(res[1].len(), proof_count);
