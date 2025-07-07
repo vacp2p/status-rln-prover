@@ -1,0 +1,210 @@
+use criterion::BenchmarkId;
+use criterion::Criterion;
+use criterion::{criterion_group, criterion_main};
+
+// std
+use std::net::{IpAddr, Ipv4Addr};
+use std::sync::Arc;
+use std::time::Duration;
+use std::str::FromStr;
+// third-party
+use alloy::{
+    primitives::{Address, U256},
+};
+use parking_lot::RwLock;
+use tokio::sync::Notify;
+use tonic::Response;
+// internal
+use prover::{
+    AppArgs,
+    run_prover
+};
+
+// grpc
+pub mod prover_proto {
+
+    // Include generated code (see build.rs)
+    tonic::include_proto!("prover");
+    // // for reflection service
+    // pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
+    //     tonic::include_file_descriptor_set!("prover_descriptor");
+}
+use prover_proto::{
+    Address as GrpcAddress,
+    U256 as GrpcU256,
+    Wei as GrpcWei,
+    GetUserTierInfoReply, GetUserTierInfoRequest,
+    RegisterUserReply, RegisterUserRequest, RegistrationStatus,
+    SendTransactionRequest, SendTransactionReply,
+    RlnProofFilter, RlnProofReply
+};
+use prover_proto::rln_prover_client::RlnProverClient;
+
+async fn register_users(port: u16, addresses: Vec<Address>) {
+
+    let url = format!("http://127.0.0.1:{}", port);
+    let mut client = RlnProverClient::connect(url).await.unwrap();
+
+    for address in addresses {
+
+        let addr = GrpcAddress {
+            value: address.to_vec(),
+        };
+
+        let request_0 = RegisterUserRequest {
+            user: Some(addr),
+        };
+        let request = tonic::Request::new(request_0);
+        let response: Response<RegisterUserReply> = client.register_user(request).await.unwrap();
+
+        assert_eq!(
+            RegistrationStatus::try_from(response.into_inner().status).unwrap(),
+            RegistrationStatus::Success);
+    }
+}
+
+async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize, notify: Arc<Notify>) {
+
+    let chain_id = GrpcU256 {
+        // FIXME: LE or BE?
+        value: U256::from(1).to_le_bytes::<32>().to_vec(),
+    };
+
+    let url = format!("http://127.0.0.1:{}", port);
+    let mut client = RlnProverClient::connect(url).await.unwrap();
+
+    let addr = GrpcAddress {
+        value: addresses[0].to_vec(),
+    };
+    let wei = GrpcWei {
+        // FIXME: LE or BE?
+        value: U256::from(1000).to_le_bytes::<32>().to_vec(),
+    };
+
+    for i in 0..proof_count {
+        let tx_hash = U256::from(42+i).to_le_bytes::<32>().to_vec();
+
+        let request_0 = SendTransactionRequest {
+            gas_price: Some(wei.clone()),
+            sender: Some(addr.clone()),
+            chain_id: Some(chain_id.clone()),
+            transaction_hash: tx_hash,
+        };
+
+        let request = tonic::Request::new(request_0);
+        let response: Response<SendTransactionReply> = client.send_transaction(request).await.unwrap();
+        assert_eq!(response.into_inner().result, true);
+    }
+
+    // Wait for collector notification - so we benchmark the time to compute and send the proof
+    // and not only the time to send them to the prover
+    println!("[Proof sender] Waiting for collector notification...");
+    notify.notified().await;
+}
+
+async fn proof_collector(port: u16, notify: Arc<Notify>) -> Vec<RlnProofReply> {
+
+    let result= Arc::new(RwLock::new(vec![]));
+
+    let url = format!("http://127.0.0.1:{}", port);
+    let mut client = RlnProverClient::connect(url).await.unwrap();
+
+    let request_0 = RlnProofFilter {
+        address: None,
+    };
+
+    let request = tonic::Request::new(request_0);
+    let stream_ = client.get_proofs(request).await.unwrap();
+
+    let mut stream = stream_.into_inner();
+
+    let result_2 = result.clone();
+    let receiver = async move {
+        while let Some(response) = stream.message().await.unwrap() {
+            result_2.write().push(response);
+        }
+    };
+
+    let _res = tokio::time::timeout(Duration::from_secs(50), receiver).await;
+    let res = std::mem::take(&mut *result.write());
+    println!("[Proof collector] Sending notification...");
+    notify.notify_one();
+    res
+}
+
+fn from_elem(c: &mut Criterion) {
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let port = 50051;
+    let temp_folder = tempfile::tempdir().unwrap();
+    let temp_folder_tree = tempfile::tempdir().unwrap();
+    let app_args = AppArgs {
+        ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+        port,
+        ws_rpc_url: None,
+        db_path: temp_folder.path().to_path_buf(),
+        merkle_tree_path: temp_folder_tree.path().to_path_buf(),
+        ksc_address: None,
+        rlnsc_address: None,
+        tsc_address: None,
+        mock_sc: Some(true),
+        mock_user: None,
+        config_path: Default::default(),
+        no_config: Some(true),
+        broadcast_channel_size: 100,
+        proof_service_count: 8,
+        transaction_channel_size: 100,
+        proof_sender_channel_size: 100,
+    };
+
+    let addresses = vec![
+        Address::from_str("0xd8da6bf26964af9d7eed9e03e53415d37aa96045").unwrap(),
+        Address::from_str("0xb20a608c624Ca5003905aA834De7156C68b2E1d0").unwrap(),
+    ];
+    // Tokio notify - wait for some time after spawning run_prover then notify it's ready to accept
+    // connections
+    let notify_start = Arc::new(Notify::new());
+    // Tokio notify - proof_sender will wait for collector notification
+    let notify_proof_sender = Arc::new(Notify::new());
+
+    // Spawn prover
+    let notify_start_1 = notify_start.clone();
+    rt.spawn(
+        async move {
+            tokio::spawn(run_prover(app_args));
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            println!("Notifying prover is ready...");
+            notify_start_1.clone().notify_one();
+        }
+    );
+
+    let notify_start_2 = notify_start.clone();
+    let notify_proof_sender_1 = notify_proof_sender.clone();
+    let addresses_0 = addresses.clone();
+
+    // Wait for proof_collector to be connected and waiting for some proofs
+    let _res = rt.block_on(
+        async move {
+            notify_start_2.notified().await;
+            println!("Prover is ready, registering users...");
+            register_users(port, addresses_0).await;
+            println!("Prover is ready, starting proof collector...");
+            tokio::spawn(
+                proof_collector(port, notify_proof_sender_1)
+            );
+        }
+    );
+
+    println!("Starting benchmark...");
+    let size: usize = 1024;
+    c.bench_with_input(BenchmarkId::new("input_example", size), &size, |b, &s| {
+        b.to_async(&rt).iter(|| proof_sender(port, addresses.clone(), 100, notify_proof_sender.clone()));
+    });
+}
+
+criterion_group!(benches, from_elem);
+criterion_main!(benches);

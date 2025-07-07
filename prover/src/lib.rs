@@ -36,7 +36,7 @@ use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberI
 use rln_proof::RlnIdentifier;
 use smart_contract::KarmaTiersSC::KarmaTiersSCInstance;
 use smart_contract::TIER_LIMITS;
-use crate::args::{AppArgs, AppArgsConfig};
+pub use crate::args::{AppArgs, AppArgsConfig};
 use crate::epoch_service::EpochService;
 use crate::grpc_service::GrpcProverService;
 use crate::mock::read_mock_user;
@@ -53,6 +53,7 @@ const GENESIS: DateTime<Utc> = DateTime::from_timestamp(1431648000, 0).unwrap();
 const PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION: U256 =
     U256::from_le_slice(10u64.to_le_bytes().as_slice());
 
+/*
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     // debug!("Args: {:?}", std::env::args());
@@ -99,8 +100,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>
 
     run_prover(app_args).await
 }
+*/
 
-async fn run_prover(app_args: AppArgs) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+pub async fn run_prover(app_args: AppArgs) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
     // Epoch
     let epoch_service = EpochService::try_from((Duration::from_secs(60 * 2), GENESIS))

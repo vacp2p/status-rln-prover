@@ -1704,6 +1704,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tinytemplate",
+ "tokio",
  "walkdir",
 ]
 
@@ -3577,6 +3578,66 @@ dependencies = [
 ]
 
 [[package]]
+name = "prover"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "ark-bn254",
+ "ark-ff 0.5.0",
+ "ark-groth16",
+ "ark-serialize 0.5.0",
+ "async-channel",
+ "async-trait",
+ "bytesize",
+ "chrono",
+ "claims",
+ "clap",
+ "clap_config",
+ "criterion",
+ "derive_more",
+ "futures",
+ "http",
+ "nom 8.0.0",
+ "num-bigint",
+ "parking_lot 0.12.4",
+ "prost",
+ "rand 0.8.5",
+ "rln",
+ "rln_proof",
+ "rocksdb",
+ "serde",
+ "serde_json",
+ "smart_contract",
+ "tempfile",
+ "thiserror 2.0.12",
+ "tokio",
+ "toml",
+ "tonic",
+ "tonic-build",
+ "tonic-reflection",
+ "tonic-web",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber 0.3.19",
+ "tracing-test",
+ "url",
+ "zerokit_utils",
+]
+
+[[package]]
+name = "prover_cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "prover",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber 0.3.19",
+ "tracing-test",
+]
+
+[[package]]
 name = "quick-error"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4383,53 +4444,6 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
-
-[[package]]
-name = "status_rln_prover"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "ark-bn254",
- "ark-ff 0.5.0",
- "ark-groth16",
- "ark-serialize 0.5.0",
- "async-channel",
- "async-trait",
- "bytesize",
- "chrono",
- "claims",
- "clap",
- "clap_config",
- "criterion",
- "derive_more",
- "futures",
- "http",
- "nom 8.0.0",
- "num-bigint",
- "parking_lot 0.12.4",
- "prost",
- "rand 0.8.5",
- "rln",
- "rln_proof",
- "rocksdb",
- "serde",
- "serde_json",
- "smart_contract",
- "tempfile",
- "thiserror 2.0.12",
- "tokio",
- "toml",
- "tonic",
- "tonic-build",
- "tonic-reflection",
- "tonic-web",
- "tower-http",
- "tracing",
- "tracing-subscriber 0.3.19",
- "tracing-test",
- "url",
- "zerokit_utils",
-]
 
 [[package]]
 name = "strsim"

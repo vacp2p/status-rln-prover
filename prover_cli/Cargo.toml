@@ -1,0 +1,15 @@
+[package]
+name = "prover_cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.5.37", features = ["derive", "wrap_help"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+tracing = "0.1.41"
+toml = "0.8"
+prover = { path = "../prover" }
+
+[dev-dependencies]
+tracing-test = "0.2.5"
