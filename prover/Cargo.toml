@@ -51,6 +51,6 @@ criterion.workspace = true
 ark-groth16.workspace = true
 tempfile = "3.20"
 
-[[bench]]
-name = "user_db_heavy_write"
-harness = false
+# [[bench]]
+# name = "user_db_heavy_write"
+# harness = false
