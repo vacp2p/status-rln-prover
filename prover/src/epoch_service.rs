@@ -46,26 +46,29 @@ impl EpochService {
         let mut last_sent_epoch_slice: Option<i64> = None;
         loop {
             // Recalculate current state based on actual time every iteration to avoid drift
-            let (current_epoch, current_epoch_slice, wait_until) =
-                match self.compute_wait_until(&|| Utc::now(), &|| tokio::time::Instant::now()) {
-                    Ok((current_epoch, current_epoch_slice, wait_until)) => {
-                        (current_epoch, current_epoch_slice, wait_until)
+            let (current_epoch, current_epoch_slice, wait_until) = match self
+                .compute_wait_until(&|| Utc::now(), &|| tokio::time::Instant::now())
+            {
+                Ok((current_epoch, current_epoch_slice, wait_until)) => {
+                    (current_epoch, current_epoch_slice, wait_until)
+                }
+                Err(e) => match e {
+                    EpochServiceError::WaitUntilOutOfRange(e) => {
+                        info!("wait_until out of range: {e:?}, recalculating..");
+                        // Sleep and try recalculate everything in next iteration
+                        sleep(WAIT_UNTIL_MIN_DURATION).await;
+                        continue;
                     }
-                    Err(err) => match err {
-                        EpochServiceError::WaitUntilOutOfRange(_) => {
-                            return Err(AppError::EpochError(err));
-                        }
-                        EpochServiceError::TooLow(wait_until, min_duration) => {
-                            info!(
-                                "wait_until is too low: {:?} (min value: {:?})",
-                                wait_until, min_duration
-                            );
-                            // Sleep and try recalculate everything in next iteration
-                            sleep(WAIT_UNTIL_MIN_DURATION).await;
-                            continue;
-                        }
-                    },
-                };
+                    EpochServiceError::WaitUntilTooLow(wait_until, min_duration) => {
+                        info!(
+                            "wait_until is too low: {wait_until:?} (min value: {min_duration:?}), recalculating...",
+                        );
+                        // Sleep and try recalculate everything in next iteration
+                        sleep(WAIT_UNTIL_MIN_DURATION).await;
+                        continue;
+                    }
+                },
+            };
 
             match (last_sent_epoch, last_sent_epoch_slice) {
                 (None, None) => {
@@ -126,7 +129,7 @@ impl EpochService {
             .map_err(EpochServiceError::WaitUntilOutOfRange)?;
 
         if wait_until < WAIT_UNTIL_MIN_DURATION {
-            return Err(EpochServiceError::TooLow(
+            return Err(EpochServiceError::WaitUntilTooLow(
                 wait_until,
                 WAIT_UNTIL_MIN_DURATION,
             ));
@@ -229,7 +232,7 @@ pub enum EpochServiceError {
     #[error("Computation error: {0}")]
     WaitUntilOutOfRange(#[from] OutOfRangeError),
     #[error("Wait until is too low: {0:?} (min value: {1:?}")]
-    TooLow(Duration, Duration),
+    WaitUntilTooLow(Duration, Duration),
 }
 
 /// An Epoch (wrapper type over i64)
