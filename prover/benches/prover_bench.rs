@@ -254,7 +254,9 @@ fn proof_generation_bench(c: &mut Criterion) {
 
 criterion_group!(
     name = benches;
-    config = Criterion::default().measurement_time(Duration::from_secs(600));
+    config = Criterion::default()
+        .sample_size(10)
+        .measurement_time(Duration::from_secs(100));
     targets = proof_generation_bench
 );
 criterion_main!(benches);
