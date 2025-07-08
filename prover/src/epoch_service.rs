@@ -389,7 +389,7 @@ mod tests {
             let res = epoch_service.compute_wait_until(&now, &now);
 
             // expect TooLow error
-            assert!(matches!(res, Err(EpochServiceError::TooLow(_, _))));
+            assert!(matches!(res, Err(EpochServiceError::WaitUntilTooLow(_, _))));
         }
     }
 
