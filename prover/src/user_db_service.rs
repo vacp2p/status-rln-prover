@@ -2,7 +2,7 @@
 use std::path::PathBuf;
 // third-party
 use tokio::sync::watch::Receiver;
-use tracing::debug;
+use tracing::{debug, info};
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::AppError;
@@ -45,7 +45,7 @@ impl UserDbService {
 
         loop {
             if let Err(recv_error) = epoch_changes.changed().await {
-                debug!(
+                info!(
                     "Sender closed. App is likely shutting down. Error: {:?}",
                     recv_error
                 );

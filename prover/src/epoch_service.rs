@@ -1,19 +1,21 @@
-use std::sync::atomic::Ordering;
+use std::ops::Add;
 use std::time::Duration;
-use std::{ops::Add, sync::atomic::AtomicBool};
 // third-party
 use chrono::{DateTime, NaiveDate, NaiveDateTime, OutOfRangeError, TimeDelta, Utc};
 use derive_more::{Deref, From, Into};
 use tokio::{
     sync::watch::{Receiver, Sender, channel},
-    time::{Instant, sleep_until},
+    time::{Instant, sleep, sleep_until},
 };
-use tracing::debug;
+use tracing::{debug, info};
 // internal
 use crate::error::AppError;
 
 /// Duration of an epoch (1 day)
 const EPOCH_DURATION: Duration = Duration::from_secs(TimeDelta::days(1).num_seconds() as u64);
+
+/// Minimum duration returned by EpochService::compute_wait_until()
+const WAIT_UNTIL_MIN_DURATION: Duration = Duration::from_millis(100);
 
 /// An Epoch tracking service
 ///
@@ -28,8 +30,6 @@ pub struct EpochService {
     epoch_receiver: Receiver<(Epoch, EpochSlice)>,
     /// Genesis time (aka when the service has been started at the first time)
     genesis: DateTime<Utc>,
-    /// Flag to indicate if the service has already listened for new epochs
-    listened: AtomicBool,
 }
 
 impl EpochService {
@@ -38,51 +38,57 @@ impl EpochService {
     }
 
     pub(crate) async fn listen_for_new_epoch(&self) -> Result<(), AppError> {
-        if self
-            .listened
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-            .is_err()
-        {
-            return Err(AppError::EpochError(EpochServiceError::AlreadyListened));
-        } else {
-            debug!("listening for new epochs...");
-        }
-
         let epoch_slice_count =
             Self::compute_epoch_slice_count(EPOCH_DURATION, self.epoch_slice_duration);
         debug!("epoch slice in an epoch: {}", epoch_slice_count);
 
-        let (mut current_epoch, mut current_epoch_slice, mut wait_until) =
-            self.compute_wait_until(&|| Utc::now(), &|| tokio::time::Instant::now())?;
-
+        let mut last_sent_epoch: Option<i64> = None;
+        let mut last_sent_epoch_slice: Option<i64> = None;
         loop {
-            debug!("wait until: {:?}", wait_until);
-            // XXX: Should we check the drift between now() and wait_until ?
+            // Recalculate current state based on actual time every iteration to avoid drift
+            let (current_epoch, current_epoch_slice, wait_until) =
+                match self.compute_wait_until(&|| Utc::now(), &|| tokio::time::Instant::now()) {
+                    Ok((current_epoch, current_epoch_slice, wait_until)) => {
+                        (current_epoch, current_epoch_slice, wait_until)
+                    }
+                    Err(err) => match err {
+                        EpochServiceError::WaitUntilOutOfRange(_) => {
+                            return Err(AppError::EpochError(err));
+                        }
+                        EpochServiceError::TooLow(wait_until, min_duration) => {
+                            info!(
+                                "wait_until is too low: {:?} (min value: {:?})",
+                                wait_until, min_duration
+                            );
+                            // Sleep and try recalculate everything in next iteration
+                            sleep(WAIT_UNTIL_MIN_DURATION).await;
+                            continue;
+                        }
+                    },
+                };
+
+            match (last_sent_epoch, last_sent_epoch_slice) {
+                (None, None) => {
+                    // First-time setup, store the current values but do not notify
+                    last_sent_epoch = Some(current_epoch);
+                    last_sent_epoch_slice = Some(current_epoch_slice);
+                }
+                (Some(prev_epoch), Some(prev_slice)) => {
+                    // Notify if either the epoch or slice has changed
+                    if current_epoch != prev_epoch || current_epoch_slice != prev_slice {
+                        self.epoch_sender
+                            .send((current_epoch.into(), current_epoch_slice.into()))
+                            .expect("epoch receiver should still be alive");
+                    }
+                    last_sent_epoch = Some(current_epoch);
+                    last_sent_epoch_slice = Some(current_epoch_slice);
+                }
+                _ => unreachable!("Epoch and slice should either both be set or both be None"),
+            }
+
+            debug!("wait for: {:?}", wait_until - Instant::now());
             sleep_until(wait_until).await;
-            {
-                let now_ = Instant::now();
-                debug!("awake at: {:?}, drift by: {:?}", now_, now_ - wait_until);
-            }
-            // Note: could use checked_add() here, but it's quite impossible to have an overflow here
-            //       it would mean that the epoch_slice_duration is insanely large and wait_until
-            //       overflows as a timestamp
-            wait_until += self.epoch_slice_duration;
-
-            current_epoch_slice += 1;
-            if current_epoch_slice == epoch_slice_count {
-                current_epoch_slice = 0;
-                current_epoch += 1;
-            }
-
-            {
-                self.epoch_sender
-                    .send((current_epoch.into(), current_epoch_slice.into()))
-                    .expect("every receivers should not be dropped");
-            }
-            debug!(
-                "epoch: {}, epoch slice: {}",
-                current_epoch, current_epoch_slice
-            );
+            debug!("drift by: {:?}\n", Instant::now() - wait_until);
         }
     }
 
@@ -95,7 +101,7 @@ impl EpochService {
         T: Add<Duration, Output = T>,
     {
         let (current_epoch, now_date) = EpochService::compute_current_epoch(self.genesis, now);
-        debug!("current_epoch: {}", current_epoch);
+        debug!("current epoch: {}", current_epoch);
 
         let current_epoch_slice =
             EpochService::compute_current_epoch_slice(now_date, self.epoch_slice_duration, now);
@@ -105,19 +111,26 @@ impl EpochService {
         let day_start = DateTime::from_naive_utc_and_offset(now_date.into(), Utc);
         // Note:
         // unwrap safe -> epoch_slice_duration < epoch duration checked in constructor
-        let epoch_slice_next: DateTime<Utc> = day_start.add(
+        let next_epoch_slice: DateTime<Utc> = day_start.add(
             self.epoch_slice_duration
                 .checked_mul(current_epoch_slice as u32 + 1)
                 .unwrap(),
         );
 
-        debug!("epoch slice next: {}", epoch_slice_next);
+        debug!("next epoch slice: {}", next_epoch_slice);
 
-        // Note: to_std() will return an Error if now > epoch_slice_next
-        //       This can happen if epoch_slice_next is very close to now()
-        let wait_until = (epoch_slice_next - now())
+        // Note: to_std() will return an Error if now > next_epoch_slice
+        //       This can happen if next_epoch_slice is very close to now()
+        let wait_until = (next_epoch_slice - now())
             .to_std()
             .map_err(EpochServiceError::WaitUntilOutOfRange)?;
+
+        if wait_until < WAIT_UNTIL_MIN_DURATION {
+            return Err(EpochServiceError::TooLow(
+                wait_until,
+                WAIT_UNTIL_MIN_DURATION,
+            ));
+        }
 
         let wait_until = now2() + wait_until;
         Ok((current_epoch, current_epoch_slice, wait_until))
@@ -180,12 +193,13 @@ impl TryFrom<(Duration, DateTime<Utc>)> for EpochService {
     fn try_from(
         (epoch_slice_duration, genesis): (Duration, DateTime<Utc>),
     ) -> Result<Self, Self::Error> {
-        if genesis > Utc::now() {
+        if genesis >= Utc::now() {
             return Err(EpochServiceInitError::InvalidGenesis);
         }
 
         if epoch_slice_duration.as_secs() == 0
             || i32::try_from(epoch_slice_duration.as_secs()).is_err()
+            || epoch_slice_duration <= WAIT_UNTIL_MIN_DURATION
             || epoch_slice_duration >= (EPOCH_DURATION / 2)
         {
             return Err(EpochServiceInitError::InvalidEpochSliceDuration);
@@ -200,14 +214,12 @@ impl TryFrom<(Duration, DateTime<Utc>)> for EpochService {
             Self::compute_current_epoch_slice(now_date, epoch_slice_duration, &|| now);
         let (epoch_sender, epoch_receiver) =
             channel((Epoch(current_epoch), EpochSlice(current_epoch_slice)));
-        let listened = AtomicBool::new(false);
 
         Ok(Self {
             epoch_slice_duration,
             epoch_sender,
             epoch_receiver,
             genesis,
-            listened,
         })
     }
 }
@@ -216,8 +228,8 @@ impl TryFrom<(Duration, DateTime<Utc>)> for EpochService {
 pub enum EpochServiceError {
     #[error("Computation error: {0}")]
     WaitUntilOutOfRange(#[from] OutOfRangeError),
-    #[error("Already listened for new epochs")]
-    AlreadyListened,
+    #[error("Wait until is too low: {0:?} (min value: {1:?}")]
+    TooLow(Duration, Duration),
 }
 
 /// An Epoch (wrapper type over i64)
@@ -253,10 +265,10 @@ mod tests {
         Arc,
         atomic::{AtomicU64, Ordering},
     };
+    use tracing::info;
     use tracing_test::traced_test;
 
     #[test]
-    #[traced_test]
     fn test_wait_until() {
         // Check wait_until is correctly computed
 
@@ -352,6 +364,29 @@ mod tests {
                 res,
                 Err(EpochServiceError::WaitUntilOutOfRange(_))
             ));
+        }
+
+        {
+            // Check for TooLow case: when wait_until is too low
+            let genesis: DateTime<Utc> =
+                chrono::DateTime::from_naive_utc_and_offset(datetime_0, Utc);
+            let epoch_slice_duration = Duration::from_secs(60);
+            let epoch_service = EpochService::try_from((epoch_slice_duration, genesis)).unwrap();
+
+            let now = || {
+                // Start at beginning of epoch slice 1 (60 seconds from day start)
+                let mut now_0: NaiveDateTime = date_0.and_hms_opt(0, 1, 0).unwrap();
+
+                // Add almost a full epoch slice duration, leaving only 50ms until next boundary
+                now_0 += epoch_slice_duration - WAIT_UNTIL_MIN_DURATION / 2;
+
+                chrono::DateTime::from_naive_utc_and_offset(now_0, chrono::Utc)
+            };
+
+            let res = epoch_service.compute_wait_until(&now, &now);
+
+            // expect TooLow error
+            assert!(matches!(res, Err(EpochServiceError::TooLow(_, _))));
         }
     }
 
@@ -454,8 +489,12 @@ mod tests {
         // Test that multiple receivers using changed().await + borrow() work correctly
         // Each receiver should see the same sequence of changes
 
+        let date_0 = NaiveDate::from_ymd_opt(2025, 5, 14).unwrap();
+        let datetime_0 = date_0.and_hms_opt(0, 0, 0).unwrap();
+        let genesis: DateTime<Utc> = DateTime::from_naive_utc_and_offset(datetime_0, Utc);
+
         let epoch_slice_duration = Duration::from_secs(10);
-        let epoch_service = EpochService::try_from((epoch_slice_duration, Utc::now())).unwrap();
+        let epoch_service = EpochService::try_from((epoch_slice_duration, genesis)).unwrap();
 
         let receiver_count = 5;
         let counters: Vec<Arc<AtomicU64>> =
@@ -474,7 +513,7 @@ mod tests {
             let task = tokio::spawn(async move {
                 loop {
                     if let Err(recv_error) = epoch_changes.changed().await {
-                        debug!(
+                        info!(
                             "[receiver {}] Error receiving epoch change: {:?}",
                             i, recv_error
                         );

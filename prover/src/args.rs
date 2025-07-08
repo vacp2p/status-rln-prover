@@ -86,7 +86,7 @@ pub struct AppArgs {
     #[arg(
         long = "no-config",
         help = "Dont read a config file",
-        default_missing_value = "false",
+        default_missing_value = "true",
         action = SetTrue,
         help_heading = "config"
     )]
