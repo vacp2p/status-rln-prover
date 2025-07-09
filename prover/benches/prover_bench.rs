@@ -24,23 +24,18 @@ use prover::{
 
 // grpc
 pub mod prover_proto {
-
     // Include generated code (see build.rs)
     tonic::include_proto!("prover");
-    // // for reflection service
-    // pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
-    //     tonic::include_file_descriptor_set!("prover_descriptor");
 }
 use prover_proto::{
     Address as GrpcAddress,
     U256 as GrpcU256,
     Wei as GrpcWei,
-    GetUserTierInfoReply, GetUserTierInfoRequest,
     RegisterUserReply, RegisterUserRequest, RegistrationStatus,
     SendTransactionRequest, SendTransactionReply,
-    RlnProofFilter, RlnProofReply
+    RlnProofFilter, RlnProofReply,
+    rln_prover_client::RlnProverClient
 };
-use prover_proto::rln_prover_client::RlnProverClient;
 
 async fn register_users(port: u16, addresses: Vec<Address>) {
 
@@ -97,11 +92,6 @@ async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
         let response: Response<SendTransactionReply> = client.send_transaction(request).await.unwrap();
         assert_eq!(response.into_inner().result, true);
     }
-
-    // Wait for collector notification - so we benchmark the time to compute and send the proof
-    // and not only the time to send them to the prover
-    // println!("[Proof sender] Waiting for collector notification...");
-    // notify.notified().await;
 }
 
 async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
@@ -117,20 +107,8 @@ async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
 
     let request = tonic::Request::new(request_0);
     let stream_ = client.get_proofs(request).await.unwrap();
-
     let mut stream = stream_.into_inner();
-
     let result_2 = result.clone();
-    /*
-    let receiver = async move {
-        while let Some(response) = stream.message().await.unwrap() {
-            result_2.write().push(response);
-        }
-    };
-
-    let _res = tokio::time::timeout(Duration::from_secs(50), receiver).await;
-    */
-
     let mut proof_received = 0;
     while let Some(response) = stream.message().await.unwrap() {
         result_2.write().push(response);
@@ -143,8 +121,6 @@ async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
     let res = std::mem::take(&mut *result.write());
 
     // println!("[Proof collector] Received {} proofs", res.len());
-    // println!("[Proof collector] Sending notification...");
-    // notify.notify_one();
     res
 }
 
@@ -172,7 +148,7 @@ fn proof_generation_bench(c: &mut Criterion) {
         config_path: Default::default(),
         no_config: Some(true),
         broadcast_channel_size: 100,
-        proof_service_count: 8,
+        proof_service_count: 32,
         transaction_channel_size: 100,
         proof_sender_channel_size: 100,
     };
@@ -184,8 +160,6 @@ fn proof_generation_bench(c: &mut Criterion) {
     // Tokio notify - wait for some time after spawning run_prover then notify it's ready to accept
     // connections
     let notify_start = Arc::new(Notify::new());
-    // Tokio notify - proof_sender will wait for collector notification
-    let notify_proof_sender = Arc::new(Notify::new());
 
     // Spawn prover
     let notify_start_1 = notify_start.clone();
@@ -199,7 +173,6 @@ fn proof_generation_bench(c: &mut Criterion) {
     );
 
     let notify_start_2 = notify_start.clone();
-    // let notify_proof_sender_1 = notify_proof_sender.clone();
     let addresses_0 = addresses.clone();
 
     // Wait for proof_collector to be connected and waiting for some proofs
@@ -208,27 +181,13 @@ fn proof_generation_bench(c: &mut Criterion) {
             notify_start_2.notified().await;
             println!("Prover is ready, registering users...");
             register_users(port, addresses_0).await;
-            // println!("Prover is ready, starting proof collector...");
-            // tokio::spawn(
-            //     proof_collector(port, notify_proof_sender_1)
-            // );
         }
     );
-
-    /*
-    let to_bench = async {
-
-        tokio::spawn(
-             proof_collector(port, notify_proof_sender_1)
-        );
-        proof_sender(port, addresses.clone(), 100, notify_proof_sender.clone()).await;
-    };
-    */
 
     println!("Starting benchmark...");
     let size: usize = 1024;
     let proof_count = 100;
-    c.bench_with_input(BenchmarkId::new("input_example", size), &size, |b, &s| {
+    c.bench_with_input(BenchmarkId::new("input_example", size), &size, |b, &_s| {
         b.to_async(&rt).iter(|| {
             async {
                 let mut set = JoinSet::new();
@@ -236,16 +195,9 @@ fn proof_generation_bench(c: &mut Criterion) {
                 set.spawn(
                     proof_sender(port, addresses.clone(), proof_count).map(|_r| vec![])
                 );
+                // Wait for proof_sender + proof_collector to complete
                 let res = set.join_all().await;
-
-                // println!("res 0 len: {}", res[0].len());
-                // println!("res 1 len: {}", res[1].len());
-
-                // let res_filtered = res
-                //     .iter()
-                //     .filter(|v| !v.is_empty())
-                //     .collect::<Vec<_>>();
-
+                // Check we receive enough proof
                 assert_eq!(res[1].len(), proof_count);
             }
         });
@@ -256,7 +208,7 @@ criterion_group!(
     name = benches;
     config = Criterion::default()
         .sample_size(10)
-        .measurement_time(Duration::from_secs(100));
+        .measurement_time(Duration::from_secs(150));
     targets = proof_generation_bench
 );
 criterion_main!(benches);

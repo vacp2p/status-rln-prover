@@ -70,7 +70,7 @@ impl TiersListener {
                         };
                     }
                     Err(e) => {
-                        eprintln!("Error decoding log data: {:?}", e);
+                        eprintln!("Error decoding log data: {e:?}");
                         // It's also useful to print the raw log data for debugging
                         eprintln!("Raw log topics: {:?}", log.topics());
                         eprintln!("Raw log data: {:?}", log.data());
