@@ -9,4 +9,4 @@ args_array=("$@")
 #echo "args_count = $#"
 
 export RUST_LOG=debug
-exec ./status_rln_prover "${@}"
+exec ./prover_cli "${@}"

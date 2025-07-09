@@ -25,7 +25,7 @@ COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Copy from the builder stage
-COPY --from=builder /app/target/release/status_rln_prover ./status_rln_prover
+COPY --from=builder /app/target/release/prover_cli ./prover_cli
 COPY mock ./mock
 
 RUN chown -R user:user /app

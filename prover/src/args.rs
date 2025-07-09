@@ -33,48 +33,48 @@ const ARGS_DEFAULT_PROOF_SENDER_CHANNEL_SIZE: &str = "100";
 #[command(about = "RLN prover service", long_about = None)]
 pub struct AppArgs {
     #[arg(short = 'i', long = "ip", default_value = "::1", help = "Service ip")]
-    pub(crate) ip: IpAddr,
+    pub ip: IpAddr,
     #[arg(
         short = 'p',
         long = "port",
         default_value = "50051",
         help = "Service port"
     )]
-    pub(crate) port: u16,
+    pub port: u16,
     #[arg(
         short = 'u',
         long = "ws-rpc-url",
         help = "Websocket rpc url (e.g. wss://eth-mainnet.g.alchemy.com/v2/your-api-key)"
     )]
-    pub(crate) ws_rpc_url: Option<Url>,
+    pub ws_rpc_url: Option<Url>,
     #[arg(long = "db", help = "Db path", default_value = "./storage/db")]
-    pub(crate) db_path: PathBuf,
+    pub db_path: PathBuf,
     #[arg(
         long = "tree",
         help = "Merkle tree path",
         default_value = "./storage/tree"
     )]
-    pub(crate) merkle_tree_path: PathBuf,
+    pub merkle_tree_path: PathBuf,
     #[arg(short = 'k', long = "ksc", help = "Karma smart contract address")]
-    pub(crate) ksc_address: Option<Address>,
+    pub ksc_address: Option<Address>,
     #[arg(short = 'r', long = "rlnsc", help = "RLN smart contract address")]
-    pub(crate) rlnsc_address: Option<Address>,
+    pub rlnsc_address: Option<Address>,
     #[arg(short = 't', long = "tsc", help = "KarmaTiers smart contract address")]
-    pub(crate) tsc_address: Option<Address>,
+    pub tsc_address: Option<Address>,
     #[arg(
         help_heading = "mock",
         long = "mock-sc",
         help = "Test only - mock smart contracts",
         action
     )]
-    pub(crate) mock_sc: Option<bool>,
+    pub mock_sc: Option<bool>,
     #[arg(
         help_heading = "mock",
         long = "mock-user",
         help = "Test only - register user (requite --mock-sc to be enabled)",
         action
     )]
-    pub(crate) mock_user: Option<PathBuf>,
+    pub mock_user: Option<PathBuf>,
     #[arg(
         short = 'c',
         long = "config",
@@ -82,7 +82,7 @@ pub struct AppArgs {
         default_value = "./config.toml",
         help_heading = "config"
     )]
-    pub(crate) config_path: PathBuf,
+    pub config_path: PathBuf,
     #[arg(
         long = "no-config",
         help = "Dont read a config file",
@@ -90,7 +90,7 @@ pub struct AppArgs {
         action = SetTrue,
         help_heading = "config"
     )]
-    pub(crate) no_config: Option<bool>,
+    pub no_config: Option<bool>,
     // Hidden option - expect user set it via a config file
     #[arg(
         long = "broadcast-channel-size",
@@ -98,28 +98,28 @@ pub struct AppArgs {
         default_value = ARGS_DEFAULT_BROADCAST_CHANNEL_SIZE,
         hide = true,
     )] // see const doc for more info
-    pub(crate) broadcast_channel_size: usize,
+    pub broadcast_channel_size: usize,
     #[arg(
         long = "proof-service",
         help = "Number of proof service (tasks) to generate proof",
         default_value = ARGS_DEFAULT_PROOF_SERVICE_COUNT,
         hide = true,
     )] // see const doc for more info
-    pub(crate) proof_service_count: u16,
+    pub proof_service_count: u16,
     #[arg(
         long = "transaction-channel-size",
         help = "Proof bounded channel size",
         default_value = ARGS_DEFAULT_TRANSACTION_CHANNEL_SIZE,
         hide = true,
     )] // see const doc for more info
-    pub(crate) transaction_channel_size: usize,
+    pub transaction_channel_size: usize,
     #[arg(
         long = "proof-sender-channel-size",
         help = "Proof bounded sender channel size",
         default_value = ARGS_DEFAULT_PROOF_SENDER_CHANNEL_SIZE,
         hide = true,
     )] // see const doc for more info
-    pub(crate) proof_sender_channel_size: usize,
+    pub proof_sender_channel_size: usize,
 }
 
 #[cfg(test)]

@@ -1,8 +1,10 @@
 [workspace]
 members = [
+    "rln_proof",
+    "smart_contract",
     "prover",
-    "rln_proof"
-, "smart_contract"]
+    "prover_cli",
+]
 resolver = "2"
 
 [workspace.dependencies]
@@ -15,6 +17,6 @@ alloy = { version = "1.0", features = ["getrandom", "sol-types", "contract", "pr
 async-trait = "0.1"
 derive_more = "2.0.1"
 # dev
-criterion = "0.6"
+criterion = { version = "0.6", features = ["async_tokio"] }
 
 

@@ -1,5 +1,5 @@
 [package]
-name = "status_rln_prover"
+name = "prover"
 version = "0.1.0"
 edition = "2024"
 
@@ -13,7 +13,6 @@ prost = "0.13"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 tracing = "0.1.41"
-tracing-test = "0.2.5"
 alloy.workspace = true
 thiserror = "2.0"
 futures = "0.3"
@@ -50,7 +49,8 @@ tonic-build = "*"
 criterion.workspace = true
 ark-groth16.workspace = true
 tempfile = "3.20"
+tracing-test = "0.2.5"
 
-# [[bench]]
-# name = "user_db_heavy_write"
-# harness = false
+[[bench]]
+name = "prover_bench"
+harness = false
