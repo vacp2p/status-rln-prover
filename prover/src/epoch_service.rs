@@ -6,19 +6,25 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, OutOfRangeError, TimeDelta, Utc
 use derive_more::{Deref, From, Into};
 use parking_lot::RwLock;
 use tokio::sync::Notify;
-use tracing::debug;
+use tracing::{debug, error};
 // internal
 use crate::error::AppError;
 
 /// Duration of an epoch (1 day)
 const EPOCH_DURATION: Duration = Duration::from_secs(TimeDelta::days(1).num_seconds() as u64);
 /// Minimum duration returned by EpochService::compute_wait_until()
-const WAIT_UNTIL_MIN_DURATION: Duration = Duration::from_secs(5);
+const WAIT_UNTIL_MIN_DURATION: Duration = Duration::from_secs(2);
+/// EpochService::compute_wait_until() can return an error like TooLow (see WAIT_UNTIL_MIN_DURATION)
+/// so the epoch service will retry X many times.
+const WAIT_UNTIL_MAX_COMPUTE_ERROR: usize = 10;
 
 /// An Epoch tracking service
 ///
 /// The service keeps track of the current epoch (duration: 1 day) and the current epoch slice
 /// (duration: configurable, < 1 day, usually in minutes)
+///
+/// Use TryFrom impl to initialize an EpochService. Note that initial epoch & epoch slice is
+/// initialized to Default values. Calling listen_for_new_epoch will initialize these fields.
 pub struct EpochService {
     /// A subdivision of an epoch (in minutes or seconds)
     epoch_slice_duration: Duration,
@@ -36,20 +42,39 @@ impl EpochService {
             Self::compute_epoch_slice_count(EPOCH_DURATION, self.epoch_slice_duration);
         debug!("epoch slice in an epoch: {}", epoch_slice_count);
 
-        let (mut current_epoch, mut current_epoch_slice, mut wait_until) =
+        let mut retry_counter = 0;
+        let (mut current_epoch, mut current_epoch_slice, mut wait_until): (i64, i64, tokio::time::Instant) = loop {
+
             match self.compute_wait_until(&|| Utc::now(), &|| tokio::time::Instant::now()) {
                 Ok((current_epoch, current_epoch_slice, wait_until)) => {
-                    (current_epoch, current_epoch_slice, wait_until)
+                    break (current_epoch, current_epoch_slice, wait_until);
                 }
-                Err(_e) => {
-                    // sleep and try again (only one retry)
+                Err(WaitUntilError::TooLow(d1, d2)) => {
+
+                    // Wait until is too low (according to const WAIT_UNTIL_MIN_DURATION)
+                    // so we will retry (WAIT_UNTIL_MAX_COMPUTE_ERROR many times) after a short sleep
+
+                    debug!("compute_wait_until return TooLow, will retry after a sleep...");
                     tokio::time::sleep(WAIT_UNTIL_MIN_DURATION).await;
-                    self.compute_wait_until(&|| Utc::now(), &|| tokio::time::Instant::now())?
+                    retry_counter += 1;
+                    if retry_counter > WAIT_UNTIL_MAX_COMPUTE_ERROR {
+                        error!("Too many errors while computing the initial wait until, aborting...");
+                        return Err(AppError::EpochError(WaitUntilError::TooLow(d1, d2)));
+                    }
+                },
+                Err(e) => {
+
+                    // Another error (like OutOfRange) - exiting...
+
+                    error!("Error computing the initial wait until: {}", e);
+                    return Err(AppError::EpochError(e));
                 }
             };
+        };
 
-        debug!("wait until: {:?}", wait_until);
+        // debug!("wait until: {:?}", wait_until);
         *self.current_epoch.write() = (current_epoch.into(), current_epoch_slice.into());
+        debug!("Initial epoch: {}, epoch slice: {}", current_epoch, current_epoch_slice);
 
         loop {
             debug!("wait until: {:?}", wait_until);
@@ -146,7 +171,7 @@ impl EpochService {
     fn compute_current_epoch_slice<F: Fn() -> DateTime<Utc>>(
         now_date: NaiveDate,
         epoch_slice_duration: Duration,
-        now: F,
+        now: &F,
     ) -> i64 {
         debug_assert!(epoch_slice_duration.as_secs() > 0);
         debug_assert!(i32::try_from(epoch_slice_duration.as_secs()).is_ok());
@@ -242,17 +267,6 @@ mod tests {
     use futures::TryFutureExt;
     use std::sync::atomic::{AtomicU64, Ordering};
     use tracing_test::traced_test;
-
-    /*
-    #[tokio::test]
-    async fn test_wait_until_0() {
-        let wait_until = tokio::time::Instant::now() + Duration::from_secs(10);
-        println!("Should wait until: {:?}", wait_until);
-        tokio::time::sleep(Duration::from_secs(3)).await;
-        tokio::time::sleep_until(wait_until).await;
-        println!("Wake up at: {:?}", tokio::time::Instant::now());
-    }
-    */
 
     #[test]
     fn test_wait_until() {
@@ -416,7 +430,7 @@ mod tests {
 
         // Note: 4-minute diff -> expect == 2
         assert_eq!(
-            EpochService::compute_current_epoch_slice(now_date, epoch_slice_duration, now_f),
+            EpochService::compute_current_epoch_slice(now_date, epoch_slice_duration, &now_f),
             2
         );
         // Note: 5 minutes and 59 seconds diff -> still expect == 2
@@ -424,7 +438,7 @@ mod tests {
             EpochService::compute_current_epoch_slice(
                 now_date,
                 epoch_slice_duration,
-                Box::new(now_f_2)
+                &Box::new(now_f_2)
             ),
             2
         );
@@ -433,7 +447,7 @@ mod tests {
             EpochService::compute_current_epoch_slice(
                 now_date,
                 epoch_slice_duration,
-                Box::new(now_f_3)
+                &Box::new(now_f_3)
             ),
             3
         );
@@ -458,17 +472,21 @@ mod tests {
         let counter_0 = Arc::new(AtomicU64::new(0));
         let counter = counter_0.clone();
 
+        let start = std::time::Instant::now();
         let res = tokio::try_join!(
             epoch_service
                 .listen_for_new_epoch()
                 .map_err(|e| AppErrorExt::AppError(e)),
-            // Wait for 3 epoch slices + 100 ms (to wait to receive notif + counter incr)
+            // Wait for 3 epoch slices
+            // + WAIT_UNTIL_MIN_DURATION * 2 (expect a maximum of 2 retry)
+            // + 500 ms (to wait to receive notif + counter incr)
+            // Note: this might fail if there is more retry (see list_for_new_epoch code)
             tokio::time::timeout(
-                epoch_slice_duration * 3 + Duration::from_millis(500),
+                epoch_slice_duration * 3 + WAIT_UNTIL_MIN_DURATION * 2 + Duration::from_millis(500),
                 async move {
                     loop {
                         notifier.notified().await;
-                        debug!("[Notified] Epoch update...");
+                        // debug!("[Notified] Epoch update...");
                         let _v = counter.fetch_add(1, Ordering::SeqCst);
                     }
                     // Ok::<(), AppErrorExt>(())
@@ -476,6 +494,9 @@ mod tests {
             )
             .map_err(|_e| AppErrorExt::Elapsed)
         );
+
+        debug!("Elapsed time: {}", start.elapsed().as_millis());
+        // debug!("res: {:?}", res);
         assert!(matches!(res, Err(AppErrorExt::Elapsed)));
         assert_eq!(counter_0.load(Ordering::SeqCst), 3);
     }
