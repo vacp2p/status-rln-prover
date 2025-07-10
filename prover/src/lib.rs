@@ -29,9 +29,6 @@ use tracing::{
     // info
 };
 // internal
-use rln_proof::RlnIdentifier;
-use smart_contract::KarmaTiersSC::KarmaTiersSCInstance;
-use smart_contract::TIER_LIMITS;
 pub use crate::args::{AppArgs, AppArgsConfig};
 use crate::epoch_service::EpochService;
 use crate::grpc_service::GrpcProverService;
@@ -42,6 +39,9 @@ use crate::tier::TierLimits;
 use crate::tiers_listener::TiersListener;
 use crate::user_db_service::UserDbService;
 use crate::user_db_types::RateLimit;
+use rln_proof::RlnIdentifier;
+use smart_contract::KarmaTiersSC::KarmaTiersSCInstance;
+use smart_contract::TIER_LIMITS;
 
 const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
 const PROVER_SPAM_LIMIT: RateLimit = RateLimit::new(10_000u64);
@@ -49,8 +49,9 @@ const GENESIS: DateTime<Utc> = DateTime::from_timestamp(1431648000, 0).unwrap();
 const PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION: U256 =
     U256::from_le_slice(10u64.to_le_bytes().as_slice());
 
-pub async fn run_prover(app_args: AppArgs) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-
+pub async fn run_prover(
+    app_args: AppArgs,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     // Epoch
     let epoch_service = EpochService::try_from((Duration::from_secs(60 * 2), GENESIS))
         .expect("Failed to create epoch service");
@@ -61,7 +62,7 @@ pub async fn run_prover(app_args: AppArgs) -> Result<(), Box<dyn std::error::Err
                 app_args.ws_rpc_url.clone().unwrap(),
                 app_args.tsc_address.unwrap(),
             )
-                .await?,
+            .await?,
         )
     } else {
         // mock
@@ -199,29 +200,22 @@ mod tests {
     use std::str::FromStr;
     use std::sync::Arc;
     // third-party
-    use tokio::task;
-    use tonic::Response;
-    use alloy::{
-        primitives::{Address, U256},
-    };
-    use tracing::info;
-    use tracing_test::traced_test;
+    use alloy::primitives::{Address, U256};
     use futures::FutureExt;
     use parking_lot::RwLock;
+    use tokio::task;
+    use tonic::Response;
+    use tracing::info;
+    use tracing_test::traced_test;
     // internal
-    use crate::grpc_service::prover_proto::{
-        Address as GrpcAddress,
-        U256 as GrpcU256,
-        Wei as GrpcWei,
-        GetUserTierInfoReply, GetUserTierInfoRequest,
-        RegisterUserReply, RegisterUserRequest, RegistrationStatus,
-        SendTransactionRequest, SendTransactionReply,
-        RlnProofFilter, RlnProofReply
-    };
     use crate::grpc_service::prover_proto::rln_prover_client::RlnProverClient;
+    use crate::grpc_service::prover_proto::{
+        Address as GrpcAddress, GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply,
+        RegisterUserRequest, RegistrationStatus, RlnProofFilter, RlnProofReply,
+        SendTransactionReply, SendTransactionRequest, U256 as GrpcU256, Wei as GrpcWei,
+    };
 
     async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
-
         let chain_id = GrpcU256 {
             // FIXME: LE or BE?
             value: U256::from(1).to_le_bytes::<32>().to_vec(),
@@ -247,20 +241,18 @@ mod tests {
         };
 
         let request = tonic::Request::new(request_0);
-        let response: Response<SendTransactionReply> = client.send_transaction(request).await.unwrap();
+        let response: Response<SendTransactionReply> =
+            client.send_transaction(request).await.unwrap();
         assert_eq!(response.into_inner().result, true);
     }
 
     async fn proof_collector(port: u16) -> Vec<RlnProofReply> {
-
-        let result= Arc::new(RwLock::new(vec![]));
+        let result = Arc::new(RwLock::new(vec![]));
 
         let url = format!("http://127.0.0.1:{}", port);
         let mut client = RlnProverClient::connect(url).await.unwrap();
 
-        let request_0 = RlnProofFilter {
-            address: None,
-        };
+        let request_0 = RlnProofFilter { address: None };
 
         let request = tonic::Request::new(request_0);
         let stream_ = client.get_proofs(request).await.unwrap();
@@ -279,30 +271,27 @@ mod tests {
     }
 
     async fn register_users(port: u16, addresses: Vec<Address>) {
-
         let url = format!("http://127.0.0.1:{}", port);
         let mut client = RlnProverClient::connect(url).await.unwrap();
 
         for address in addresses {
-
             let addr = GrpcAddress {
                 value: address.to_vec(),
             };
 
-            let request_0 = RegisterUserRequest {
-                user: Some(addr),
-            };
+            let request_0 = RegisterUserRequest { user: Some(addr) };
             let request = tonic::Request::new(request_0);
-            let response: Response<RegisterUserReply> = client.register_user(request).await.unwrap();
+            let response: Response<RegisterUserReply> =
+                client.register_user(request).await.unwrap();
 
             assert_eq!(
                 RegistrationStatus::try_from(response.into_inner().status).unwrap(),
-                RegistrationStatus::Success);
+                RegistrationStatus::Success
+            );
         }
     }
 
     async fn query_user_info(port: u16, addresses: Vec<Address>) -> Vec<GetUserTierInfoReply> {
-
         let url = format!("http://127.0.0.1:{}", port);
         let mut client = RlnProverClient::connect(url).await.unwrap();
 
@@ -311,11 +300,10 @@ mod tests {
             let addr = GrpcAddress {
                 value: address.to_vec(),
             };
-            let request_0 = GetUserTierInfoRequest {
-                user: Some(addr),
-            };
+            let request_0 = GetUserTierInfoRequest { user: Some(addr) };
             let request = tonic::Request::new(request_0);
-            let resp: Response<GetUserTierInfoReply> = client.get_user_tier_info(request).await.unwrap();
+            let resp: Response<GetUserTierInfoReply> =
+                client.get_user_tier_info(request).await.unwrap();
 
             result.push(resp.into_inner());
         }
@@ -326,7 +314,6 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_grpc_register_users() {
-
         let addresses = vec![
             Address::from_str("0xd8da6bf26964af9d7eed9e03e53415d37aa96045").unwrap(),
             Address::from_str("0xb20a608c624Ca5003905aA834De7156C68b2E1d0").unwrap(),
@@ -373,7 +360,6 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_grpc_gen_proof() {
-
         let addresses = vec![
             Address::from_str("0xd8da6bf26964af9d7eed9e03e53415d37aa96045").unwrap(),
             Address::from_str("0xb20a608c624Ca5003905aA834De7156C68b2E1d0").unwrap(),
@@ -414,8 +400,7 @@ mod tests {
         let proof_count = 1;
         let mut set = JoinSet::new();
         set.spawn(
-            proof_sender(port, addresses.clone(), proof_count)
-                .map(|_| vec![]) // JoinSet require having the same return type
+            proof_sender(port, addresses.clone(), proof_count).map(|_| vec![]), // JoinSet require having the same return type
         );
         set.spawn(proof_collector(port));
         let res = set.join_all().await;

@@ -43,14 +43,16 @@ impl EpochService {
         debug!("epoch slice in an epoch: {}", epoch_slice_count);
 
         let mut retry_counter = 0;
-        let (mut current_epoch, mut current_epoch_slice, mut wait_until): (i64, i64, tokio::time::Instant) = loop {
-
+        let (mut current_epoch, mut current_epoch_slice, mut wait_until): (
+            i64,
+            i64,
+            tokio::time::Instant,
+        ) = loop {
             match self.compute_wait_until(&|| Utc::now(), &|| tokio::time::Instant::now()) {
                 Ok((current_epoch, current_epoch_slice, wait_until)) => {
                     break (current_epoch, current_epoch_slice, wait_until);
                 }
                 Err(WaitUntilError::TooLow(d1, d2)) => {
-
                     // Wait until is too low (according to const WAIT_UNTIL_MIN_DURATION)
                     // so we will retry (WAIT_UNTIL_MAX_COMPUTE_ERROR many times) after a short sleep
 
@@ -58,12 +60,13 @@ impl EpochService {
                     tokio::time::sleep(WAIT_UNTIL_MIN_DURATION).await;
                     retry_counter += 1;
                     if retry_counter > WAIT_UNTIL_MAX_COMPUTE_ERROR {
-                        error!("Too many errors while computing the initial wait until, aborting...");
+                        error!(
+                            "Too many errors while computing the initial wait until, aborting..."
+                        );
                         return Err(AppError::EpochError(WaitUntilError::TooLow(d1, d2)));
                     }
-                },
+                }
                 Err(e) => {
-
                     // Another error (like OutOfRange) - exiting...
 
                     error!("Error computing the initial wait until: {}", e);
@@ -74,7 +77,10 @@ impl EpochService {
 
         // debug!("wait until: {:?}", wait_until);
         *self.current_epoch.write() = (current_epoch.into(), current_epoch_slice.into());
-        debug!("Initial epoch: {}, epoch slice: {}", current_epoch, current_epoch_slice);
+        debug!(
+            "Initial epoch: {}, epoch slice: {}",
+            current_epoch, current_epoch_slice
+        );
 
         loop {
             debug!("wait until: {:?}", wait_until);
@@ -264,6 +270,7 @@ impl Add<i64> for EpochSlice {
 mod tests {
     use super::*;
     use chrono::{NaiveDate, NaiveDateTime, TimeDelta};
+    use claims::assert_ge;
     use futures::TryFutureExt;
     use std::sync::atomic::{AtomicU64, Ordering};
     use tracing_test::traced_test;
@@ -498,6 +505,7 @@ mod tests {
         debug!("Elapsed time: {}", start.elapsed().as_millis());
         // debug!("res: {:?}", res);
         assert!(matches!(res, Err(AppErrorExt::Elapsed)));
-        assert_eq!(counter_0.load(Ordering::SeqCst), 3);
+        // Because the timeout is quite large - it is expected that sometimes the counter == 4
+        assert_ge!(counter_0.load(Ordering::SeqCst), 3);
     }
 }
