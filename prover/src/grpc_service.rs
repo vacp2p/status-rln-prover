@@ -8,6 +8,11 @@ use async_channel::Sender;
 use bytesize::ByteSize;
 use futures::TryFutureExt;
 use http::Method;
+use metrics::{
+    counter,
+    // gauge,
+    // histogram
+};
 use num_bigint::BigUint;
 use tokio::sync::{broadcast, mpsc};
 use tonic::{
@@ -39,6 +44,7 @@ pub mod prover_proto {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
         tonic::include_file_descriptor_set!("prover_descriptor");
 }
+use crate::metrics::{USER_REGISTERED, USER_REGISTERED_REQUESTS};
 use crate::user_db_error::RegisterError;
 use prover_proto::{
     GetUserTierInfoReply,
@@ -154,6 +160,7 @@ where
         request: Request<RegisterUserRequest>,
     ) -> Result<Response<RegisterUserReply>, Status> {
         debug!("register_user request: {:?}", request);
+        counter!(USER_REGISTERED_REQUESTS.name, "service" => "grpc").increment(1);
 
         let req = request.into_inner();
         let user = if let Some(user) = req.user {
@@ -192,6 +199,8 @@ where
         let reply = RegisterUserReply {
             status: status.into(),
         };
+
+        counter!(USER_REGISTERED.name, "service" => "grpc").increment(1);
         Ok(Response::new(reply))
     }
 

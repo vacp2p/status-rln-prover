@@ -37,6 +37,9 @@ nom = "8.0"
 claims = "0.8"
 clap_config = "0.1"
 toml = "0.8"
+metrics = "0.24"
+metrics-exporter-prometheus = "0.17"
+metrics-util = "0.20"
 rln = { git = "https://github.com/vacp2p/zerokit", features = ["pmtree-ft"] }
 zerokit_utils = { git = "https://github.com/vacp2p/zerokit", package = "zerokit_utils", features = ["default"] }
 rln_proof = { path = "../rln_proof" }

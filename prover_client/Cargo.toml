@@ -1,0 +1,15 @@
+[package]
+name = "prover_client"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# TODO: workspace?
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+# TODO: workspace?
+tonic = "0.13.1"
+prost = "0.13"
+alloy.workspace = true
+
+[build-dependencies]
+tonic-build = "*"
