@@ -10,11 +10,7 @@ use tracing::{
 };
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 // internal
-use prover::{
-    run_prover,
-    AppArgs,
-    AppArgsConfig,
-};
+use prover::{AppArgs, AppArgsConfig, run_prover};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
