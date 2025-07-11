@@ -91,6 +91,14 @@ pub struct AppArgs {
         help_heading = "config"
     )]
     pub no_config: Option<bool>,
+    #[arg(
+        long = "metrics-ip",
+        default_value = "::1",
+        help = "Prometheus Metrics ip"
+    )]
+    pub metrics_ip: IpAddr,
+    #[arg(long = "metrics-port", default_value = "30031", help = "Metrics port")]
+    pub metrics_port: u16,
     // Hidden option - expect user set it via a config file
     #[arg(
         long = "broadcast-channel-size",

@@ -10,7 +10,7 @@ use tracing::{
 };
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 // internal
-use prover::{AppArgs, AppArgsConfig, run_prover};
+use prover::{AppArgs, AppArgsConfig, metrics::init_metrics, run_prover};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
@@ -55,6 +55,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>
     } else if app_args.mock_sc.is_none() {
         return Err("Please provide rpc url (--ws-rpc-url) or mock (--mock-sc)".into());
     }
+
+    init_metrics(app_args.metrics_ip, &app_args.metrics_port);
 
     run_prover(app_args).await
 }

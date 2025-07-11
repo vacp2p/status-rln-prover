@@ -4,6 +4,7 @@ members = [
     "smart_contract",
     "prover",
     "prover_cli",
+    "prover_client",
 ]
 resolver = "2"
 

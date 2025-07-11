@@ -4,6 +4,7 @@ use std::sync::Arc;
 use ark_bn254::Fr;
 use ark_serialize::CanonicalSerialize;
 use async_channel::Receiver;
+use metrics::histogram;
 use parking_lot::RwLock;
 use rln::hashers::hash_to_field;
 use rln::protocol::serialize_proof_values;
@@ -15,6 +16,7 @@ use crate::proof_generation::{ProofGenerationData, ProofSendingData};
 use crate::user_db::UserDb;
 use crate::user_db_types::RateLimit;
 use rln_proof::{RlnData, compute_rln_proof_and_values};
+use crate::metrics::PROOF_SERVICE_GEN_PROOF_TIME;
 
 const PROOF_SIZE: usize = 512;
 
@@ -49,6 +51,7 @@ impl ProofService {
     }
 
     pub(crate) async fn serve(&self) -> Result<(), AppError> {
+
         loop {
             let received = self.receiver.recv().await;
 
@@ -66,6 +69,9 @@ impl ProofService {
 
             // Move to a task (as generating the proof can take quite some time)
             let blocking_task = tokio::task::spawn_blocking(move || {
+
+                let proof_generation_start = std::time::Instant::now();
+
                 let message_id = {
                     let mut m_id = proof_generation_data.tx_counter;
                     // Note: Zerokit can only recover user secret hash with 2 messages with the
@@ -111,6 +117,9 @@ impl ProofService {
                 output_buffer
                     .write_all(&serialize_proof_values(&proof_values))
                     .map_err(ProofGenerationError::SerializationWrite)?;
+
+                histogram!(PROOF_SERVICE_GEN_PROOF_TIME.name, "prover" => "proof service")
+                    .record(proof_generation_start.elapsed().as_secs_f64());
 
                 Ok::<Vec<u8>, ProofGenerationError>(output_buffer.into_inner())
             });

@@ -4,11 +4,13 @@ use std::time::Duration;
 // third-party
 use chrono::{DateTime, NaiveDate, NaiveDateTime, OutOfRangeError, TimeDelta, Utc};
 use derive_more::{Deref, From, Into};
+use metrics::{gauge, histogram};
 use parking_lot::RwLock;
 use tokio::sync::Notify;
 use tracing::{debug, error};
 // internal
 use crate::error::AppError;
+use crate::metrics::{EPOCH_SERVICE_CURRENT_EPOCH, EPOCH_SERVICE_CURRENT_EPOCH_SLICE, EPOCH_SERVICE_DRIFT_MILLIS};
 
 /// Duration of an epoch (1 day)
 const EPOCH_DURATION: Duration = Duration::from_secs(TimeDelta::days(1).num_seconds() as u64);
@@ -89,7 +91,9 @@ impl EpochService {
             {
                 let now_ = tokio::time::Instant::now();
                 debug!("awake at: {:?}, drift by: {:?}", now_, now_ - wait_until);
+                histogram!(EPOCH_SERVICE_DRIFT_MILLIS.name, "prover" => "epoch service").record(now_ - wait_until);
             }
+
             // Note: could use checked_add() here, but it's quite impossible to have an overflow here
             //       it would mean that the epoch_slice_duration is insanely large and wait_until
             //       overflows as a timestamp
@@ -105,6 +109,11 @@ impl EpochService {
                 "epoch: {}, epoch slice: {}",
                 current_epoch, current_epoch_slice
             );
+
+            // Note: based on this link https://doc.rust-lang.org/reference/expressions/operator-expr.html#type-cast-expressions
+            //       "Casting from an integer to float will produce the closest possible float *"
+            gauge!(EPOCH_SERVICE_CURRENT_EPOCH.name, "prover" => "epoch service").set(i64::from(current_epoch) as f64);
+            gauge!(EPOCH_SERVICE_CURRENT_EPOCH_SLICE.name, "prover" => "epoch service").set(i64::from(current_epoch_slice) as f64);
 
             // println!("Epoch changed: {}", current_epoch);
             self.epoch_changes.notify_one();
