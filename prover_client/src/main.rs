@@ -9,7 +9,8 @@ pub mod prover_proto {
 }
 
 use prover_proto::{
-    Address as GrpcAddress, RegisterUserReply, RegisterUserRequest, RegistrationStatus,
+    Address as GrpcAddress, RegisterUserReply, RegisterUserRequest,
+    // RegistrationStatus,
     rln_prover_client::RlnProverClient,
 };
 

@@ -1,4 +1,5 @@
 use std::net::{IpAddr, SocketAddr};
+use metrics::gauge;
 // third-party
 use metrics_exporter_prometheus::PrometheusBuilder;
 // use metrics_util::MetricKindMask;
@@ -15,16 +16,59 @@ pub struct Metric {
 
 pub const USER_REGISTERED_REQUESTS: Metric = Metric {
     name: "user_registered_requests",
-    description: "",
+    description: "Number of RegisterUser grpc requests",
 };
 pub const USER_REGISTERED: Metric = Metric {
     name: "user_registered",
-    description: "",
+    description: "Number of registered users in the prover",
+};
+pub const SEND_TRANSACTION_REQUESTS: Metric = Metric {
+    name: "send_transaction_requests",
+    description: "Number of SendTransaction grpc requests",
 };
 
-pub const COUNTERS: [Metric; 2] = [USER_REGISTERED, USER_REGISTERED_REQUESTS];
-pub const GAUGES: [Metric; 0] = [];
-pub const HISTOGRAMS: [Metric; 0] = [];
+pub const GET_USER_TIER_INFO_REQUESTS: Metric = Metric {
+    name: "get_user_tier_info_requests",
+    description: "Number of GetUserTierInfo grpc requests",
+};
+
+pub const EPOCH_SERVICE_CURRENT_EPOCH: Metric = Metric {
+    name: "epoch_service_current_epoch",
+    description: "Current epoch in the epoch service",
+};
+
+pub const EPOCH_SERVICE_CURRENT_EPOCH_SLICE: Metric = Metric {
+    name: "epoch_service_current_epoch_slice",
+    description: "Current epoch slice in the epoch service",
+};
+
+pub const EPOCH_SERVICE_DRIFT_MILLIS: Metric = Metric {
+    name: "epoch_service_drift_millis",
+    description: "Drift in milliseconds (when epoch service is waiting for the next epoch slice)",
+};
+
+pub const PROOF_SERVICE_GEN_PROOF_TIME: Metric = Metric {
+    name: "proof_service_gen_proof_time",
+    description: "Generation time of a proof in milliseconds",
+};
+
+pub const GET_PROOFS_LISTENERS: Metric = Metric {
+    name: "get_proof_listeners",
+    description: "Current number of active subscription to grpc get_proofs server streaming endpoint",
+};
+
+pub const COUNTERS: [Metric; 4] = [
+    USER_REGISTERED,
+    USER_REGISTERED_REQUESTS,
+    SEND_TRANSACTION_REQUESTS,
+    GET_USER_TIER_INFO_REQUESTS
+];
+pub const GAUGES: [Metric; 3] = [
+    EPOCH_SERVICE_CURRENT_EPOCH,
+    EPOCH_SERVICE_CURRENT_EPOCH_SLICE,
+    GET_PROOFS_LISTENERS,
+];
+pub const HISTOGRAMS: [Metric; 2] = [EPOCH_SERVICE_DRIFT_MILLIS, PROOF_SERVICE_GEN_PROOF_TIME];
 
 pub fn init_metrics(ip: IpAddr, port: &u16) {
     info!("Initializing metrics exporter (port: {})", port);
@@ -72,4 +116,31 @@ fn register_gauge(metric: Metric) {
 fn register_histogram(metric: Metric) {
     metrics::describe_histogram!(metric.name, metric.description);
     let _histogram = ::metrics::histogram!(metric.name);
+}
+
+/// A Wrapper around a metric gauge 
+/// 
+/// Increment the given metric gauge on a new and decrement on drop
+/// Useful in a closure (or an async closure)
+pub struct GaugeWrapper {
+    gauge_name: &'static str,
+    gauge_app: &'static str,
+    gauge_label: &'static str,
+}
+
+impl GaugeWrapper {
+    pub fn new(gauge_name: &'static str, gauge_app: &'static str, gauge_label: &'static str) -> Self {
+        gauge!(gauge_name, gauge_app => gauge_label).increment(1.0);
+        Self {
+            gauge_name,
+            gauge_app,
+            gauge_label,
+        }
+    }
+}
+
+impl Drop for GaugeWrapper {
+    fn drop(&mut self) {
+        gauge!(self.gauge_name, self.gauge_app => self.gauge_label).decrement(1.0);
+    }
 }

@@ -8,11 +8,7 @@ use async_channel::Sender;
 use bytesize::ByteSize;
 use futures::TryFutureExt;
 use http::Method;
-use metrics::{
-    counter,
-    // gauge,
-    // histogram
-};
+use metrics::counter;
 use num_bigint::BigUint;
 use tokio::sync::{broadcast, mpsc};
 use tonic::{
@@ -26,6 +22,8 @@ use url::Url;
 use crate::error::{AppError, ProofGenerationStringError};
 use crate::proof_generation::{ProofGenerationData, ProofSendingData};
 use crate::user_db::{UserDb, UserTierInfo};
+use crate::metrics::{USER_REGISTERED, USER_REGISTERED_REQUESTS, SEND_TRANSACTION_REQUESTS, GET_USER_TIER_INFO_REQUESTS, GET_PROOFS_LISTENERS, GaugeWrapper};
+use crate::user_db_error::RegisterError;
 use rln_proof::RlnIdentifier;
 use smart_contract::{
     KarmaAmountExt,
@@ -44,8 +42,6 @@ pub mod prover_proto {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
         tonic::include_file_descriptor_set!("prover_descriptor");
 }
-use crate::metrics::{USER_REGISTERED, USER_REGISTERED_REQUESTS};
-use crate::user_db_error::RegisterError;
 use prover_proto::{
     GetUserTierInfoReply,
     GetUserTierInfoRequest,
@@ -106,6 +102,8 @@ where
         &self,
         request: Request<SendTransactionRequest>,
     ) -> Result<Response<SendTransactionReply>, Status> {
+
+        counter!(SEND_TRANSACTION_REQUESTS.name, "service" => "grpc").increment(1);
         debug!("send_transaction request: {:?}", request);
         let req = request.into_inner();
 
@@ -210,13 +208,20 @@ where
         &self,
         request: Request<RlnProofFilter>,
     ) -> Result<Response<Self::GetProofsStream>, Status> {
+
         debug!("get_proofs request: {:?}", request);
+        let gauge = GaugeWrapper::new(GET_PROOFS_LISTENERS.name, "service", "grpc");
+
         // Channel to send proof to the connected grpc client (aka the Verifier)
         let (tx, rx) = mpsc::channel(self.proof_sender_channel_size);
         // Channel to receive a RLN proof (from one proof service)
         let mut rx2 = self.broadcast_channel.0.subscribe();
         tokio::spawn(async move {
+
             // FIXME: Should we send the error here?
+
+            let gauge_ = gauge;
+
             while let Ok(Ok(data)) = rx2.recv().await {
                 let rln_proof = RlnProof {
                     sender: data.tx_sender.to_vec(),
@@ -233,6 +238,9 @@ where
                     break;
                 };
             }
+
+            // Note: will be dropped anyway but better be explicit here :)
+            drop(gauge_);
         });
 
         Ok(Response::new(ReceiverStream::new(rx)))
@@ -242,7 +250,9 @@ where
         &self,
         request: Request<GetUserTierInfoRequest>,
     ) -> Result<Response<GetUserTierInfoReply>, Status> {
+
         debug!("request: {:?}", request);
+        counter!(GET_USER_TIER_INFO_REQUESTS.name, "service" => "grpc").increment(1);
 
         let req = request.into_inner();
 
