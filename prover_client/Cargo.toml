@@ -9,6 +9,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 # TODO: workspace?
 tonic = "0.13.1"
 prost = "0.13"
+clap = { version = "4.5.40", features = ["derive", "wrap_help"] }
 alloy.workspace = true
 
 [build-dependencies]

@@ -16,7 +16,7 @@ use tonic::{
 };
 use tonic_web::GrpcWebLayer;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::debug;
+use tracing::{debug};
 use url::Url;
 // internal
 use crate::error::{AppError, ProofGenerationStringError};
@@ -98,6 +98,7 @@ where
     RLNSC: RLNRegister + Send + Sync + 'static,
     RLNSC::Error: std::error::Error + Send + Sync + 'static,
 {
+    #[tracing::instrument(skip(self))]
     async fn send_transaction(
         &self,
         request: Request<SendTransactionRequest>,
@@ -153,10 +154,12 @@ where
         Ok(Response::new(reply))
     }
 
+    #[tracing::instrument(skip(self))]
     async fn register_user(
         &self,
         request: Request<RegisterUserRequest>,
     ) -> Result<Response<RegisterUserReply>, Status> {
+
         debug!("register_user request: {:?}", request);
         counter!(USER_REGISTERED_REQUESTS.name, "service" => "grpc").increment(1);
 
@@ -204,6 +207,7 @@ where
 
     type GetProofsStream = ReceiverStream<Result<RlnProofReply, Status>>;
 
+    #[tracing::instrument(skip(self))]
     async fn get_proofs(
         &self,
         request: Request<RlnProofFilter>,
@@ -246,6 +250,7 @@ where
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 
+    #[tracing::instrument(skip(self))]
     async fn get_user_tier_info(
         &self,
         request: Request<GetUserTierInfoRequest>,

@@ -7,7 +7,7 @@ use derive_more::{Deref, From, Into};
 use metrics::{gauge, histogram};
 use parking_lot::RwLock;
 use tokio::sync::Notify;
-use tracing::{debug, error};
+use tracing::{debug, error, instrument};
 // internal
 use crate::error::AppError;
 use crate::metrics::{EPOCH_SERVICE_CURRENT_EPOCH, EPOCH_SERVICE_CURRENT_EPOCH_SLICE, EPOCH_SERVICE_DRIFT_MILLIS};
@@ -39,6 +39,7 @@ pub struct EpochService {
 }
 
 impl EpochService {
+    #[instrument(skip(self), fields(self.epoch_slice_duration, self.genesis, self.current_epoch))]
     pub(crate) async fn listen_for_new_epoch(&self) -> Result<(), AppError> {
         let epoch_slice_count =
             Self::compute_epoch_slice_count(EPOCH_DURATION, self.epoch_slice_duration);

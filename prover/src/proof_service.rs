@@ -8,7 +8,7 @@ use metrics::histogram;
 use parking_lot::RwLock;
 use rln::hashers::hash_to_field;
 use rln::protocol::serialize_proof_values;
-use tracing::{debug, info};
+use tracing::{debug, debug_span, info, Instrument};
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::{AppError, ProofGenerationError, ProofGenerationStringError};
@@ -124,7 +124,9 @@ impl ProofService {
                 Ok::<Vec<u8>, ProofGenerationError>(output_buffer.into_inner())
             });
 
-            let result = blocking_task.await;
+            let result = blocking_task
+                .instrument(debug_span!("compute proof"))
+                .await;
             // Result (1st) is a JoinError (and should not happen)
             // Result (2nd) is a ProofGenerationError
             let result = result.unwrap(); // Should never happen (but should panic if it does)
