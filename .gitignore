@@ -1,5 +1,8 @@
 /target
 
+# local run
+/storage
+
 # heaptrack
 *.zst
 perf.data

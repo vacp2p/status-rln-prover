@@ -3,6 +3,7 @@ mod args;
 mod epoch_service;
 mod error;
 mod grpc_service;
+pub mod metrics;
 mod mock;
 mod proof_generation;
 mod proof_service;
@@ -336,6 +337,8 @@ mod tests {
             mock_user: None,
             config_path: Default::default(),
             no_config: Some(true),
+            metrics_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            metrics_port: 30031,
             broadcast_channel_size: 100,
             proof_service_count: 8,
             transaction_channel_size: 100,
@@ -382,6 +385,8 @@ mod tests {
             mock_user: None,
             config_path: Default::default(),
             no_config: Some(true),
+            metrics_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            metrics_port: 30031,
             broadcast_channel_size: 100,
             proof_service_count: 8,
             transaction_channel_size: 100,
