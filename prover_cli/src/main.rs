@@ -20,16 +20,14 @@ const APP_NAME: &str = "prover-cli";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-
     // tracing
     let filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy()
         // TODO: Add a way to disable this for maximum log?
-        .add_directive("h2::error".parse()?)
+        .add_directive("h2=error".parse()?)
         .add_directive("sled::pagecache=error".parse()?)
-        .add_directive("opentelemetry_sdk=error".parse()?)
-        ;
+        .add_directive("opentelemetry_sdk=error".parse()?);
 
     let fmt_layer = tracing_subscriber::fmt::layer();
 
@@ -88,11 +86,12 @@ fn create_otlp_tracer_provider() -> Option<opentelemetry_sdk::trace::SdkTracerPr
     if !std::env::vars().any(|(name, _)| name.starts_with("OTEL_")) {
         return None;
     }
-    let protocol =
-        std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL").unwrap_or("grpc".to_string());
+    let protocol = std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL").unwrap_or("grpc".to_string());
 
     let exporter = match protocol.as_str() {
         "grpc" => {
+            // Note - Performance:
+            // https://docs.rs/opentelemetry-otlp/latest/opentelemetry_otlp/index.html#performance
             let mut exporter = opentelemetry_otlp::SpanExporter::builder()
                 .with_tonic()
                 //.with_endpoint(...)
@@ -113,12 +112,10 @@ fn create_otlp_tracer_provider() -> Option<opentelemetry_sdk::trace::SdkTracerPr
             .with_http()
             .build()
             .expect("Failed to create http/protobuf exporter"),
-        p => panic!("Unsupported protocol {}", p),
+        p => panic!("Unsupported protocol {p}"),
     };
 
-    let resource = Resource::builder()
-        .with_service_name(APP_NAME)
-        .build();
+    let resource = Resource::builder().with_service_name(APP_NAME).build();
 
     Some(
         opentelemetry_sdk::trace::SdkTracerProvider::builder()

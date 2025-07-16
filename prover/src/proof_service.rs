@@ -8,15 +8,15 @@ use metrics::histogram;
 use parking_lot::RwLock;
 use rln::hashers::hash_to_field;
 use rln::protocol::serialize_proof_values;
-use tracing::{debug, debug_span, info, Instrument};
+use tracing::{Instrument, debug, debug_span, info};
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::{AppError, ProofGenerationError, ProofGenerationStringError};
+use crate::metrics::PROOF_SERVICE_GEN_PROOF_TIME;
 use crate::proof_generation::{ProofGenerationData, ProofSendingData};
 use crate::user_db::UserDb;
 use crate::user_db_types::RateLimit;
 use rln_proof::{RlnData, compute_rln_proof_and_values};
-use crate::metrics::PROOF_SERVICE_GEN_PROOF_TIME;
 
 const PROOF_SIZE: usize = 512;
 
@@ -51,7 +51,6 @@ impl ProofService {
     }
 
     pub(crate) async fn serve(&self) -> Result<(), AppError> {
-
         loop {
             let received = self.receiver.recv().await;
 
@@ -69,7 +68,6 @@ impl ProofService {
 
             // Move to a task (as generating the proof can take quite some time)
             let blocking_task = tokio::task::spawn_blocking(move || {
-
                 let proof_generation_start = std::time::Instant::now();
 
                 let message_id = {
@@ -124,9 +122,7 @@ impl ProofService {
                 Ok::<Vec<u8>, ProofGenerationError>(output_buffer.into_inner())
             });
 
-            let result = blocking_task
-                .instrument(debug_span!("compute proof"))
-                .await;
+            let result = blocking_task.instrument(debug_span!("compute proof")).await;
             // Result (1st) is a JoinError (and should not happen)
             // Result (2nd) is a ProofGenerationError
             let result = result.unwrap(); // Should never happen (but should panic if it does)

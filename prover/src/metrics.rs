@@ -1,5 +1,5 @@
-use std::net::{IpAddr, SocketAddr};
 use metrics::gauge;
+use std::net::{IpAddr, SocketAddr};
 // third-party
 use metrics_exporter_prometheus::PrometheusBuilder;
 // use metrics_util::MetricKindMask;
@@ -49,7 +49,7 @@ pub const EPOCH_SERVICE_DRIFT_MILLIS: Metric = Metric {
 
 pub const PROOF_SERVICE_GEN_PROOF_TIME: Metric = Metric {
     name: "proof_service_gen_proof_time",
-    description: "Generation time of a proof in milliseconds",
+    description: "Generation time of a proof in seconds",
 };
 
 pub const GET_PROOFS_LISTENERS: Metric = Metric {
@@ -61,7 +61,7 @@ pub const COUNTERS: [Metric; 4] = [
     USER_REGISTERED,
     USER_REGISTERED_REQUESTS,
     SEND_TRANSACTION_REQUESTS,
-    GET_USER_TIER_INFO_REQUESTS
+    GET_USER_TIER_INFO_REQUESTS,
 ];
 pub const GAUGES: [Metric; 3] = [
     EPOCH_SERVICE_CURRENT_EPOCH,
@@ -118,8 +118,8 @@ fn register_histogram(metric: Metric) {
     let _histogram = ::metrics::histogram!(metric.name);
 }
 
-/// A Wrapper around a metric gauge 
-/// 
+/// A Wrapper around a metric gauge
+///
 /// Increment the given metric gauge on a new and decrement on drop
 /// Useful in a closure (or an async closure)
 pub struct GaugeWrapper {
@@ -129,7 +129,11 @@ pub struct GaugeWrapper {
 }
 
 impl GaugeWrapper {
-    pub fn new(gauge_name: &'static str, gauge_app: &'static str, gauge_label: &'static str) -> Self {
+    pub fn new(
+        gauge_name: &'static str,
+        gauge_app: &'static str,
+        gauge_label: &'static str,
+    ) -> Self {
         gauge!(gauge_name, gauge_app => gauge_label).increment(1.0);
         Self {
             gauge_name,
