@@ -10,7 +10,9 @@ use tokio::sync::Notify;
 use tracing::{debug, error};
 // internal
 use crate::error::AppError;
-use crate::metrics::{EPOCH_SERVICE_CURRENT_EPOCH, EPOCH_SERVICE_CURRENT_EPOCH_SLICE, EPOCH_SERVICE_DRIFT_MILLIS};
+use crate::metrics::{
+    EPOCH_SERVICE_CURRENT_EPOCH, EPOCH_SERVICE_CURRENT_EPOCH_SLICE, EPOCH_SERVICE_DRIFT_MILLIS,
+};
 
 /// Duration of an epoch (1 day)
 const EPOCH_DURATION: Duration = Duration::from_secs(TimeDelta::days(1).num_seconds() as u64);
@@ -39,6 +41,9 @@ pub struct EpochService {
 }
 
 impl EpochService {
+    // Note: listen_for_new_epoch never ends so no log will happen with #[instrument]
+    //       + metrics already tracks the current epoch / epoch_slice
+    // #[instrument(skip(self), fields(self.epoch_slice_duration, self.genesis, self.current_epoch))]
     pub(crate) async fn listen_for_new_epoch(&self) -> Result<(), AppError> {
         let epoch_slice_count =
             Self::compute_epoch_slice_count(EPOCH_DURATION, self.epoch_slice_duration);
@@ -91,7 +96,8 @@ impl EpochService {
             {
                 let now_ = tokio::time::Instant::now();
                 debug!("awake at: {:?}, drift by: {:?}", now_, now_ - wait_until);
-                histogram!(EPOCH_SERVICE_DRIFT_MILLIS.name, "prover" => "epoch service").record(now_ - wait_until);
+                histogram!(EPOCH_SERVICE_DRIFT_MILLIS.name, "prover" => "epoch service")
+                    .record(now_ - wait_until);
             }
 
             // Note: could use checked_add() here, but it's quite impossible to have an overflow here
@@ -112,8 +118,10 @@ impl EpochService {
 
             // Note: based on this link https://doc.rust-lang.org/reference/expressions/operator-expr.html#type-cast-expressions
             //       "Casting from an integer to float will produce the closest possible float *"
-            gauge!(EPOCH_SERVICE_CURRENT_EPOCH.name, "prover" => "epoch service").set(i64::from(current_epoch) as f64);
-            gauge!(EPOCH_SERVICE_CURRENT_EPOCH_SLICE.name, "prover" => "epoch service").set(i64::from(current_epoch_slice) as f64);
+            gauge!(EPOCH_SERVICE_CURRENT_EPOCH.name, "prover" => "epoch service")
+                .set(current_epoch as f64);
+            gauge!(EPOCH_SERVICE_CURRENT_EPOCH_SLICE.name, "prover" => "epoch service")
+                .set(current_epoch_slice as f64);
 
             // println!("Epoch changed: {}", current_epoch);
             self.epoch_changes.notify_one();

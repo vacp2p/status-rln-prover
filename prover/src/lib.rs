@@ -38,12 +38,12 @@ use crate::proof_service::ProofService;
 use crate::registry_listener::RegistryListener;
 use crate::tier::TierLimits;
 use crate::tiers_listener::TiersListener;
+use crate::user_db_error::RegisterError;
 use crate::user_db_service::UserDbService;
 use crate::user_db_types::RateLimit;
 use rln_proof::RlnIdentifier;
 use smart_contract::KarmaTiersSC::KarmaTiersSCInstance;
 use smart_contract::TIER_LIMITS;
-use crate::user_db_error::RegisterError;
 
 const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
 const PROVER_SPAM_LIMIT: RateLimit = RateLimit::new(10_000u64);
@@ -54,7 +54,6 @@ const PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION: U256 =
 pub async fn run_prover(
     app_args: AppArgs,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-
     // Epoch
     let epoch_service = EpochService::try_from((Duration::from_secs(60 * 2), GENESIS))
         .expect("Failed to create epoch service");
@@ -92,7 +91,6 @@ pub async fn run_prover(
             let mock_users = read_mock_user(user_filepath)?;
             debug!("Mock - will register {} users", mock_users.len());
             for mock_user in mock_users {
-
                 debug!(
                     "Registering user address: {} - tx count: {}",
                     mock_user.address, mock_user.tx_count
@@ -103,14 +101,13 @@ pub async fn run_prover(
                     match e {
                         RegisterError::AlreadyRegistered(_) => {
                             debug!("User {} already registered", mock_user.address);
-                        },
+                        }
                         _ => {
                             return Err(Box::new(e));
                         }
                     }
                 }
-                user_db
-                    .on_new_tx(&mock_user.address, Some(mock_user.tx_count))?;
+                user_db.on_new_tx(&mock_user.address, Some(mock_user.tx_count))?;
             }
         }
     }

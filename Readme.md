@@ -3,17 +3,24 @@
 ## Docker
 
 * docker build --progress=plain --no-cache -t prover .
-* sudo docker run -p 50051:50051 prover --mock-sc true --mock-user mock/mock_user_1.json
+* docker run -p 50051:50051 prover --mock-sc true --mock-user mock/mock_user_1.json
 
 ## Run prover
 
 RUST_LOG=debug cargo run -p prover_cli -- -i 127.0.0.1 -r "wss://eth-mainnet.g.alchemy.com/v2/__MY_TOKEN__"
 
-## Run prover + Mock
+### Run prover + Mock
 
-RUST_LOG=debug cargo run -p prover_cli -- -i 127.0.0.1 --metrics-ip 127.0.0.1 --mock-sc true --mock-user mock/mock_user_1.json 
+RUST_LOG=debug cargo run -p prover_cli -- -i 127.0.0.1 --metrics-ip 127.0.0.1 --mock-sc true --mock-user mock/mock_user_1.json
 
-## Run prover client (for tests)
+### Run prover + opentelemetry
+
+* Run jaeger (locally, port 16686 -> Web ui, port 4317 -> otlp/grpc, port 4318 -> otlp/http)
+  * docker run -d --name jaeger -e COLLECTOR_OTLP_ENABLED=true -p 16686:16686 -p 4317:4317 -p 4318:4318 jaegertracing/all-in-one:latest
+* Run prover:
+  * OTEL_EXPORTER_OTLP_PROTOCOL=grpc RUST_LOG=debug cargo run -p prover_cli -- -i 127.0.0.1 --metrics-ip 127.0.0.1 --mock-sc true --mock-user mock/mock_user_1.json 
+
+### Run prover client (for tests)
 
 RUST_LOG=debug cargo run -p prover_client
 

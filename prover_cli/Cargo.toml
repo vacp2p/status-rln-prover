@@ -11,5 +11,11 @@ tracing = "0.1.41"
 toml = "0.8"
 prover = { path = "../prover" }
 
+opentelemetry = { version = "0.30", default-features = false, features = ["trace"]}
+opentelemetry_sdk = { version = "0.30", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.30", features = ["grpc-tonic", "reqwest-client", "reqwest-rustls", "http-proto", "tls", "tls-roots"]}
+tracing-opentelemetry = "0.31"
+
+
 [dev-dependencies]
 tracing-test = "0.2.5"

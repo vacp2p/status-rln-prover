@@ -20,9 +20,12 @@ use tracing::debug;
 use url::Url;
 // internal
 use crate::error::{AppError, ProofGenerationStringError};
+use crate::metrics::{
+    GET_PROOFS_LISTENERS, GET_USER_TIER_INFO_REQUESTS, GaugeWrapper, SEND_TRANSACTION_REQUESTS,
+    USER_REGISTERED, USER_REGISTERED_REQUESTS,
+};
 use crate::proof_generation::{ProofGenerationData, ProofSendingData};
 use crate::user_db::{UserDb, UserTierInfo};
-use crate::metrics::{USER_REGISTERED, USER_REGISTERED_REQUESTS, SEND_TRANSACTION_REQUESTS, GET_USER_TIER_INFO_REQUESTS, GET_PROOFS_LISTENERS, GaugeWrapper};
 use crate::user_db_error::RegisterError;
 use rln_proof::RlnIdentifier;
 use smart_contract::{
@@ -98,11 +101,11 @@ where
     RLNSC: RLNRegister + Send + Sync + 'static,
     RLNSC::Error: std::error::Error + Send + Sync + 'static,
 {
+    #[tracing::instrument(skip(self), err, ret)]
     async fn send_transaction(
         &self,
         request: Request<SendTransactionRequest>,
     ) -> Result<Response<SendTransactionReply>, Status> {
-
         counter!(SEND_TRANSACTION_REQUESTS.name, "service" => "grpc").increment(1);
         debug!("send_transaction request: {:?}", request);
         let req = request.into_inner();
@@ -153,6 +156,7 @@ where
         Ok(Response::new(reply))
     }
 
+    #[tracing::instrument(skip(self), err, ret)]
     async fn register_user(
         &self,
         request: Request<RegisterUserRequest>,
@@ -204,11 +208,11 @@ where
 
     type GetProofsStream = ReceiverStream<Result<RlnProofReply, Status>>;
 
+    #[tracing::instrument(skip(self), err, ret)]
     async fn get_proofs(
         &self,
         request: Request<RlnProofFilter>,
     ) -> Result<Response<Self::GetProofsStream>, Status> {
-
         debug!("get_proofs request: {:?}", request);
         let gauge = GaugeWrapper::new(GET_PROOFS_LISTENERS.name, "service", "grpc");
 
@@ -217,7 +221,6 @@ where
         // Channel to receive a RLN proof (from one proof service)
         let mut rx2 = self.broadcast_channel.0.subscribe();
         tokio::spawn(async move {
-
             // FIXME: Should we send the error here?
 
             let gauge_ = gauge;
@@ -246,11 +249,11 @@ where
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 
+    #[tracing::instrument(skip(self), err, ret)]
     async fn get_user_tier_info(
         &self,
         request: Request<GetUserTierInfoRequest>,
     ) -> Result<Response<GetUserTierInfoReply>, Status> {
-
         debug!("request: {:?}", request);
         counter!(GET_USER_TIER_INFO_REQUESTS.name, "service" => "grpc").increment(1);
 
