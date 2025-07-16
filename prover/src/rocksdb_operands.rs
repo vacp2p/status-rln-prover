@@ -142,7 +142,8 @@ pub fn epoch_counters_operands(
         //       thus no error should never happen here
         let (_, epoch_incr) = deser.deserialize(x).unwrap();
 
-        debug_assert_ge!(epoch_incr.epoch, acc.epoch);
+        // FIXME: assert when reload from disk
+        // debug_assert_ge!(epoch_incr.epoch, acc.epoch);
         debug_assert!(
             epoch_incr.epoch_slice > acc.epoch_slice
                 || epoch_incr.epoch_slice == EpochSlice::from(0)

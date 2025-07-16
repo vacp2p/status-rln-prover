@@ -43,6 +43,7 @@ use crate::user_db_types::RateLimit;
 use rln_proof::RlnIdentifier;
 use smart_contract::KarmaTiersSC::KarmaTiersSCInstance;
 use smart_contract::TIER_LIMITS;
+use crate::user_db_error::RegisterError;
 
 const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
 const PROVER_SPAM_LIMIT: RateLimit = RateLimit::new(10_000u64);
@@ -53,6 +54,7 @@ const PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION: U256 =
 pub async fn run_prover(
     app_args: AppArgs,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+
     // Epoch
     let epoch_service = EpochService::try_from((Duration::from_secs(60 * 2), GENESIS))
         .expect("Failed to create epoch service");
@@ -87,19 +89,29 @@ pub async fn run_prover(
 
     if app_args.mock_sc.is_some() {
         if let Some(user_filepath) = app_args.mock_user.as_ref() {
-            let mock_users = read_mock_user(user_filepath).unwrap();
+            let mock_users = read_mock_user(user_filepath)?;
             debug!("Mock - will register {} users", mock_users.len());
-            mock_users.into_iter().for_each(|mock_user| {
+            for mock_user in mock_users {
+
                 debug!(
                     "Registering user address: {} - tx count: {}",
                     mock_user.address, mock_user.tx_count
                 );
+
                 let user_db = user_db_service.get_user_db();
-                user_db.on_new_user(&mock_user.address).unwrap();
+                if let Err(e) = user_db.on_new_user(&mock_user.address) {
+                    match e {
+                        RegisterError::AlreadyRegistered(_) => {
+                            debug!("User {} already registered", mock_user.address);
+                        },
+                        _ => {
+                            return Err(Box::new(e));
+                        }
+                    }
+                }
                 user_db
-                    .on_new_tx(&mock_user.address, Some(mock_user.tx_count))
-                    .unwrap();
-            })
+                    .on_new_tx(&mock_user.address, Some(mock_user.tx_count))?;
+            }
         }
     }
 
