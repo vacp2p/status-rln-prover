@@ -164,29 +164,30 @@ pub async fn run_prover(
     };
 
     let mut set = JoinSet::new();
-    for _i in 0..app_args.proof_service_count {
+    for i in 0..app_args.proof_service_count {
         let proof_recv = proof_receiver.clone();
         let broadcast_sender = tx.clone();
         let current_epoch = epoch_service.current_epoch.clone();
         let user_db = user_db_service.get_user_db();
 
-        set.spawn(async {
+        set.spawn(async move {
             let proof_service = ProofService::new(
                 proof_recv,
                 broadcast_sender,
                 current_epoch,
                 user_db,
                 PROVER_SPAM_LIMIT,
+                u64::from(i),
             );
             proof_service.serve().await
         });
     }
 
-    if registry_listener.is_some() {
-        set.spawn(async move { registry_listener.unwrap().listen().await });
+    if let Some(registry_listener) = registry_listener {
+        set.spawn(async move { registry_listener.listen().await });
     }
-    if tiers_listener.is_some() {
-        set.spawn(async move { tiers_listener.unwrap().listen().await });
+    if let Some(tiers_listener) = tiers_listener {
+        set.spawn(async move { tiers_listener.listen().await });
     }
     set.spawn(async move { epoch_service.listen_for_new_epoch().await });
     set.spawn(async move { user_db_service.listen_for_epoch_changes().await });

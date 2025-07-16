@@ -22,7 +22,10 @@ RUST_LOG=debug cargo run -p prover_cli -- -i 127.0.0.1 --metrics-ip 127.0.0.1 --
 
 ### Run prover client (for tests)
 
-RUST_LOG=debug cargo run -p prover_client
+* RUST_LOG=debug cargo run -p prover_client -- --help
+* RUST_LOG=debug cargo run -p prover_client -- -i 127.0.0.1 -p 42942 register-user
+* RUST_LOG=debug cargo run -p prover_client -- -i 127.0.0.1 -p 42942 send-transaction --tx-hash aa
+* RUST_LOG=debug cargo run -p prover_client -- -i 127.0.0.1 -p 42942 -a 0xd8da6bf26964af9d7eed9e03e53415d37aa96045 get-user-tier-info
 
 ## Debug
 

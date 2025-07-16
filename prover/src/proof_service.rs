@@ -4,7 +4,7 @@ use std::sync::Arc;
 use ark_bn254::Fr;
 use ark_serialize::CanonicalSerialize;
 use async_channel::Receiver;
-use metrics::histogram;
+use metrics::{counter, histogram};
 use parking_lot::RwLock;
 use rln::hashers::hash_to_field;
 use rln::protocol::serialize_proof_values;
@@ -12,7 +12,9 @@ use tracing::{Instrument, debug, debug_span, info};
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::{AppError, ProofGenerationError, ProofGenerationStringError};
-use crate::metrics::PROOF_SERVICE_GEN_PROOF_TIME;
+use crate::metrics::{
+    BROADCAST_CHANNEL_QUEUE_LEN, PROOF_SERVICE_GEN_PROOF_TIME, PROOF_SERVICE_PROOF_COMPUTED,
+};
 use crate::proof_generation::{ProofGenerationData, ProofSendingData};
 use crate::user_db::UserDb;
 use crate::user_db_types::RateLimit;
@@ -28,6 +30,7 @@ pub struct ProofService {
     current_epoch: Arc<RwLock<(Epoch, EpochSlice)>>,
     user_db: UserDb,
     rate_limit: RateLimit,
+    id: u64,
 }
 
 impl ProofService {
@@ -39,6 +42,7 @@ impl ProofService {
         current_epoch: Arc<RwLock<(Epoch, EpochSlice)>>,
         user_db: UserDb,
         rate_limit: RateLimit,
+        id: u64,
     ) -> Self {
         debug_assert!(rate_limit > RateLimit::ZERO);
         Self {
@@ -47,6 +51,7 @@ impl ProofService {
             current_epoch,
             user_db,
             rate_limit,
+            id,
         }
     }
 
@@ -65,6 +70,10 @@ impl ProofService {
             let user_db = self.user_db.clone();
             let proof_generation_data_ = proof_generation_data.clone();
             let rate_limit = self.rate_limit;
+
+            // let counter_label = Arc::new(format!("proof service (id: {})", self.id));
+            // let counter_label_ref = counter_label.clone();
+            let counter_id = self.id;
 
             // Move to a task (as generating the proof can take quite some time)
             let blocking_task = tokio::task::spawn_blocking(move || {
@@ -118,6 +127,8 @@ impl ProofService {
 
                 histogram!(PROOF_SERVICE_GEN_PROOF_TIME.name, "prover" => "proof service")
                     .record(proof_generation_start.elapsed().as_secs_f64());
+                let labels = [("prover", format!("proof service id: {counter_id}"))];
+                counter!(PROOF_SERVICE_PROOF_COMPUTED.name, &labels).increment(1);
 
                 Ok::<Vec<u8>, ProofGenerationError>(output_buffer.into_inner())
             });
@@ -139,6 +150,11 @@ impl ProofService {
                 info!("Stopping proof generation service: {}", e);
                 break;
             };
+
+            // Note: based on this link https://doc.rust-lang.org/reference/expressions/operator-expr.html#type-cast-expressions
+            //       "Casting from an integer to float will produce the closest possible float *"
+            histogram!(BROADCAST_CHANNEL_QUEUE_LEN.name, "prover" => "proof service")
+                .record(self.broadcast_sender.len() as f64);
         }
 
         Ok(())
@@ -293,6 +309,7 @@ mod tests {
             epoch_store,
             user_db.clone(),
             RateLimit::from(10),
+            0,
         );
 
         // Verification
@@ -350,6 +367,7 @@ mod tests {
             epoch_store,
             user_db.clone(),
             RateLimit::from(10),
+            0,
         );
 
         // Verification
@@ -512,6 +530,7 @@ mod tests {
             epoch_store,
             user_db.clone(),
             rate_limit,
+            0,
         );
 
         info!("Starting...");
@@ -582,6 +601,7 @@ mod tests {
             epoch_store,
             user_db.clone(),
             rate_limit,
+            0,
         );
 
         info!("Starting...");
