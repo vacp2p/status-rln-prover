@@ -131,6 +131,8 @@ fn proof_generation_bench(c: &mut Criterion) {
         mock_user: None,
         config_path: Default::default(),
         no_config: Some(true),
+        metrics_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+        metrics_port: 30051,
         broadcast_channel_size: 100,
         proof_service_count: 32,
         transaction_channel_size: 100,

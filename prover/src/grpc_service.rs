@@ -8,7 +8,7 @@ use async_channel::Sender;
 use bytesize::ByteSize;
 use futures::TryFutureExt;
 use http::Method;
-use metrics::counter;
+use metrics::{counter, histogram};
 use num_bigint::BigUint;
 use tokio::sync::{broadcast, mpsc};
 use tonic::{
@@ -21,8 +21,9 @@ use url::Url;
 // internal
 use crate::error::{AppError, ProofGenerationStringError};
 use crate::metrics::{
-    GET_PROOFS_LISTENERS, GET_USER_TIER_INFO_REQUESTS, GaugeWrapper, SEND_TRANSACTION_REQUESTS,
-    USER_REGISTERED, USER_REGISTERED_REQUESTS,
+    GET_PROOFS_LISTENERS, GET_USER_TIER_INFO_REQUESTS, GaugeWrapper,
+    PROOF_SERVICES_CHANNEL_QUEUE_LEN, SEND_TRANSACTION_REQUESTS, USER_REGISTERED,
+    USER_REGISTERED_REQUESTS,
 };
 use crate::proof_generation::{ProofGenerationData, ProofSendingData};
 use crate::user_db::{UserDb, UserTierInfo};
@@ -106,7 +107,7 @@ where
         &self,
         request: Request<SendTransactionRequest>,
     ) -> Result<Response<SendTransactionReply>, Status> {
-        counter!(SEND_TRANSACTION_REQUESTS.name, "service" => "grpc").increment(1);
+        counter!(SEND_TRANSACTION_REQUESTS.name, "prover" => "grpc").increment(1);
         debug!("send_transaction request: {:?}", request);
         let req = request.into_inner();
 
@@ -152,6 +153,11 @@ where
             .await
             .map_err(|e| Status::from_error(Box::new(e)))?;
 
+        // Note: based on this link https://doc.rust-lang.org/reference/expressions/operator-expr.html#type-cast-expressions
+        //       "Casting from an integer to float will produce the closest possible float *"
+        histogram!(PROOF_SERVICES_CHANNEL_QUEUE_LEN.name, "prover" => "grpc")
+            .record(self.proof_sender.len() as f64);
+
         let reply = SendTransactionReply { result: true };
         Ok(Response::new(reply))
     }
@@ -162,7 +168,7 @@ where
         request: Request<RegisterUserRequest>,
     ) -> Result<Response<RegisterUserReply>, Status> {
         debug!("register_user request: {:?}", request);
-        counter!(USER_REGISTERED_REQUESTS.name, "service" => "grpc").increment(1);
+        counter!(USER_REGISTERED_REQUESTS.name, "prover" => "grpc").increment(1);
 
         let req = request.into_inner();
         let user = if let Some(user) = req.user {
@@ -202,7 +208,7 @@ where
             status: status.into(),
         };
 
-        counter!(USER_REGISTERED.name, "service" => "grpc").increment(1);
+        counter!(USER_REGISTERED.name, "prover" => "grpc").increment(1);
         Ok(Response::new(reply))
     }
 
@@ -214,7 +220,7 @@ where
         request: Request<RlnProofFilter>,
     ) -> Result<Response<Self::GetProofsStream>, Status> {
         debug!("get_proofs request: {:?}", request);
-        let gauge = GaugeWrapper::new(GET_PROOFS_LISTENERS.name, "service", "grpc");
+        let gauge = GaugeWrapper::new(GET_PROOFS_LISTENERS.name, "prover", "grpc");
 
         // Channel to send proof to the connected grpc client (aka the Verifier)
         let (tx, rx) = mpsc::channel(self.proof_sender_channel_size);
@@ -255,7 +261,7 @@ where
         request: Request<GetUserTierInfoRequest>,
     ) -> Result<Response<GetUserTierInfoReply>, Status> {
         debug!("request: {:?}", request);
-        counter!(GET_USER_TIER_INFO_REQUESTS.name, "service" => "grpc").increment(1);
+        counter!(GET_USER_TIER_INFO_REQUESTS.name, "prover" => "grpc").increment(1);
 
         let req = request.into_inner();
 

@@ -47,6 +47,11 @@ pub const EPOCH_SERVICE_DRIFT_MILLIS: Metric = Metric {
     description: "Drift in milliseconds (when epoch service is waiting for the next epoch slice)",
 };
 
+pub const PROOF_SERVICE_PROOF_COMPUTED: Metric = Metric {
+    name: "proof_service_proof_computed",
+    description: "Number of computed proofs",
+};
+
 pub const PROOF_SERVICE_GEN_PROOF_TIME: Metric = Metric {
     name: "proof_service_gen_proof_time",
     description: "Generation time of a proof in seconds",
@@ -57,18 +62,35 @@ pub const GET_PROOFS_LISTENERS: Metric = Metric {
     description: "Current number of active subscription to grpc get_proofs server streaming endpoint",
 };
 
-pub const COUNTERS: [Metric; 4] = [
+/// Histogram metrics for the broadcast channel (used by proof service to send proofs)
+pub const BROADCAST_CHANNEL_QUEUE_LEN: Metric = Metric {
+    name: "broadcast_channel_queue_len",
+    description: "Number of queued values",
+};
+
+/// Histogram metrics for the mpmc channel (used by proof services to receive new tx)
+pub const PROOF_SERVICES_CHANNEL_QUEUE_LEN: Metric = Metric {
+    name: "proof_services_channel_queue_len",
+    description: "Number of queued values",
+};
+
+pub const COUNTERS: [Metric; 5] = [
     USER_REGISTERED,
     USER_REGISTERED_REQUESTS,
     SEND_TRANSACTION_REQUESTS,
     GET_USER_TIER_INFO_REQUESTS,
+    PROOF_SERVICE_PROOF_COMPUTED,
 ];
 pub const GAUGES: [Metric; 3] = [
     EPOCH_SERVICE_CURRENT_EPOCH,
     EPOCH_SERVICE_CURRENT_EPOCH_SLICE,
     GET_PROOFS_LISTENERS,
 ];
-pub const HISTOGRAMS: [Metric; 2] = [EPOCH_SERVICE_DRIFT_MILLIS, PROOF_SERVICE_GEN_PROOF_TIME];
+pub const HISTOGRAMS: [Metric; 3] = [
+    EPOCH_SERVICE_DRIFT_MILLIS,
+    PROOF_SERVICE_GEN_PROOF_TIME,
+    BROADCAST_CHANNEL_QUEUE_LEN,
+];
 
 pub fn init_metrics(ip: IpAddr, port: &u16) {
     info!("Initializing metrics exporter (port: {})", port);
