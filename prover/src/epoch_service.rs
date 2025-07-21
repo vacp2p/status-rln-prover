@@ -17,7 +17,7 @@ use crate::metrics::{
 /// Duration of an epoch (1 day)
 const EPOCH_DURATION: Duration = Duration::from_secs(TimeDelta::days(1).num_seconds() as u64);
 /// Minimum duration returned by EpochService::compute_wait_until()
-const WAIT_UNTIL_MIN_DURATION: Duration = Duration::from_secs(2);
+pub(crate) const WAIT_UNTIL_MIN_DURATION: Duration = Duration::from_secs(2);
 /// EpochService::compute_wait_until() can return an error like TooLow (see WAIT_UNTIL_MIN_DURATION)
 /// so the epoch service will retry X many times.
 const WAIT_UNTIL_MAX_COMPUTE_ERROR: usize = 10;
@@ -287,10 +287,6 @@ impl Add<i64> for EpochSlice {
 mod tests {
     use super::*;
     use chrono::{NaiveDate, NaiveDateTime, TimeDelta};
-    use claims::assert_ge;
-    use futures::TryFutureExt;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use tracing_test::traced_test;
 
     #[test]
     fn test_wait_until() {
@@ -475,54 +471,5 @@ mod tests {
             ),
             3
         );
-    }
-
-    #[derive(thiserror::Error, Debug)]
-    enum AppErrorExt {
-        #[error("AppError: {0}")]
-        AppError(#[from] AppError),
-        #[error("Future timeout")]
-        Elapsed,
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_notify() {
-        // Test epoch_service is really notifying when an epoch or epoch slice has just changed
-
-        let epoch_slice_duration = Duration::from_secs(10);
-        let epoch_service = EpochService::try_from((epoch_slice_duration, Utc::now())).unwrap();
-        let notifier = epoch_service.epoch_changes.clone();
-        let counter_0 = Arc::new(AtomicU64::new(0));
-        let counter = counter_0.clone();
-
-        let start = std::time::Instant::now();
-        let res = tokio::try_join!(
-            epoch_service
-                .listen_for_new_epoch()
-                .map_err(|e| AppErrorExt::AppError(e)),
-            // Wait for 3 epoch slices
-            // + WAIT_UNTIL_MIN_DURATION * 2 (expect a maximum of 2 retry)
-            // + 500 ms (to wait to receive notif + counter incr)
-            // Note: this might fail if there is more retry (see list_for_new_epoch code)
-            tokio::time::timeout(
-                epoch_slice_duration * 3 + WAIT_UNTIL_MIN_DURATION * 2 + Duration::from_millis(500),
-                async move {
-                    loop {
-                        notifier.notified().await;
-                        // debug!("[Notified] Epoch update...");
-                        let _v = counter.fetch_add(1, Ordering::SeqCst);
-                    }
-                    // Ok::<(), AppErrorExt>(())
-                }
-            )
-            .map_err(|_e| AppErrorExt::Elapsed)
-        );
-
-        debug!("Elapsed time: {}", start.elapsed().as_millis());
-        // debug!("res: {:?}", res);
-        assert!(matches!(res, Err(AppErrorExt::Elapsed)));
-        // Because the timeout is quite large - it is expected that sometimes the counter == 4
-        assert_ge!(counter_0.load(Ordering::SeqCst), 3);
     }
 }

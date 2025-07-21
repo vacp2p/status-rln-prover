@@ -286,48 +286,6 @@ where
             })),
         }
     }
-
-    /*
-    async fn set_tier_limits(
-        &self,
-        request: Request<SetTierLimitsRequest>,
-    ) -> Result<Response<SetTierLimitsReply>, Status> {
-        debug!("request: {:?}", request);
-
-        let request = request.into_inner();
-        let tier_limits: Option<BTreeMap<KarmaAmount, (TierLimit, TierName)>> = request
-            .karma_amounts
-            .iter()
-            .zip(request.tiers)
-            .map(|(k, tier)| {
-                let karma_amount = U256::try_from_le_slice(k.value.as_slice())?;
-                let karma_amount = KarmaAmount::from(karma_amount);
-                let tier_info = (
-                    TierLimit::from(tier.quota),
-                    TierName::from(tier.name.clone()),
-                );
-                Some((karma_amount, tier_info))
-            })
-            .collect();
-
-        if tier_limits.is_none() {
-            return Err(Status::invalid_argument("Invalid tier limits"));
-        }
-
-        // unwrap safe - just tested if None
-        let reply = match self.user_db.on_new_tier_limits(tier_limits.unwrap()) {
-            Ok(_) => SetTierLimitsReply {
-                status: true,
-                error: "".to_string(),
-            },
-            Err(e) => SetTierLimitsReply {
-                status: false,
-                error: e.to_string(),
-            },
-        };
-        Ok(Response::new(reply))
-    }
-    */
 }
 
 pub(crate) struct GrpcProverService {
@@ -511,30 +469,5 @@ where
         UserTierInfoError {
             message: value.to_string(),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::grpc_service::prover_proto::Address;
-    use prost::Message;
-
-    const MAX_ADDRESS_SIZE_BYTES: usize = 20;
-
-    #[test]
-    #[ignore]
-    #[should_panic]
-    fn test_address_size_limit() {
-        // Check if an invalid address can be encoded (as Address grpc type)
-
-        let invalid_address = vec![0; MAX_ADDRESS_SIZE_BYTES + 1];
-
-        let addr = Address {
-            value: invalid_address,
-        };
-        let mut addr_encoded = vec![];
-        addr.encode(&mut addr_encoded).unwrap();
-
-        let _addr_decoded = Address::decode(&*addr_encoded).unwrap();
     }
 }
