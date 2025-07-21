@@ -17,6 +17,11 @@ mod user_db_serialization;
 mod user_db_service;
 mod user_db_types;
 
+// tests
+mod epoch_service_tests;
+mod proof_service_tests;
+mod user_db_tests;
+
 // std
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -86,29 +91,29 @@ pub async fn run_prover(
         tier_limits,
     )?;
 
-    if app_args.mock_sc.is_some() {
-        if let Some(user_filepath) = app_args.mock_user.as_ref() {
-            let mock_users = read_mock_user(user_filepath)?;
-            debug!("Mock - will register {} users", mock_users.len());
-            for mock_user in mock_users {
-                debug!(
-                    "Registering user address: {} - tx count: {}",
-                    mock_user.address, mock_user.tx_count
-                );
+    if app_args.mock_sc.is_some()
+        && let Some(user_filepath) = app_args.mock_user.as_ref()
+    {
+        let mock_users = read_mock_user(user_filepath)?;
+        debug!("Mock - will register {} users", mock_users.len());
+        for mock_user in mock_users {
+            debug!(
+                "Registering user address: {} - tx count: {}",
+                mock_user.address, mock_user.tx_count
+            );
 
-                let user_db = user_db_service.get_user_db();
-                if let Err(e) = user_db.on_new_user(&mock_user.address) {
-                    match e {
-                        RegisterError::AlreadyRegistered(_) => {
-                            debug!("User {} already registered", mock_user.address);
-                        }
-                        _ => {
-                            return Err(Box::new(e));
-                        }
+            let user_db = user_db_service.get_user_db();
+            if let Err(e) = user_db.on_new_user(&mock_user.address) {
+                match e {
+                    RegisterError::AlreadyRegistered(_) => {
+                        debug!("User {} already registered", mock_user.address);
+                    }
+                    _ => {
+                        return Err(Box::new(e));
                     }
                 }
-                user_db.on_new_tx(&mock_user.address, Some(mock_user.tx_count))?;
             }
+            user_db.on_new_tx(&mock_user.address, Some(mock_user.tx_count))?;
         }
     }
 
@@ -201,229 +206,4 @@ pub async fn run_prover(
     // TODO: handle error
     let _ = set.join_all().await;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    // std
-    use std::net::{IpAddr, Ipv4Addr};
-    use std::str::FromStr;
-    use std::sync::Arc;
-    // third-party
-    use alloy::primitives::{Address, U256};
-    use futures::FutureExt;
-    use parking_lot::RwLock;
-    use tokio::task;
-    use tonic::Response;
-    use tracing::info;
-    use tracing_test::traced_test;
-    // internal
-    use crate::grpc_service::prover_proto::rln_prover_client::RlnProverClient;
-    use crate::grpc_service::prover_proto::{
-        Address as GrpcAddress, GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply,
-        RegisterUserRequest, RegistrationStatus, RlnProofFilter, RlnProofReply,
-        SendTransactionReply, SendTransactionRequest, U256 as GrpcU256, Wei as GrpcWei,
-    };
-
-    async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
-        let chain_id = GrpcU256 {
-            // FIXME: LE or BE?
-            value: U256::from(1).to_le_bytes::<32>().to_vec(),
-        };
-
-        let url = format!("http://127.0.0.1:{}", port);
-        let mut client = RlnProverClient::connect(url).await.unwrap();
-
-        let addr = GrpcAddress {
-            value: addresses[0].to_vec(),
-        };
-        let wei = GrpcWei {
-            // FIXME: LE or BE?
-            value: U256::from(1000).to_le_bytes::<32>().to_vec(),
-        };
-        let tx_hash = U256::from(42).to_le_bytes::<32>().to_vec();
-
-        let request_0 = SendTransactionRequest {
-            gas_price: Some(wei),
-            sender: Some(addr),
-            chain_id: Some(chain_id),
-            transaction_hash: tx_hash,
-        };
-
-        let request = tonic::Request::new(request_0);
-        let response: Response<SendTransactionReply> =
-            client.send_transaction(request).await.unwrap();
-        assert_eq!(response.into_inner().result, true);
-    }
-
-    async fn proof_collector(port: u16) -> Vec<RlnProofReply> {
-        let result = Arc::new(RwLock::new(vec![]));
-
-        let url = format!("http://127.0.0.1:{}", port);
-        let mut client = RlnProverClient::connect(url).await.unwrap();
-
-        let request_0 = RlnProofFilter { address: None };
-
-        let request = tonic::Request::new(request_0);
-        let stream_ = client.get_proofs(request).await.unwrap();
-
-        let mut stream = stream_.into_inner();
-
-        let result_2 = result.clone();
-        let receiver = async move {
-            while let Some(response) = stream.message().await.unwrap() {
-                result_2.write().push(response);
-            }
-        };
-
-        let _res = tokio::time::timeout(Duration::from_secs(10), receiver).await;
-        std::mem::take(&mut *result.write())
-    }
-
-    async fn register_users(port: u16, addresses: Vec<Address>) {
-        let url = format!("http://127.0.0.1:{}", port);
-        let mut client = RlnProverClient::connect(url).await.unwrap();
-
-        for address in addresses {
-            let addr = GrpcAddress {
-                value: address.to_vec(),
-            };
-
-            let request_0 = RegisterUserRequest { user: Some(addr) };
-            let request = tonic::Request::new(request_0);
-            let response: Response<RegisterUserReply> =
-                client.register_user(request).await.unwrap();
-
-            assert_eq!(
-                RegistrationStatus::try_from(response.into_inner().status).unwrap(),
-                RegistrationStatus::Success
-            );
-        }
-    }
-
-    async fn query_user_info(port: u16, addresses: Vec<Address>) -> Vec<GetUserTierInfoReply> {
-        let url = format!("http://127.0.0.1:{}", port);
-        let mut client = RlnProverClient::connect(url).await.unwrap();
-
-        let mut result = vec![];
-        for address in addresses {
-            let addr = GrpcAddress {
-                value: address.to_vec(),
-            };
-            let request_0 = GetUserTierInfoRequest { user: Some(addr) };
-            let request = tonic::Request::new(request_0);
-            let resp: Response<GetUserTierInfoReply> =
-                client.get_user_tier_info(request).await.unwrap();
-
-            result.push(resp.into_inner());
-        }
-
-        result
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_grpc_register_users() {
-        let addresses = vec![
-            Address::from_str("0xd8da6bf26964af9d7eed9e03e53415d37aa96045").unwrap(),
-            Address::from_str("0xb20a608c624Ca5003905aA834De7156C68b2E1d0").unwrap(),
-        ];
-
-        let temp_folder = tempfile::tempdir().unwrap();
-        let temp_folder_tree = tempfile::tempdir().unwrap();
-
-        let port = 50051;
-        let app_args = AppArgs {
-            ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-            port,
-            ws_rpc_url: None,
-            db_path: temp_folder.path().to_path_buf(),
-            merkle_tree_path: temp_folder_tree.path().to_path_buf(),
-            ksc_address: None,
-            rlnsc_address: None,
-            tsc_address: None,
-            mock_sc: Some(true),
-            mock_user: None,
-            config_path: Default::default(),
-            no_config: Some(true),
-            metrics_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-            metrics_port: 30031,
-            broadcast_channel_size: 100,
-            proof_service_count: 8,
-            transaction_channel_size: 100,
-            proof_sender_channel_size: 100,
-        };
-
-        info!("Starting prover...");
-        let prover_handle = task::spawn(run_prover(app_args));
-        // Wait for the prover to be ready
-        // Note: if unit test is failing - maybe add an optional notification when service is ready
-        tokio::time::sleep(Duration::from_secs(5)).await;
-        info!("Registering some users...");
-        register_users(port, addresses.clone()).await;
-        info!("Query info for these new users...");
-        let res = query_user_info(port, addresses.clone()).await;
-        assert_eq!(res.len(), addresses.len());
-        info!("Aborting prover...");
-        prover_handle.abort();
-        tokio::time::sleep(Duration::from_secs(1)).await;
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_grpc_gen_proof() {
-        let addresses = vec![
-            Address::from_str("0xd8da6bf26964af9d7eed9e03e53415d37aa96045").unwrap(),
-            Address::from_str("0xb20a608c624Ca5003905aA834De7156C68b2E1d0").unwrap(),
-        ];
-
-        let temp_folder = tempfile::tempdir().unwrap();
-        let temp_folder_tree = tempfile::tempdir().unwrap();
-
-        let port = 50052;
-        let app_args = AppArgs {
-            ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-            port,
-            ws_rpc_url: None,
-            db_path: temp_folder.path().to_path_buf(),
-            merkle_tree_path: temp_folder_tree.path().to_path_buf(),
-            ksc_address: None,
-            rlnsc_address: None,
-            tsc_address: None,
-            mock_sc: Some(true),
-            mock_user: None,
-            config_path: Default::default(),
-            no_config: Some(true),
-            metrics_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-            metrics_port: 30031,
-            broadcast_channel_size: 100,
-            proof_service_count: 8,
-            transaction_channel_size: 100,
-            proof_sender_channel_size: 100,
-        };
-
-        info!("Starting prover...");
-        let prover_handle = task::spawn(run_prover(app_args));
-        // Wait for the prover to be ready
-        // Note: if unit test is failing - maybe add an optional notification when service is ready
-        tokio::time::sleep(Duration::from_secs(5)).await;
-        info!("Registering some users...");
-        register_users(port, addresses.clone()).await;
-
-        info!("Sending tx and collecting proofs...");
-        let proof_count = 1;
-        let mut set = JoinSet::new();
-        set.spawn(
-            proof_sender(port, addresses.clone(), proof_count).map(|_| vec![]), // JoinSet require having the same return type
-        );
-        set.spawn(proof_collector(port));
-        let res = set.join_all().await;
-
-        assert_eq!(res[1].len(), proof_count);
-
-        info!("Aborting prover...");
-        prover_handle.abort();
-        tokio::time::sleep(Duration::from_secs(1)).await;
-    }
 }
