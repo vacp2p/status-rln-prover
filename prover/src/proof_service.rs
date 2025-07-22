@@ -74,9 +74,17 @@ impl ProofService {
             // let counter_label = Arc::new(format!("proof service (id: {})", self.id));
             // let counter_label_ref = counter_label.clone();
             let counter_id = self.id;
+            println!("[proof service {counter_id}] starting to generate proof...");
 
             // Move to a task (as generating the proof can take quite some time)
-            let blocking_task = tokio::task::spawn_blocking(move || {
+            let (send, recv) = tokio::sync::oneshot::channel();
+
+            // Note: avoid tokio spawn_blocking as it does not perform great for CPU bounds tasks
+            //       see https://ryhl.io/blog/async-what-is-blocking/
+
+            // let blocking_task = tokio::task::spawn_blocking(move || {
+            rayon::spawn(move || {
+
                 let proof_generation_start = std::time::Instant::now();
 
                 let message_id = {
@@ -102,8 +110,9 @@ impl ProofService {
                 };
                 let epoch = hash_to_field(epoch_bytes.as_slice());
 
-                let merkle_proof = user_db.get_merkle_proof(&proof_generation_data.tx_sender)?;
+                let merkle_proof = user_db.get_merkle_proof(&proof_generation_data.tx_sender).unwrap();
 
+                let compute_proof_start = std::time::Instant::now();
                 let (proof, proof_values) = compute_rln_proof_and_values(
                     &proof_generation_data.user_identity,
                     &proof_generation_data.rln_identifier,
@@ -111,7 +120,8 @@ impl ProofService {
                     epoch,
                     &merkle_proof,
                 )
-                .map_err(ProofGenerationError::Proof)?;
+                .map_err(ProofGenerationError::Proof).unwrap();
+                println!("[proof service {counter_id}] compute proof time: {:?} secs", compute_proof_start.elapsed().as_secs_f64());
 
                 debug!("proof: {:?}", proof);
                 debug!("proof_values: {:?}", proof_values);
@@ -120,23 +130,31 @@ impl ProofService {
                 let mut output_buffer = Cursor::new(Vec::with_capacity(PROOF_SIZE));
                 proof
                     .serialize_compressed(&mut output_buffer)
-                    .map_err(ProofGenerationError::Serialization)?;
+                    .map_err(ProofGenerationError::Serialization).unwrap();
                 output_buffer
                     .write_all(&serialize_proof_values(&proof_values))
-                    .map_err(ProofGenerationError::SerializationWrite)?;
+                    .map_err(ProofGenerationError::SerializationWrite).unwrap();
 
-                histogram!(PROOF_SERVICE_GEN_PROOF_TIME.name, "prover" => "proof service")
-                    .record(proof_generation_start.elapsed().as_secs_f64());
+                // histogram!(PROOF_SERVICE_GEN_PROOF_TIME.name, "prover" => "proof service")
+                //      .record(proof_generation_start.elapsed().as_secs_f64());
+                println!("[proof service {counter_id}] proof generation time: {:?} secs", proof_generation_start.elapsed().as_secs_f64());
                 let labels = [("prover", format!("proof service id: {counter_id}"))];
                 counter!(PROOF_SERVICE_PROOF_COMPUTED.name, &labels).increment(1);
 
-                Ok::<Vec<u8>, ProofGenerationError>(output_buffer.into_inner())
+                // Ok::<Vec<u8>, ProofGenerationError>(output_buffer.into_inner())
+                // Send the result back to Tokio.
+                let _ = send.send(
+                    Ok::<Vec<u8>, ProofGenerationError>(output_buffer.into_inner())
+                );
             });
 
-            let result = blocking_task.instrument(debug_span!("compute proof")).await;
+            // Wait for the rayon task.
+            let result = recv.await.expect("Panic in rayon::spawn");
+
+            // let result = blocking_task.instrument(debug_span!("compute proof")).await;
             // Result (1st) is a JoinError (and should not happen)
             // Result (2nd) is a ProofGenerationError
-            let result = result.unwrap(); // Should never happen (but should panic if it does)
+            // let result = result.unwrap(); // Should never happen (but should panic if it does)
 
             let proof_sending_data = result
                 .map(|r| ProofSendingData {

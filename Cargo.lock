@@ -3861,6 +3861,7 @@ dependencies = [
  "parking_lot 0.12.4",
  "prost",
  "rand 0.8.5",
+ "rayon",
  "rln",
  "rln_proof",
  "rocksdb",

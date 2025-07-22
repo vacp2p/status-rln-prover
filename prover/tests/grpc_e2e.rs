@@ -90,7 +90,7 @@ async fn test_grpc_register_users() {
         metrics_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         metrics_port: 30031,
         broadcast_channel_size: 100,
-        proof_service_count: 8,
+        proof_service_count: 16,
         transaction_channel_size: 100,
         proof_sender_channel_size: 100,
     };
@@ -110,7 +110,10 @@ async fn test_grpc_register_users() {
     tokio::time::sleep(Duration::from_secs(1)).await;
 }
 
-async fn proof_sender(port: u16, addresses: Vec<Address>, _proof_count: usize) {
+async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
+
+    let start = std::time::Instant::now();
+
     let chain_id = GrpcU256 {
         // FIXME: LE or BE?
         value: U256::from(1).to_le_bytes::<32>().to_vec(),
@@ -126,8 +129,29 @@ async fn proof_sender(port: u16, addresses: Vec<Address>, _proof_count: usize) {
         // FIXME: LE or BE?
         value: U256::from(1000).to_le_bytes::<32>().to_vec(),
     };
-    let tx_hash = U256::from(42).to_le_bytes::<32>().to_vec();
 
+    let mut count = 0;
+    for i in 0..proof_count {
+        let tx_hash = U256::from(42 + i).to_le_bytes::<32>().to_vec();
+
+        let request_0 = SendTransactionRequest {
+            gas_price: Some(wei.clone()),
+            sender: Some(addr.clone()),
+            chain_id: Some(chain_id.clone()),
+            transaction_hash: tx_hash,
+        };
+
+        let request = tonic::Request::new(request_0);
+        let response: Response<SendTransactionReply> =
+            client.send_transaction(request).await.unwrap();
+        assert_eq!(response.into_inner().result, true);
+        count += 1;
+    }
+
+    println!("[proof_sender] sent {} tx - elapsed: {} secs", count, start.elapsed().as_secs_f64());
+
+    /*
+    let tx_hash = U256::from(42).to_le_bytes::<32>().to_vec();
     let request_0 = SendTransactionRequest {
         gas_price: Some(wei),
         sender: Some(addr),
@@ -138,9 +162,12 @@ async fn proof_sender(port: u16, addresses: Vec<Address>, _proof_count: usize) {
     let request = tonic::Request::new(request_0);
     let response: Response<SendTransactionReply> = client.send_transaction(request).await.unwrap();
     assert_eq!(response.into_inner().result, true);
+    */
 }
 
-async fn proof_collector(port: u16) -> Vec<RlnProofReply> {
+async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
+
+    let start = std::time::Instant::now();
     let result = Arc::new(RwLock::new(vec![]));
 
     let url = format!("http://127.0.0.1:{}", port);
@@ -154,14 +181,25 @@ async fn proof_collector(port: u16) -> Vec<RlnProofReply> {
     let mut stream = stream_.into_inner();
 
     let result_2 = result.clone();
+    let mut count = 0;
+    let mut start_per_message = std::time::Instant::now();
     let receiver = async move {
         while let Some(response) = stream.message().await.unwrap() {
             result_2.write().push(response);
+            count += 1;
+            if count >= proof_count {
+                break;
+            }
+            println!("count {count} - elapsed: {} secs", start_per_message.elapsed().as_secs_f64());
+            start_per_message = std::time::Instant::now();
         }
     };
 
-    let _res = tokio::time::timeout(Duration::from_secs(10), receiver).await;
-    std::mem::take(&mut *result.write())
+    let _res = tokio::time::timeout(Duration::from_secs(500), receiver).await;
+    println!("_res: {:?}", _res);
+    let res = std::mem::take(&mut *result.write());
+    println!("[proof_collector] elapsed: {} secs", start.elapsed().as_secs_f64());
+    res
 }
 
 #[tokio::test]
@@ -191,10 +229,10 @@ async fn test_grpc_gen_proof() {
         no_config: Some(true),
         metrics_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         metrics_port: 30031,
-        broadcast_channel_size: 100,
+        broadcast_channel_size: 500,
         proof_service_count: 8,
-        transaction_channel_size: 100,
-        proof_sender_channel_size: 100,
+        transaction_channel_size: 500,
+        proof_sender_channel_size: 500,
     };
 
     info!("Starting prover...");
@@ -206,15 +244,16 @@ async fn test_grpc_gen_proof() {
     register_users(port, addresses.clone()).await;
 
     info!("Sending tx and collecting proofs...");
-    let proof_count = 1;
+    let proof_count = 100;
     let mut set = JoinSet::new();
     set.spawn(
         proof_sender(port, addresses.clone(), proof_count).map(|_| vec![]), // JoinSet require having the same return type
     );
-    set.spawn(proof_collector(port));
+    set.spawn(proof_collector(port, proof_count));
     let res = set.join_all().await;
 
-    assert_eq!(res[1].len(), proof_count);
+    println!("res lengths: {} {}", res[0].len(), res[1].len());
+    assert_eq!(res[0].len() + res[1].len(), proof_count);
 
     info!("Aborting prover...");
     prover_handle.abort();

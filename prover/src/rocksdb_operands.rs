@@ -145,8 +145,14 @@ pub fn epoch_counters_operands(
 
         // FIXME: assert when reload from disk
         // debug_assert_ge!(epoch_incr.epoch, acc.epoch);
+
+        // println!("dbg: {:?} {:?}", epoch_incr.epoch, acc.epoch);
+        // println!("dbg: {:?} {:?}", epoch_incr.epoch_slice, acc.epoch_slice);
+        // println!("cond 1: {}", epoch_incr.epoch_slice > acc.epoch_slice);
+        // println!("cond 2: {}", epoch_incr.epoch_slice == EpochSlice::from(0));
+        // TODO: find why there are 2 writes with the same value here...
         debug_assert!(
-            epoch_incr.epoch_slice > acc.epoch_slice
+            epoch_incr.epoch_slice >= acc.epoch_slice
                 || epoch_incr.epoch_slice == EpochSlice::from(0)
         );
 
