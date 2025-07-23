@@ -8,7 +8,9 @@ use metrics::{counter, histogram};
 use parking_lot::RwLock;
 use rln::hashers::hash_to_field;
 use rln::protocol::serialize_proof_values;
-use tracing::{Instrument, debug, debug_span, info};
+use tracing::{Instrument, // debug,
+              debug_span, info
+};
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::{AppError, ProofGenerationError, ProofGenerationStringError};
@@ -76,13 +78,13 @@ impl ProofService {
             let counter_id = self.id;
             println!("[proof service {counter_id}] starting to generate proof...");
 
-            // Move to a task (as generating the proof can take quite some time)
+            // Communicate between rayon & current task
             let (send, recv) = tokio::sync::oneshot::channel();
 
+            // Move to a task (as generating the proof can take quite some time) - avoid blocking the tokio runtime
             // Note: avoid tokio spawn_blocking as it does not perform great for CPU bounds tasks
             //       see https://ryhl.io/blog/async-what-is-blocking/
 
-            // let blocking_task = tokio::task::spawn_blocking(move || {
             rayon::spawn(move || {
 
                 let proof_generation_start = std::time::Instant::now();
@@ -110,34 +112,51 @@ impl ProofService {
                 };
                 let epoch = hash_to_field(epoch_bytes.as_slice());
 
-                let merkle_proof = user_db.get_merkle_proof(&proof_generation_data.tx_sender).unwrap();
+                let merkle_proof = match user_db.get_merkle_proof(&proof_generation_data.tx_sender) {
+                    Ok(merkle_proof) => merkle_proof,
+                    Err(e) => {
+                        let _ = send.send(Err(ProofGenerationError::MerkleProofError(e)));
+                        return;
+                    }
+                };
 
-                let compute_proof_start = std::time::Instant::now();
-                let (proof, proof_values) = compute_rln_proof_and_values(
+                // let compute_proof_start = std::time::Instant::now();
+                let (proof, proof_values) = match compute_rln_proof_and_values(
                     &proof_generation_data.user_identity,
                     &proof_generation_data.rln_identifier,
                     rln_data,
                     epoch,
                     &merkle_proof,
-                )
-                .map_err(ProofGenerationError::Proof).unwrap();
-                println!("[proof service {counter_id}] compute proof time: {:?} secs", compute_proof_start.elapsed().as_secs_f64());
+                ) {
+                    Ok((proof, proof_values)) => (proof, proof_values),
+                    Err(e) => {
+                        let _ = send.send(Err(ProofGenerationError::Proof(e)));
+                        return;
+                    }
+                };
 
-                debug!("proof: {:?}", proof);
-                debug!("proof_values: {:?}", proof_values);
+                // debug!("proof: {:?}", proof);
+                // debug!("proof_values: {:?}", proof_values);
 
                 // Serialize proof
                 let mut output_buffer = Cursor::new(Vec::with_capacity(PROOF_SIZE));
-                proof
+                if let Err(e) = proof
                     .serialize_compressed(&mut output_buffer)
-                    .map_err(ProofGenerationError::Serialization).unwrap();
-                output_buffer
-                    .write_all(&serialize_proof_values(&proof_values))
-                    .map_err(ProofGenerationError::SerializationWrite).unwrap();
+                    // .map_err(ProofGenerationError::Serialization) {
+                {
+                    let _ = send.send(Err(ProofGenerationError::Serialization(e)));
+                    return;
+                }
+                if let Err(e) = output_buffer
+                    .write_all(&serialize_proof_values(&proof_values)) {
+                    let _ = send.send(Err(ProofGenerationError::SerializationWrite(e)));
+                    return;
+                }
+                //    .map_err(ProofGenerationError::SerializationWrite).unwrap();
 
-                // histogram!(PROOF_SERVICE_GEN_PROOF_TIME.name, "prover" => "proof service")
-                //      .record(proof_generation_start.elapsed().as_secs_f64());
-                println!("[proof service {counter_id}] proof generation time: {:?} secs", proof_generation_start.elapsed().as_secs_f64());
+                histogram!(PROOF_SERVICE_GEN_PROOF_TIME.name, "prover" => "proof service")
+                      .record(proof_generation_start.elapsed().as_secs_f64());
+                // println!("[proof service {counter_id}] proof generation time: {:?} secs", proof_generation_start.elapsed().as_secs_f64());
                 let labels = [("prover", format!("proof service id: {counter_id}"))];
                 counter!(PROOF_SERVICE_PROOF_COMPUTED.name, &labels).increment(1);
 
@@ -149,12 +168,12 @@ impl ProofService {
             });
 
             // Wait for the rayon task.
-            let result = recv.await.expect("Panic in rayon::spawn");
-
-            // let result = blocking_task.instrument(debug_span!("compute proof")).await;
-            // Result (1st) is a JoinError (and should not happen)
-            // Result (2nd) is a ProofGenerationError
-            // let result = result.unwrap(); // Should never happen (but should panic if it does)
+            // Result 1st is from send channel (no errors expected)
+            // Result 2nd can be a ProofGenerationError
+            let result = recv
+                .instrument(debug_span!("compute proof"))
+                .await
+                .expect("Panic in rayon::spawn"); // Should never happen (but panic if it does)
 
             let proof_sending_data = result
                 .map(|r| ProofSendingData {
@@ -191,7 +210,7 @@ mod tests {
     use claims::assert_matches;
     use futures::TryFutureExt;
     use tokio::sync::broadcast;
-    use tracing::info;
+    use tracing::{info, debug};
     // third-party: zerokit
     use rln::{
         circuit::{Curve, zkey_from_folder},

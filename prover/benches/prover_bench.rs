@@ -170,7 +170,7 @@ fn proof_generation_bench(c: &mut Criterion) {
     // let size: usize = 1024;
 
     let mut group = c.benchmark_group("prover_bench");
-    group.sampling_mode(criterion::SamplingMode::Flat);
+    // group.sampling_mode(criterion::SamplingMode::Flat);
 
     let proof_count = 5;
 

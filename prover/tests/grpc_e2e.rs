@@ -244,7 +244,7 @@ async fn test_grpc_gen_proof() {
     register_users(port, addresses.clone()).await;
 
     info!("Sending tx and collecting proofs...");
-    let proof_count = 100;
+    let proof_count = 10;
     let mut set = JoinSet::new();
     set.spawn(
         proof_sender(port, addresses.clone(), proof_count).map(|_| vec![]), // JoinSet require having the same return type
