@@ -5,13 +5,86 @@ mod user_db_tests {
     use std::sync::Arc;
     // third-party
     use alloy::primitives::{Address, address};
+    use claims::assert_matches;
     use parking_lot::RwLock;
+    use crate::epoch_service::{Epoch, EpochSlice};
     // internal
     use crate::user_db::UserDb;
-    use crate::user_db_types::{EpochSliceCounter, MerkleTreeIndex};
+    use crate::user_db_types::{EpochCounter, EpochSliceCounter, MerkleTreeIndex};
 
     const ADDR_1: Address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
     const ADDR_2: Address = address!("0xb20a608c624Ca5003905aA834De7156C68b2E1d0");
+
+    #[tokio::test]
+    async fn test_incr_tx_counter_2() {
+
+        // Same as test_incr_tx_counter but multi users AND multi incr
+
+        let temp_folder = tempfile::tempdir().unwrap();
+        let temp_folder_tree = tempfile::tempdir().unwrap();
+
+        let epoch_store = Arc::new(RwLock::new(Default::default()));
+        let epoch = 1;
+        let epoch_slice = 42;
+        *epoch_store.write() = (Epoch::from(epoch), EpochSlice::from(epoch_slice));
+
+        let user_db = UserDb::new(
+            PathBuf::from(temp_folder.path()),
+            PathBuf::from(temp_folder_tree.path()),
+            epoch_store,
+            Default::default(),
+            Default::default(),
+        )
+            .unwrap();
+
+        // Register users
+        user_db.register(ADDR_1).unwrap();
+        user_db.register(ADDR_2).unwrap();
+
+        assert_eq!(
+            user_db.get_tx_counter(&ADDR_1),
+            Ok((EpochCounter::from(0), EpochSliceCounter::from(0)))
+        );
+        assert_eq!(
+            user_db.get_tx_counter(&ADDR_2),
+            Ok((EpochCounter::from(0), EpochSliceCounter::from(0)))
+        );
+
+        // Now update user tx counter
+        assert_eq!(
+            user_db.on_new_tx(&ADDR_1, None),
+            Ok(EpochSliceCounter::from(1))
+        );
+        assert_eq!(
+            user_db.on_new_tx(&ADDR_1, None),
+            Ok(EpochSliceCounter::from(2))
+        );
+        assert_eq!(
+            user_db.on_new_tx(&ADDR_1, Some(2)),
+            Ok(EpochSliceCounter::from(4))
+        );
+
+        assert_eq!(
+            user_db.on_new_tx(&ADDR_2, None),
+            Ok(EpochSliceCounter::from(1))
+        );
+
+        assert_eq!(
+            user_db.on_new_tx(&ADDR_2, None),
+            Ok(EpochSliceCounter::from(2))
+        );
+
+        assert_eq!(
+            user_db.get_tx_counter(&ADDR_1),
+            Ok((EpochCounter::from(4), EpochSliceCounter::from(4)))
+        );
+
+        assert_eq!(
+            user_db.get_tx_counter(&ADDR_2),
+            Ok((EpochCounter::from(2), EpochSliceCounter::from(2)))
+        );
+
+    }
 
     #[tokio::test]
     async fn test_persistent_storage() {
