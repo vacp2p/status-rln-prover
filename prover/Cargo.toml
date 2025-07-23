@@ -44,6 +44,7 @@ rln = { git = "https://github.com/vacp2p/zerokit", features = ["pmtree-ft"] }
 zerokit_utils = { git = "https://github.com/vacp2p/zerokit", package = "zerokit_utils", features = ["default"] }
 rln_proof = { path = "../rln_proof" }
 smart_contract = { path = "../smart_contract" }
+rayon = "1.7"
 
 [build-dependencies]
 tonic-build = "*"

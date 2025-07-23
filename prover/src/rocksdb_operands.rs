@@ -146,7 +146,7 @@ pub fn epoch_counters_operands(
         // FIXME: assert when reload from disk
         // debug_assert_ge!(epoch_incr.epoch, acc.epoch);
         debug_assert!(
-            epoch_incr.epoch_slice > acc.epoch_slice
+            epoch_incr.epoch_slice >= acc.epoch_slice
                 || epoch_incr.epoch_slice == EpochSlice::from(0)
         );
 

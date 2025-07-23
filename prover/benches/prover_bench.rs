@@ -1,4 +1,4 @@
-use criterion::BenchmarkId;
+use criterion::{BenchmarkId, Throughput};
 use criterion::Criterion;
 use criterion::{criterion_group, criterion_main};
 
@@ -134,7 +134,7 @@ fn proof_generation_bench(c: &mut Criterion) {
         metrics_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         metrics_port: 30051,
         broadcast_channel_size: 100,
-        proof_service_count: 32,
+        proof_service_count: 4,
         transaction_channel_size: 100,
         proof_sender_channel_size: 100,
     };
@@ -167,9 +167,15 @@ fn proof_generation_bench(c: &mut Criterion) {
     });
 
     println!("Starting benchmark...");
-    let size: usize = 1024;
-    let proof_count = 100;
-    c.bench_with_input(BenchmarkId::new("input_example", size), &size, |b, &_s| {
+    // let size: usize = 1024;
+
+    let mut group = c.benchmark_group("prover_bench");
+    // group.sampling_mode(criterion::SamplingMode::Flat);
+
+    let proof_count = 5;
+
+    group.throughput(Throughput::Elements(proof_count as u64));
+    group.bench_with_input(BenchmarkId::new("proof generation", proof_count), &proof_count, |b, &_s| {
         b.to_async(&rt).iter(|| {
             async {
                 let mut set = JoinSet::new();
@@ -182,13 +188,16 @@ fn proof_generation_bench(c: &mut Criterion) {
             }
         });
     });
+
+    group.finish();
 }
 
 criterion_group!(
     name = benches;
     config = Criterion::default()
-        .sample_size(10)
-        .measurement_time(Duration::from_secs(150));
+        .sample_size(20)
+        // .measurement_time(Duration::from_secs(150))
+    ;
     targets = proof_generation_bench
 );
 criterion_main!(benches);
