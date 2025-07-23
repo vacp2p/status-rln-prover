@@ -73,10 +73,8 @@ impl ProofService {
             let proof_generation_data_ = proof_generation_data.clone();
             let rate_limit = self.rate_limit;
 
-            // let counter_label = Arc::new(format!("proof service (id: {})", self.id));
-            // let counter_label_ref = counter_label.clone();
             let counter_id = self.id;
-            println!("[proof service {counter_id}] starting to generate proof...");
+            // println!("[proof service {counter_id}] starting to generate proof...");
 
             // Communicate between rayon & current task
             let (send, recv) = tokio::sync::oneshot::channel();
@@ -142,7 +140,6 @@ impl ProofService {
                 let mut output_buffer = Cursor::new(Vec::with_capacity(PROOF_SIZE));
                 if let Err(e) = proof
                     .serialize_compressed(&mut output_buffer)
-                    // .map_err(ProofGenerationError::Serialization) {
                 {
                     let _ = send.send(Err(ProofGenerationError::Serialization(e)));
                     return;
@@ -152,7 +149,6 @@ impl ProofService {
                     let _ = send.send(Err(ProofGenerationError::SerializationWrite(e)));
                     return;
                 }
-                //    .map_err(ProofGenerationError::SerializationWrite).unwrap();
 
                 histogram!(PROOF_SERVICE_GEN_PROOF_TIME.name, "prover" => "proof service")
                       .record(proof_generation_start.elapsed().as_secs_f64());
@@ -160,7 +156,6 @@ impl ProofService {
                 let labels = [("prover", format!("proof service id: {counter_id}"))];
                 counter!(PROOF_SERVICE_PROOF_COMPUTED.name, &labels).increment(1);
 
-                // Ok::<Vec<u8>, ProofGenerationError>(output_buffer.into_inner())
                 // Send the result back to Tokio.
                 let _ = send.send(
                     Ok::<Vec<u8>, ProofGenerationError>(output_buffer.into_inner())
