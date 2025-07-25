@@ -4842,6 +4842,7 @@ dependencies = [
  "async-trait",
  "derive_more",
  "log",
+ "thiserror 2.0.12",
  "url",
 ]
 

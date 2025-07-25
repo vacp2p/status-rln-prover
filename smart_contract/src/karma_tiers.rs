@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::ops::Add;
 // third-party
 use alloy::{
@@ -6,6 +5,8 @@ use alloy::{
     providers::{ProviderBuilder, WsConnect},
     sol,
 };
+use alloy::providers::{MulticallError, Provider};
+use alloy::transports::{RpcError, TransportErrorKind};
 use derive_more::From;
 use url::Url;
 // internal
@@ -16,47 +17,85 @@ sol! {
     #[sol(rpc)]
     contract KarmaTiersSC {
 
-        /// @notice Emitted when a new tier is added
-        event TierAdded(uint8 indexed tierId, string name, uint256 minKarma, uint256 maxKarma, uint32 txPerEpoch);
-        /// @notice Emitted when a tier is updated
-        event TierUpdated(uint8 indexed tierId, string name, uint256 minKarma, uint256 maxKarma, uint32 txPerEpoch);
+        event TiersUpdated();
 
         struct Tier {
             uint256 minKarma;
             uint256 maxKarma;
             string name;
             uint32 txPerEpoch;
-            bool active;
         }
 
-        mapping(uint8 id => Tier tier) public tiers;
-        uint8 public currentTierId;
+        // mapping(uint8 id => Tier tier) public tiers;
+        // uint8 public currentTierId;
+        Tier[] public tiers;
+
+        function getTierCount() external view returns (uint256 count);
+
     }
 }
 
 impl KarmaTiersSC::KarmaTiersSCInstance<AlloyWsProvider> {
+
     /// Read smart contract `tiers` mapping
     pub async fn get_tiers(
         ws_rpc_url: Url,
         sc_address: Address,
-    ) -> Result<BTreeMap<TierIndex, Tier>, alloy::contract::Error> {
+    ) -> Result<Vec<Tier>, GetScTiersError> {
+
         let ws = WsConnect::new(ws_rpc_url.as_str());
-        let provider = ProviderBuilder::new().connect_ws(ws).await?;
+        let provider = ProviderBuilder::new().connect_ws(ws).await
+            .map_err(GetScTiersError::RpcTransportError)?;
+
+        Self::get_tiers_from_provider(&provider, sc_address).await
+    }
+
+    pub async fn get_tiers_from_provider(provider: &AlloyWsProvider, sc_address: Address) -> Result<Vec<Tier>, GetScTiersError> {
+
         let karma_tiers_sc = KarmaTiersSC::new(sc_address, provider.clone());
 
-        let current_tier_id = karma_tiers_sc.currentTierId().call().await?;
+        let tier_count = karma_tiers_sc.getTierCount()
+        .call()
+        .await
+        .map_err(GetScTiersError::Alloy)?;
 
-        let mut tiers = BTreeMap::new();
+        if tier_count > U256::from(u16::MAX) {
+        return Err(GetScTiersError::TierCount);
+        }
+        // Note: unwrap safe - just tested
+        let tier_count = usize::try_from(tier_count).unwrap();
 
-        // Note: By design, karmaTiers first id is 1
-        for i in 1..=current_tier_id {
-            let tiers_at = karma_tiers_sc.tiers(i).call().await?;
-
-            tiers.insert(TierIndex::from(i), tiers_at.into());
+        let mut multicall = provider.multicall().dynamic();
+        for i in 0..tier_count {
+        multicall = multicall.add_dynamic(karma_tiers_sc.tiers(U256::from(i)));
         }
 
-        Ok(tiers)
+        multicall
+            .aggregate3()
+            .await
+            .map_err(GetScTiersError::Multicall)?
+            .into_iter()
+            .map(|t| t.map(Tier::from))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_e| GetScTiersError::MulticallInner)
     }
+}
+
+
+#[derive(Debug, thiserror::Error)]
+pub enum GetScTiersError {
+    // #[error("Rpc error 1: {0}")]
+    // RpcError(#[from] RpcError<RpcError<TransportErrorKind>>),
+    #[error("Rpc transport error 2: {0}")]
+    RpcTransportError(#[from] RpcError<TransportErrorKind>),
+    #[error(transparent)]
+    Alloy(#[from] alloy::contract::Error),
+    #[error(transparent)]
+    Multicall(MulticallError),
+    #[error("Error retrieving tier from multicall SC")]
+    MulticallInner,
+    #[error("Tier count too high (exceeds u16)")]
+    TierCount
 }
 
 #[derive(Debug, Clone, Default, Copy, From, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -82,9 +121,10 @@ pub struct Tier {
     pub max_karma: U256,
     pub name: String,
     pub tx_per_epoch: u32,
-    pub active: bool,
+    // pub active: bool,
 }
 
+/*
 impl From<KarmaTiersSC::TierAdded> for Tier {
     fn from(tier_added: KarmaTiersSC::TierAdded) -> Self {
         Self {
@@ -92,11 +132,13 @@ impl From<KarmaTiersSC::TierAdded> for Tier {
             max_karma: tier_added.maxKarma,
             name: tier_added.name,
             tx_per_epoch: tier_added.txPerEpoch,
-            active: true,
+            // active: true,
         }
     }
 }
+*/
 
+/*
 impl From<KarmaTiersSC::TierUpdated> for Tier {
     fn from(tier_updated: KarmaTiersSC::TierUpdated) -> Self {
         Self {
@@ -104,10 +146,11 @@ impl From<KarmaTiersSC::TierUpdated> for Tier {
             max_karma: tier_updated.maxKarma,
             name: tier_updated.name,
             tx_per_epoch: tier_updated.txPerEpoch,
-            active: true,
+            // active: true,
         }
     }
 }
+*/
 
 impl From<KarmaTiersSC::tiersReturn> for Tier {
     fn from(tiers_return: KarmaTiersSC::tiersReturn) -> Self {
@@ -116,7 +159,7 @@ impl From<KarmaTiersSC::tiersReturn> for Tier {
             max_karma: tiers_return._1,
             name: tiers_return._2,
             tx_per_epoch: tiers_return._3,
-            active: tiers_return._4,
+            // active: tiers_return._4,
         }
     }
 }
