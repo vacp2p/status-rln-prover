@@ -14,7 +14,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 tracing = "0.1.41"
 alloy.workspace = true
-thiserror = "2.0"
+thiserror.workspace = true
 futures = "0.3"
 ark-bn254.workspace = true
 ark-serialize.workspace = true

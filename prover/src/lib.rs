@@ -63,7 +63,7 @@ pub async fn run_prover(
     let epoch_service = EpochService::try_from((Duration::from_secs(60 * 2), GENESIS))
         .expect("Failed to create epoch service");
 
-    let mut tier_limits = if app_args.ws_rpc_url.is_some() {
+    let tier_limits = if app_args.ws_rpc_url.is_some() {
         TierLimits::from(
             KarmaTiersSCInstance::get_tiers(
                 app_args.ws_rpc_url.clone().unwrap(),
@@ -78,7 +78,6 @@ pub async fn run_prover(
         tl
     };
 
-    tier_limits.filter_inactive();
     tier_limits.validate()?;
 
     // User db service

@@ -5,7 +5,6 @@ mod user_db_tests {
     use std::sync::Arc;
     // third-party
     use alloy::primitives::{Address, address};
-    use claims::assert_matches;
     use parking_lot::RwLock;
     use crate::epoch_service::{Epoch, EpochSlice};
     // internal

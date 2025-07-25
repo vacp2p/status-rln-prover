@@ -59,8 +59,6 @@ pub enum UserMerkleTreeIndexError {
 pub enum SetTierLimitsError {
     #[error(transparent)]
     Validate(#[from] ValidateTierLimitsError),
-    #[error("Updating an invalid tier index")]
-    InvalidUpdateTierIndex,
     #[error(transparent)]
     Db(#[from] rocksdb::Error),
 }
