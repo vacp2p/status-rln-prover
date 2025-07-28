@@ -10,8 +10,8 @@ use tracing::error;
 // internal
 use crate::error::AppError;
 use crate::user_db::UserDb;
-use smart_contract::{AlloyWsProvider, KarmaTiersSC};
-use smart_contract::KarmaTiersSC::KarmaTiersSCInstance;
+use smart_contract::{AlloyWsProvider, KarmaTiers};
+use smart_contract::KarmaTiers::KarmaTiersInstance;
 use crate::tier::TierLimits;
 
 pub(crate) struct TiersListener {
@@ -42,7 +42,7 @@ impl TiersListener {
 
         let filter = alloy::rpc::types::Filter::new()
             .address(self.sc_address)
-            .event(KarmaTiersSC::TiersUpdated::SIGNATURE)
+            .event(KarmaTiers::TiersUpdated::SIGNATURE)
             ;
 
         // Subscribe to logs matching the filter.
@@ -52,13 +52,13 @@ impl TiersListener {
         // Loop through the incoming event logs
         while let Some(log) = stream.next().await {
 
-            if let Ok(_tu) = KarmaTiersSC::TiersUpdated::decode_log_data(log.data()) {
+            if let Ok(_tu) = KarmaTiers::TiersUpdated::decode_log_data(log.data()) {
 
-                let tier_limits = match KarmaTiersSCInstance::get_tiers_from_provider(&provider, self.sc_address).await {
+                let tier_limits = match KarmaTiersInstance::get_tiers_from_provider(&provider, &self.sc_address).await {
                     Ok(tier_limits) => tier_limits,
                     Err(e) => {
                         error!("Error while getting tiers limits from smart contract: {}", e);
-                        return Err(AppError::from(e));
+                        return Err(AppError::TierLimitsError(e));
                     }
                 };
 
