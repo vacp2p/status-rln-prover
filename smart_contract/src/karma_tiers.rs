@@ -308,9 +308,8 @@ impl std::fmt::Debug for KarmaTiers::Tier {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt::Formatter;
-    use crate::KarmaTiers::KarmaTiersInstance;
     use super::*;
+    use crate::KarmaTiers::KarmaTiersInstance;
 
 
     impl PartialEq<KarmaTiers::Tier> for Tier {
@@ -336,7 +335,6 @@ mod tests {
 
         // Spin up a forked Anvil node.
         // Ensure `anvil` is available in $PATH.
-        let rpc_url = "https://reth-ethereum.ithaca.xyz/rpc";
         let provider = ProviderBuilder::new()
             .connect_anvil_with_wallet();
 
