@@ -22,8 +22,6 @@ pub enum AppError {
     RegistryError(#[from] HandleTransferError),
     #[error(transparent)]
     TierLimitsError(#[from] GetScTiersError),
-    // #[error(transparent)]
-    // ContractError(#[from] alloy::contract::Error),
 }
 
 #[derive(thiserror::Error, Debug)]

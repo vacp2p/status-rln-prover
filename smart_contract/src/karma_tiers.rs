@@ -1,12 +1,12 @@
 use std::fmt::Formatter;
 // third-party
+use alloy::providers::{MulticallError, Provider};
+use alloy::transports::{RpcError, TransportErrorKind};
 use alloy::{
     primitives::{Address, U256},
     providers::{ProviderBuilder, WsConnect},
     sol,
 };
-use alloy::providers::{MulticallError, Provider};
-use alloy::transports::{RpcError, TransportErrorKind};
 use url::Url;
 // internal
 use crate::AlloyWsProvider;
@@ -143,27 +143,29 @@ sol!(
     }
 );
 
-
 impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
-
     /// Read smart contract `tiers` mapping
     pub async fn get_tiers(
         ws_rpc_url: Url,
         sc_address: Address,
     ) -> Result<Vec<Tier>, GetScTiersError> {
-
         let ws = WsConnect::new(ws_rpc_url.as_str());
-        let provider = ProviderBuilder::new().connect_ws(ws).await
+        let provider = ProviderBuilder::new()
+            .connect_ws(ws)
+            .await
             .map_err(GetScTiersError::RpcTransportError)?;
 
         Self::get_tiers_from_provider(&provider, &sc_address).await
     }
 
-    pub async fn get_tiers_from_provider<T: Provider>(provider: &T, sc_address: &Address) -> Result<Vec<Tier>, GetScTiersError> {
+    pub async fn get_tiers_from_provider<T: Provider>(
+        provider: &T,
+        sc_address: &Address,
+    ) -> Result<Vec<Tier>, GetScTiersError> {
+        let karma_tiers_sc = KarmaTiers::new(*sc_address, provider);
 
-        let karma_tiers_sc = KarmaTiers::new(sc_address.clone(), provider);
-
-        let tier_count = karma_tiers_sc.getTierCount()
+        let tier_count = karma_tiers_sc
+            .getTierCount()
             .call()
             .await
             .map_err(GetScTiersError::Alloy)?;
@@ -173,7 +175,7 @@ impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
         }
         // Note: unwrap safe - just tested
         let tier_count = u8::try_from(tier_count).unwrap();
-        println!("tier_count: {}", tier_count);
+        println!("tier_count: {tier_count}");
 
         // Wait for issue: https://github.com/alloy-rs/alloy/issues/2744 to be fixed
         /*
@@ -204,7 +206,8 @@ impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
 
         let mut tiers = Vec::with_capacity(usize::from(tier_count));
         for i in 0..tier_count {
-            let tier = karma_tiers_sc.getTierById(i)
+            let tier = karma_tiers_sc
+                .getTierById(i)
                 .call()
                 .await
                 .map_err(GetScTiersError::Alloy)?;
@@ -213,7 +216,6 @@ impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
         Ok(tiers)
     }
 }
-
 
 #[derive(Debug, thiserror::Error)]
 pub enum GetScTiersError {
@@ -228,7 +230,7 @@ pub enum GetScTiersError {
     #[error("Error retrieving tier from multicall SC")]
     MulticallInner,
     #[error("Tier count too high (exceeds u16)")]
-    TierCount
+    TierCount,
 }
 
 /*
@@ -312,7 +314,11 @@ impl From<KarmaTiers::tiersReturn> for Tier {
 
 impl std::fmt::Debug for KarmaTiers::Tier {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "KarmaTiers::Tier min_karma: {}, max_karma: {}, name: {}, tx_per_epoch: {}", self.minKarma, self.maxKarma, self.name, self.txPerEpoch)
+        write!(
+            f,
+            "KarmaTiers::Tier min_karma: {}, max_karma: {}, name: {}, tx_per_epoch: {}",
+            self.minKarma, self.maxKarma, self.name, self.txPerEpoch
+        )
     }
 }
 
@@ -321,32 +327,29 @@ mod tests {
     use super::*;
     use crate::KarmaTiers::KarmaTiersInstance;
 
-
     impl PartialEq<KarmaTiers::Tier> for Tier {
         fn eq(&self, other: &KarmaTiers::Tier) -> bool {
-            self.min_karma == other.minKarma &&
-                self.max_karma == other.maxKarma &&
-                self.name == other.name &&
-                self.tx_per_epoch == other.txPerEpoch
+            self.min_karma == other.minKarma
+                && self.max_karma == other.maxKarma
+                && self.name == other.name
+                && self.tx_per_epoch == other.txPerEpoch
         }
     }
 
     impl PartialEq for KarmaTiers::Tier {
         fn eq(&self, other: &Self) -> bool {
-            self.minKarma == other.minKarma &&
-                self.maxKarma == other.maxKarma &&
-                self.name == other.name &&
-                self.txPerEpoch == other.txPerEpoch
+            self.minKarma == other.minKarma
+                && self.maxKarma == other.maxKarma
+                && self.name == other.name
+                && self.txPerEpoch == other.txPerEpoch
         }
     }
 
     #[tokio::test]
     async fn test_get_tiers() {
-
         // Spin up a forked Anvil node.
         // Ensure `anvil` is available in $PATH.
-        let provider = ProviderBuilder::new()
-            .connect_anvil_with_wallet();
+        let provider = ProviderBuilder::new().connect_anvil_with_wallet();
 
         // Deploy the KarmaTiers contract.
         let contract = KarmaTiers::deploy(&provider).await.unwrap();
@@ -370,7 +373,7 @@ mod tests {
                 maxKarma: U256::from(499),
                 name: "Advanced".to_string(),
                 txPerEpoch: 50,
-            }
+            },
         ];
 
         let call_2 = contract.updateTiers(tiers.to_vec());
@@ -391,7 +394,9 @@ mod tests {
         println!("result 5: {:?}", result_5);
         assert_eq!(result_5, tiers[1]);
 
-        let res = KarmaTiersInstance::get_tiers_from_provider(&provider, contract.address()).await.unwrap();
+        let res = KarmaTiersInstance::get_tiers_from_provider(&provider, contract.address())
+            .await
+            .unwrap();
         assert_eq!(res, tiers.to_vec());
     }
 }

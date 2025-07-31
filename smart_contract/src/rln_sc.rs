@@ -1,12 +1,12 @@
 // third-party
 use alloy::primitives::U256;
+use alloy::providers::Provider;
 use alloy::{
     primitives::Address,
     providers::{ProviderBuilder, WsConnect},
     sol,
     transports::{RpcError, TransportError},
 };
-use alloy::providers::Provider;
 use async_trait::async_trait;
 use url::Url;
 // internal
@@ -16,7 +16,11 @@ use crate::AlloyWsProvider;
 pub trait RLNRegister {
     type Error;
 
-    async fn register_user(&self, address: &Address, identity_commitment: U256) -> Result<(), Self::Error>;
+    async fn register_user(
+        &self,
+        address: &Address,
+        identity_commitment: U256,
+    ) -> Result<(), Self::Error>;
 }
 
 sol! {
@@ -51,8 +55,16 @@ impl KarmaRLNSC::KarmaRLNSCInstance<AlloyWsProvider> {
 impl<T: Provider> RLNRegister for KarmaRLNSC::KarmaRLNSCInstance<T> {
     type Error = alloy::contract::Error;
 
-    async fn register_user(&self, address: &Address, identity_commitment: U256) -> Result<(), Self::Error> {
-        self.register(identity_commitment, *address).send().await?.watch().await?;
+    async fn register_user(
+        &self,
+        address: &Address,
+        identity_commitment: U256,
+    ) -> Result<(), Self::Error> {
+        self.register(identity_commitment, *address)
+            .send()
+            .await?
+            .watch()
+            .await?;
         Ok(())
     }
 }
@@ -61,16 +73,13 @@ impl<T: Provider> RLNRegister for KarmaRLNSC::KarmaRLNSCInstance<T> {
 mod tests {
     use super::*;
     // third-party
+    use crate::KarmaSC;
     use alloy::primitives::address;
     use alloy::sol_types::SolCall;
-    use crate::KarmaSC;
 
     #[tokio::test]
     async fn test_register() {
-
-        let provider = ProviderBuilder::new()
-            .connect_anvil_with_wallet()
-            ;
+        let provider = ProviderBuilder::new().connect_anvil_with_wallet();
 
         // Deploy Karma SC
 
@@ -84,7 +93,13 @@ mod tests {
         // Deploy the KarmaTiers contract.
         let contract_0 = KarmaSC::deploy(&provider).await.unwrap();
         let init_data = KarmaSC::initializeCall { _owner: addr_alice }.abi_encode();
-        let contract_proxy = crate::karma_sc::tests::ERC1967Proxy::deploy(&provider, *contract_0.address(), init_data.into()).await.unwrap();
+        let contract_proxy = crate::karma_sc::tests::ERC1967Proxy::deploy(
+            &provider,
+            *contract_0.address(),
+            init_data.into(),
+        )
+        .await
+        .unwrap();
         println!("contract_proxy: {:?}", contract_proxy.address());
         let contract = KarmaSC::new(*contract_proxy.address(), &provider);
         println!("contract KarmaSC: {:?}", contract_proxy.address());
@@ -97,9 +112,16 @@ mod tests {
             _slasher: addr_alice,
             _register: addr_alice,
             depth: U256::from(2),
-            _token: *contract.address()
-        }.abi_encode();
-        let contract_proxy_rln = crate::karma_sc::tests::ERC1967Proxy::deploy(&provider, *contract_rln_0.address(), init_data_1.into()).await.unwrap();
+            _token: *contract.address(),
+        }
+        .abi_encode();
+        let contract_proxy_rln = crate::karma_sc::tests::ERC1967Proxy::deploy(
+            &provider,
+            *contract_rln_0.address(),
+            init_data_1.into(),
+        )
+        .await
+        .unwrap();
         println!("contract_proxy_rln: {:?}", contract_proxy_rln.address());
         let contract_rln = KarmaRLNSC::new(*contract_proxy_rln.address(), &provider);
 
@@ -113,7 +135,10 @@ mod tests {
         // let tx_hash_2 = call_2.send().await.unwrap().watch().await.unwrap();
         // println!("tx_hash_2: {:?}", tx_hash_2);
 
-        let _ = contract_rln.register_user(&addr_mickey, id_commitment_2).await.unwrap();
+        let _ = contract_rln
+            .register_user(&addr_mickey, id_commitment_2)
+            .await
+            .unwrap();
 
         let result = contract_rln.members(id_commitment).call().await.unwrap();
         assert_eq!(result._0, addr_bob);
@@ -121,6 +146,5 @@ mod tests {
         let result = contract_rln.members(id_commitment_2).call().await.unwrap();
         assert_eq!(result._0, addr_mickey);
         assert_eq!(result._1, U256::from(1));
-
     }
 }

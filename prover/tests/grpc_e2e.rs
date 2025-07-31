@@ -111,7 +111,6 @@ async fn test_grpc_register_users() {
 }
 
 async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
-
     let start = std::time::Instant::now();
 
     let chain_id = GrpcU256 {
@@ -148,7 +147,11 @@ async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
         count += 1;
     }
 
-    println!("[proof_sender] sent {} tx - elapsed: {} secs", count, start.elapsed().as_secs_f64());
+    println!(
+        "[proof_sender] sent {} tx - elapsed: {} secs",
+        count,
+        start.elapsed().as_secs_f64()
+    );
 
     /*
     let tx_hash = U256::from(42).to_le_bytes::<32>().to_vec();
@@ -166,7 +169,6 @@ async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
 }
 
 async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
-
     let start = std::time::Instant::now();
     let result = Arc::new(RwLock::new(vec![]));
 
@@ -190,7 +192,10 @@ async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
             if count >= proof_count {
                 break;
             }
-            println!("count {count} - elapsed: {} secs", start_per_message.elapsed().as_secs_f64());
+            println!(
+                "count {count} - elapsed: {} secs",
+                start_per_message.elapsed().as_secs_f64()
+            );
             start_per_message = std::time::Instant::now();
         }
     };
@@ -198,7 +203,10 @@ async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
     let _res = tokio::time::timeout(Duration::from_secs(500), receiver).await;
     println!("_res: {:?}", _res);
     let res = std::mem::take(&mut *result.write());
-    println!("[proof_collector] elapsed: {} secs", start.elapsed().as_secs_f64());
+    println!(
+        "[proof_collector] elapsed: {} secs",
+        start.elapsed().as_secs_f64()
+    );
     res
 }
 

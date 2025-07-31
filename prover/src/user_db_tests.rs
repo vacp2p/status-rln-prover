@@ -4,9 +4,9 @@ mod user_db_tests {
     use std::path::PathBuf;
     use std::sync::Arc;
     // third-party
+    use crate::epoch_service::{Epoch, EpochSlice};
     use alloy::primitives::{Address, address};
     use parking_lot::RwLock;
-    use crate::epoch_service::{Epoch, EpochSlice};
     // internal
     use crate::user_db::UserDb;
     use crate::user_db_types::{EpochCounter, EpochSliceCounter, MerkleTreeIndex};
@@ -16,7 +16,6 @@ mod user_db_tests {
 
     #[tokio::test]
     async fn test_incr_tx_counter_2() {
-
         // Same as test_incr_tx_counter but multi users AND multi incr
 
         let temp_folder = tempfile::tempdir().unwrap();
@@ -34,7 +33,7 @@ mod user_db_tests {
             Default::default(),
             Default::default(),
         )
-            .unwrap();
+        .unwrap();
 
         // Register users
         user_db.register(ADDR_1).unwrap();
@@ -82,7 +81,6 @@ mod user_db_tests {
             user_db.get_tx_counter(&ADDR_2),
             Ok((EpochCounter::from(2), EpochSliceCounter::from(2)))
         );
-
     }
 
     #[tokio::test]

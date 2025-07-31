@@ -1,11 +1,11 @@
 // third-party
+use alloy::providers::Provider;
 use alloy::{
     primitives::{Address, U256},
     providers::{ProviderBuilder, WsConnect},
     sol,
     transports::{RpcError, TransportError},
 };
-use alloy::providers::Provider;
 use async_trait::async_trait;
 use url::Url;
 // internal
@@ -83,14 +83,12 @@ impl<T: Provider> KarmaAmountExt for KarmaSC::KarmaSCInstance<T> {
     }
 }
 
-
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     // third-party
-    use alloy::primitives::address;
     use alloy::primitives::U256;
+    use alloy::primitives::address;
     use alloy::sol_types::SolCall;
     use claims::assert_gt;
 
@@ -124,17 +122,17 @@ pub(crate) mod tests {
 
     sol! {
 
-        // src: staking-reward-streamer/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol
-        // Compile bytecode (in staking-reward-streamer folder):
-        // docker run -v ./:/sources ethereum/solc:0.8.26 --bin --via-ir --optimize --optimize-runs 1 --overwrite @openzeppelin/contracts=/sources/lib/openzeppelin-contracts/contracts @openzeppelin/contracts-upgradeable=/sources/lib/openzeppelin-contracts-upgradeable/contracts /sources/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol
+            // src: staking-reward-streamer/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol
+            // Compile bytecode (in staking-reward-streamer folder):
+            // docker run -v ./:/sources ethereum/solc:0.8.26 --bin --via-ir --optimize --optimize-runs 1 --overwrite @openzeppelin/contracts=/sources/lib/openzeppelin-contracts/contracts @openzeppelin/contracts-upgradeable=/sources/lib/openzeppelin-contracts-upgradeable/contracts /sources/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol
 
-        #[sol(rpc, bytecode="60806040526103be80380380610014816101f2565b9283398101906040818303126101ee5780516001600160a01b038116918282036101ee576020810151906001600160401b0382116101ee57019183601f840112156101ee57825161006c6100678261022b565b6101f2565b938185526020850195602083830101116101ee57815f926020809301885e85010152813b15610193577f360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc80546001600160a01b031916821790557fbc7cd75a20ee27fd9adebab32041f755214dbc6bffa90cc0225b39da2e5c2d3b5f80a281511580159061018c575b610108575b60405160c390816102fb8239f35b5f8061017b9461011860606101f2565b94602786527f416464726573733a206c6f772d6c6576656c2064656c65676174652063616c6c6020870152660819985a5b195960ca1b60408701525190845af43d15610184573d9161016c6100678461022b565b9283523d5f602085013e610246565b505f80806100fa565b606091610246565b505f6100f5565b60405162461bcd60e51b815260206004820152602d60248201527f455243313936373a206e657720696d706c656d656e746174696f6e206973206e60448201526c1bdd08184818dbdb9d1c9858dd609a1b6064820152608490fd5b5f80fd5b6040519190601f01601f191682016001600160401b0381118382101761021757604052565b634e487b7160e01b5f52604160045260245ffd5b6001600160401b03811161021757601f01601f191660200190565b919290156102a8575081511561025a575090565b3b156102635790565b60405162461bcd60e51b815260206004820152601d60248201527f416464726573733a2063616c6c20746f206e6f6e2d636f6e74726163740000006044820152606490fd5b8251909150156102bb5750805190602001fd5b604460209160405192839162461bcd60e51b83528160048401528051918291826024860152018484015e5f828201840152601f01601f19168101030190fdfe60806040523615603d575f80516020606e833981519152545f9081906001600160a01b0316368280378136915af43d5f803e156039573d5ff35b3d5ffd5b5f80516020606e833981519152545f9081906001600160a01b0316368280378136915af43d5f803e156039573d5ff3fe360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbca26469706673582212208909899f17d67fa6e7c49a2041f3e1cb1f0006bd1701c1d5b0ffb69059b4fd6164736f6c634300081a0033")]
-        contract ERC1967Proxy is Proxy, ERC1967Upgrade {
-            constructor(address _logic, bytes memory _data) payable;
-            function _implementation() internal view virtual override returns (address impl);
-        }
+            #[sol(rpc, bytecode="60806040526103be80380380610014816101f2565b9283398101906040818303126101ee5780516001600160a01b038116918282036101ee576020810151906001600160401b0382116101ee57019183601f840112156101ee57825161006c6100678261022b565b6101f2565b938185526020850195602083830101116101ee57815f926020809301885e85010152813b15610193577f360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc80546001600160a01b031916821790557fbc7cd75a20ee27fd9adebab32041f755214dbc6bffa90cc0225b39da2e5c2d3b5f80a281511580159061018c575b610108575b60405160c390816102fb8239f35b5f8061017b9461011860606101f2565b94602786527f416464726573733a206c6f772d6c6576656c2064656c65676174652063616c6c6020870152660819985a5b195960ca1b60408701525190845af43d15610184573d9161016c6100678461022b565b9283523d5f602085013e610246565b505f80806100fa565b606091610246565b505f6100f5565b60405162461bcd60e51b815260206004820152602d60248201527f455243313936373a206e657720696d706c656d656e746174696f6e206973206e60448201526c1bdd08184818dbdb9d1c9858dd609a1b6064820152608490fd5b5f80fd5b6040519190601f01601f191682016001600160401b0381118382101761021757604052565b634e487b7160e01b5f52604160045260245ffd5b6001600160401b03811161021757601f01601f191660200190565b919290156102a8575081511561025a575090565b3b156102635790565b60405162461bcd60e51b815260206004820152601d60248201527f416464726573733a2063616c6c20746f206e6f6e2d636f6e74726163740000006044820152606490fd5b8251909150156102bb5750805190602001fd5b604460209160405192839162461bcd60e51b83528160048401528051918291826024860152018484015e5f828201840152601f01601f19168101030190fdfe60806040523615603d575f80516020606e833981519152545f9081906001600160a01b0316368280378136915af43d5f803e156039573d5ff35b3d5ffd5b5f80516020606e833981519152545f9081906001600160a01b0316368280378136915af43d5f803e156039573d5ff3fe360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbca26469706673582212208909899f17d67fa6e7c49a2041f3e1cb1f0006bd1701c1d5b0ffb69059b4fd6164736f6c634300081a0033")]
+            contract ERC1967Proxy is Proxy, ERC1967Upgrade {
+                constructor(address _logic, bytes memory _data) payable;
+                function _implementation() internal view virtual override returns (address impl);
+            }
 
-}
+    }
 
     /*
     #[tokio::test]
@@ -184,10 +182,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_karma_amount() {
-
-        let provider = ProviderBuilder::new()
-            .connect_anvil_with_wallet()
-            ;
+        let provider = ProviderBuilder::new().connect_anvil_with_wallet();
 
         let contract_distributor_1 = KarmaDistributorMock::deploy(&provider).await.unwrap();
         let contract_distributor_2 = KarmaDistributorMock::deploy(&provider).await.unwrap();
@@ -198,7 +193,10 @@ pub(crate) mod tests {
         let addr_alice = address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
 
         let init_data = KarmaSC::initializeCall { _owner: addr_alice }.abi_encode();
-        let contract_proxy = ERC1967Proxy::deploy(&provider, *contract_0.address(), init_data.into()).await.unwrap();
+        let contract_proxy =
+            ERC1967Proxy::deploy(&provider, *contract_0.address(), init_data.into())
+                .await
+                .unwrap();
 
         println!("contract_proxy: {:?}", contract_proxy.address());
         let contract = KarmaSC::new(*contract_proxy.address(), &provider);
@@ -210,9 +208,17 @@ pub(crate) mod tests {
         let call_0_2 = contract.addRewardDistributor(*contract_distributor_2.address());
         let _tx_hash_0_2 = call_0_2.send().await.unwrap().watch().await.unwrap();
 
-        let call_1_1 = contract.setReward(*contract_distributor_1.address(), U256::from(1000), U256::from(1000));
+        let call_1_1 = contract.setReward(
+            *contract_distributor_1.address(),
+            U256::from(1000),
+            U256::from(1000),
+        );
         let _tx_hash_1_1 = call_1_1.send().await.unwrap().watch().await.unwrap();
-        let call_1_2 = contract.setReward(*contract_distributor_2.address(), U256::from(1000), U256::from(1000));
+        let call_1_2 = contract.setReward(
+            *contract_distributor_2.address(),
+            U256::from(1000),
+            U256::from(1000),
+        );
         let _tx_hash_1_2 = call_1_2.send().await.unwrap().watch().await.unwrap();
 
         let call_2_1 = contract_distributor_1.setTotalKarmaShares(U256::from(1000));
@@ -240,5 +246,4 @@ pub(crate) mod tests {
         assert_gt!(result_4, U256::from(0));
         assert_eq!(result_4, result_5);
     }
-
 }

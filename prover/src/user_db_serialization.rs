@@ -16,7 +16,7 @@ use rln_proof::RlnUserIdentity;
 // internal
 use crate::tier::TierLimits;
 use crate::user_db_types::MerkleTreeIndex;
-use smart_contract::{Tier};
+use smart_contract::Tier;
 
 pub(crate) struct RlnUserIdentitySerializer {}
 
@@ -180,13 +180,11 @@ impl TierLimitsSerializer {
         let len = value.len() as u32;
         buffer.extend(len.to_le_bytes());
         let mut tier_buffer = Vec::with_capacity(self.tier_serializer.size_hint());
-        value
-            .iter()
-            .try_for_each(|t| {
-                self.tier_serializer.serialize(t, &mut tier_buffer)?;
-                buffer.extend_from_slice(&tier_buffer);
-                tier_buffer.clear();
-                Ok(())
+        value.iter().try_for_each(|t| {
+            self.tier_serializer.serialize(t, &mut tier_buffer)?;
+            buffer.extend_from_slice(&tier_buffer);
+            tier_buffer.clear();
+            Ok(())
         })
     }
 
@@ -291,10 +289,7 @@ mod tests {
             tx_per_epoch: 1_000_000_000,
         };
 
-        let tier_limits = TierLimits::from([
-            tier_1,
-            tier_2,
-        ]);
+        let tier_limits = TierLimits::from([tier_1, tier_2]);
 
         let serializer = TierLimitsSerializer::default();
         let mut buffer = Vec::with_capacity(serializer.size_hint(tier_limits.len()));

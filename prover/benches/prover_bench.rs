@@ -1,5 +1,5 @@
-use criterion::{BenchmarkId, Throughput};
 use criterion::Criterion;
+use criterion::{BenchmarkId, Throughput};
 use criterion::{criterion_group, criterion_main};
 
 // std
@@ -175,19 +175,23 @@ fn proof_generation_bench(c: &mut Criterion) {
     let proof_count = 5;
 
     group.throughput(Throughput::Elements(proof_count as u64));
-    group.bench_with_input(BenchmarkId::new("proof generation", proof_count), &proof_count, |b, &_s| {
-        b.to_async(&rt).iter(|| {
-            async {
-                let mut set = JoinSet::new();
-                set.spawn(proof_collector(port, proof_count));
-                set.spawn(proof_sender(port, addresses.clone(), proof_count).map(|_r| vec![]));
-                // Wait for proof_sender + proof_collector to complete
-                let res = set.join_all().await;
-                // Check we receive enough proof
-                assert_eq!(res[1].len(), proof_count);
-            }
-        });
-    });
+    group.bench_with_input(
+        BenchmarkId::new("proof generation", proof_count),
+        &proof_count,
+        |b, &_s| {
+            b.to_async(&rt).iter(|| {
+                async {
+                    let mut set = JoinSet::new();
+                    set.spawn(proof_collector(port, proof_count));
+                    set.spawn(proof_sender(port, addresses.clone(), proof_count).map(|_r| vec![]));
+                    // Wait for proof_sender + proof_collector to complete
+                    let res = set.join_all().await;
+                    // Check we receive enough proof
+                    assert_eq!(res[1].len(), proof_count);
+                }
+            });
+        },
+    );
 
     group.finish();
 }
