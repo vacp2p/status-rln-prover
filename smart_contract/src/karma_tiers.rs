@@ -1,14 +1,12 @@
 use std::fmt::Formatter;
-use std::ops::Add;
 // third-party
 use alloy::{
     primitives::{Address, U256},
     providers::{ProviderBuilder, WsConnect},
     sol,
 };
-use alloy::providers::{CallItemBuilder, MulticallError, Provider};
+use alloy::providers::{MulticallError, Provider};
 use alloy::transports::{RpcError, TransportErrorKind};
-use derive_more::From;
 use url::Url;
 // internal
 use crate::AlloyWsProvider;
@@ -163,7 +161,7 @@ impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
 
     pub async fn get_tiers_from_provider<T: Provider>(provider: &T, sc_address: &Address) -> Result<Vec<Tier>, GetScTiersError> {
 
-        let karma_tiers_sc = KarmaTiers::new(sc_address.clone(), provider.clone());
+        let karma_tiers_sc = KarmaTiers::new(sc_address.clone(), provider);
 
         let tier_count = karma_tiers_sc.getTierCount()
             .call()
@@ -177,6 +175,8 @@ impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
         let tier_count = u8::try_from(tier_count).unwrap();
         println!("tier_count: {}", tier_count);
 
+        // Wait for issue: https://github.com/alloy-rs/alloy/issues/2744 to be fixed
+        /*
         let get0 = CallItemBuilder::new(karma_tiers_sc.getTierById(0)); // Set the amount of eth that should be deposited into the contract.
         let get1 = CallItemBuilder::new(karma_tiers_sc.getTierById(1)); // Set the amount of eth that should be deposited into the contract.
         let multicall = provider
@@ -193,7 +193,6 @@ impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
             // .map_err(GetScTiersError::Multicall)?;
            ;
 
-
         // res.into_iter()
         //     .map(|t| t.map(Tier::from))
         //     .collect::<Result<Vec<_>, _>>()
@@ -201,6 +200,17 @@ impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
         // let res_ = res.unwrap();
         // Ok(vec![Tier::from(res_.0.unwrap()), Tier::from(res_.1.unwrap())])
         Ok(vec![])
+        */
+
+        let mut tiers = Vec::with_capacity(usize::from(tier_count));
+        for i in 0..tier_count {
+            let tier = karma_tiers_sc.getTierById(i)
+                .call()
+                .await
+                .map_err(GetScTiersError::Alloy)?;
+            tiers.push(Tier::from(tier));
+        }
+        Ok(tiers)
     }
 }
 
@@ -364,8 +374,8 @@ mod tests {
         ];
 
         let call_2 = contract.updateTiers(tiers.to_vec());
-        let tx_hash = call_2.send().await.unwrap().watch().await.unwrap();
-        let result_2 = call_2.call().await.unwrap();
+        let _tx_hash = call_2.send().await.unwrap().watch().await.unwrap();
+        // let result_2 = call_2.call().await.unwrap();
 
         let call_3 = contract.getTierCount();
         let result_3 = call_3.call().await.unwrap();
@@ -380,11 +390,6 @@ mod tests {
         let result_5 = call_5.call().await.unwrap();
         println!("result 5: {:?}", result_5);
         assert_eq!(result_5, tiers[1]);
-
-        //
-        // let multicall = provider.multicall().add(contract.getTierById(0)).add(contract.getTierById(1));
-        // let res_agg = multicall.aggregate3_value().await.unwrap();
-        // println!("res_agg: {:?}", res_agg);
 
         let res = KarmaTiersInstance::get_tiers_from_provider(&provider, contract.address()).await.unwrap();
         assert_eq!(res, tiers.to_vec());

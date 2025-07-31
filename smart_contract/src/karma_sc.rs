@@ -75,23 +75,16 @@ impl KarmaAmountExt for KarmaSC::KarmaSCInstance<AlloyWsProvider> {
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::address;
-    use alloy::signers::local::PrivateKeySigner;
     use super::*;
+    // third-party
+    use alloy::primitives::address;
 
     #[tokio::test]
     async fn test_balance_of() {
 
-        // Initialize a signer with a private key.
-        let signer: PrivateKeySigner =
-            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80".parse().unwrap();
-
         let provider = ProviderBuilder::new()
-            // .wallet(signer)
             .connect_anvil_with_wallet()
-            // .connect_anvil_with_config(|a| a.fork("https://reth-ethereum.ithaca.xyz/rpc"));
-            // .connect_anvil_with_config(|anvil| );
-        ;
+            ;
 
         // Deploy the KarmaTiers contract.
         let contract = KarmaSC::deploy(&provider).await.unwrap();
