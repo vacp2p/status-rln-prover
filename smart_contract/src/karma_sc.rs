@@ -86,7 +86,7 @@ impl<T: Provider> KarmaAmountExt for KarmaSC::KarmaSCInstance<T> {
 
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     // third-party
     use alloy::primitives::address;

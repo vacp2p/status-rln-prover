@@ -22,9 +22,10 @@ pub struct MockKarmaRLNSc {}
 impl RLNRegister for MockKarmaRLNSc {
     type Error = alloy::contract::Error;
 
-    async fn register(&self, identity_commitment: U256) -> Result<(), Self::Error> {
+    async fn register_user(&self, address: &Address, identity_commitment: U256) -> Result<(), Self::Error> {
         debug!(
-            "Register user with identity_commitment: {:?}",
+            "Register user ({}) with identity_commitment: {:?}",
+            address,
             identity_commitment
         );
         Ok(())
