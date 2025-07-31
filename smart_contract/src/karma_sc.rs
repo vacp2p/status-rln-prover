@@ -5,10 +5,12 @@ use alloy::{
     sol,
     transports::{RpcError, TransportError},
 };
+use alloy::providers::Provider;
 use async_trait::async_trait;
 use url::Url;
 // internal
 use crate::AlloyWsProvider;
+use crate::KarmaSC::KarmaSCInstance;
 
 #[async_trait]
 pub trait KarmaAmountExt {
@@ -52,7 +54,8 @@ sol! {
 
         // function _totalSupply() internal view returns (uint256);
         function mint(address account, uint256 amount) public virtual onlyAdminOrOperator;
-        // function transfer(address, uint256) public pure override returns (bool)
+        function addRewardDistributor(address distributor) public virtual onlyRole(DEFAULT_ADMIN_ROLE);
+        function setReward(address rewardsDistributor,uint256 amount,uint256 duration);
 
     }
 }
@@ -61,24 +64,79 @@ impl KarmaSC::KarmaSCInstance<AlloyWsProvider> {
     pub async fn try_new(rpc_url: Url, address: Address) -> Result<Self, RpcError<TransportError>> {
         let ws = WsConnect::new(rpc_url.as_str());
         let provider = ProviderBuilder::new().connect_ws(ws).await?;
-        Ok(KarmaSC::new(address, provider))
+        // Ok(KarmaSC::new(address, provider))
+        Ok(KarmaSCInstance::from((address, provider)))
+    }
+}
+
+impl<T: Provider> From<(Address, T)> for KarmaSC::KarmaSCInstance<T> {
+    fn from((address, provider): (Address, T)) -> Self {
+        KarmaSC::new(address, provider)
     }
 }
 
 #[async_trait]
-impl KarmaAmountExt for KarmaSC::KarmaSCInstance<AlloyWsProvider> {
+impl<T: Provider> KarmaAmountExt for KarmaSC::KarmaSCInstance<T> {
     type Error = alloy::contract::Error;
     async fn karma_amount(&self, address: &Address) -> Result<U256, Self::Error> {
         self.balanceOf(*address).call().await
     }
 }
 
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
     // third-party
     use alloy::primitives::address;
+    use alloy::primitives::U256;
+    use alloy::sol_types::SolCall;
+    use claims::assert_gt;
 
+    sol! {
+
+        // src: staking-reward-streamer/test/mocks/KarmaDistributorMock.sol
+        // Compile bytecode (in staking-reward-streamer folder):
+        // docker run -v ./:/sources ethereum/solc:0.8.26 --bin --via-ir --optimize --optimize-runs 1 --overwrite  @openzeppelin/contracts=/sources/lib/openzeppelin-contracts/contracts @openzeppelin/contracts-upgradeable=/sources/lib/openzeppelin-contracts-upgradeable/contracts /sources/test/mocks/KarmaDistributorMock.sol
+
+        #[sol(rpc, bytecode="608080604052346015576101c6908161001a8239f35b5f80fdfe6080806040526004361015610012575f80fd5b5f3560e01c90816329cdf1d21461016157816333dc41c7146101135750806371976aae146100745780638bb87710146100df578063a47bd496146100cc578063a98cdada146100af578063b58ba163146100af5763c141426314610074575f80fd5b346100ab5760203660031901126100ab576001600160a01b0361009561017a565b165f525f602052602060405f2054604051908152f35b5f80fd5b346100ab575f3660031901126100ab576020600154604051908152f35b346100ab5760403660031901126100ab57005b346100ab5760403660031901126100ab576001600160a01b0361010061017a565b165f525f60205260243560405f20555f80f35b346100ab5760203660031901126100ab5760649061012f61017a565b5062461bcd60e51b815260206004820152600f60248201526e139bdd081a5b5c1b195b595b9d1959608a1b6044820152fd5b346100ab5760203660031901126100ab57600435600155005b600435906001600160a01b03821682036100ab5756fea264697066735822122005ab03ec7e765b2b87f3d54b2b2b46e58a1f445003ba393e1d418380b422808764736f6c634300081a0033")]
+        contract KarmaDistributorMock is IRewardDistributor {
+            // solhint-disable-next-line
+            mapping(address => uint256) public userKarmaShare;
+
+            uint256 public totalKarmaShares;
+
+            function setUserKarmaShare(address user, uint256 karma) external;
+
+            function setTotalKarmaShares(uint256 karma) external;
+
+            function rewardsBalanceOf(address) external pure override returns (uint256);
+
+            // solhint-disable-next-line
+            function setReward(uint256, uint256) external pure override;
+
+            function rewardsBalanceOfAccount(address account) external view override returns (uint256);
+
+            function totalRewardsSupply() external view override returns (uint256);
+        }
+    }
+
+    sol! {
+
+        // src: staking-reward-streamer/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol
+        // Compile bytecode (in staking-reward-streamer folder):
+        // docker run -v ./:/sources ethereum/solc:0.8.26 --bin --via-ir --optimize --optimize-runs 1 --overwrite @openzeppelin/contracts=/sources/lib/openzeppelin-contracts/contracts @openzeppelin/contracts-upgradeable=/sources/lib/openzeppelin-contracts-upgradeable/contracts /sources/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol
+
+        #[sol(rpc, bytecode="60806040526103be80380380610014816101f2565b9283398101906040818303126101ee5780516001600160a01b038116918282036101ee576020810151906001600160401b0382116101ee57019183601f840112156101ee57825161006c6100678261022b565b6101f2565b938185526020850195602083830101116101ee57815f926020809301885e85010152813b15610193577f360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc80546001600160a01b031916821790557fbc7cd75a20ee27fd9adebab32041f755214dbc6bffa90cc0225b39da2e5c2d3b5f80a281511580159061018c575b610108575b60405160c390816102fb8239f35b5f8061017b9461011860606101f2565b94602786527f416464726573733a206c6f772d6c6576656c2064656c65676174652063616c6c6020870152660819985a5b195960ca1b60408701525190845af43d15610184573d9161016c6100678461022b565b9283523d5f602085013e610246565b505f80806100fa565b606091610246565b505f6100f5565b60405162461bcd60e51b815260206004820152602d60248201527f455243313936373a206e657720696d706c656d656e746174696f6e206973206e60448201526c1bdd08184818dbdb9d1c9858dd609a1b6064820152608490fd5b5f80fd5b6040519190601f01601f191682016001600160401b0381118382101761021757604052565b634e487b7160e01b5f52604160045260245ffd5b6001600160401b03811161021757601f01601f191660200190565b919290156102a8575081511561025a575090565b3b156102635790565b60405162461bcd60e51b815260206004820152601d60248201527f416464726573733a2063616c6c20746f206e6f6e2d636f6e74726163740000006044820152606490fd5b8251909150156102bb5750805190602001fd5b604460209160405192839162461bcd60e51b83528160048401528051918291826024860152018484015e5f828201840152601f01601f19168101030190fdfe60806040523615603d575f80516020606e833981519152545f9081906001600160a01b0316368280378136915af43d5f803e156039573d5ff35b3d5ffd5b5f80516020606e833981519152545f9081906001600160a01b0316368280378136915af43d5f803e156039573d5ff3fe360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbca26469706673582212208909899f17d67fa6e7c49a2041f3e1cb1f0006bd1701c1d5b0ffb69059b4fd6164736f6c634300081a0033")]
+        contract ERC1967Proxy is Proxy, ERC1967Upgrade {
+            constructor(address _logic, bytes memory _data) payable;
+            function _implementation() internal view virtual override returns (address impl);
+        }
+
+}
+
+    /*
     #[tokio::test]
     async fn test_balance_of() {
 
@@ -86,9 +144,10 @@ mod tests {
             .connect_anvil_with_wallet()
             ;
 
+        let contract_distributor = KarmaDistributorMock::deploy(&provider).await.unwrap();
+
         // Deploy the KarmaTiers contract.
         let contract = KarmaSC::deploy(&provider).await.unwrap();
-
         // getTierCount call
         let addr = address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
         let call_1 = contract.balanceOf(addr);
@@ -103,7 +162,6 @@ mod tests {
         // let call_2 = contract.mint(addr, U256::from(100));
         // let tx_hash_2 = call_2.send().await.unwrap().watch().await.unwrap();
         // println!("tx_hash_2: {:?}", tx_hash_2);
-
 
         let call_2 = contract.totalSupply();
         let result_2 = call_2.call().await.unwrap();
@@ -122,4 +180,65 @@ mod tests {
         let result_3 = call_3.call().await.unwrap();
         println!("result_3: {:?}", result_3);
     }
+    */
+
+    #[tokio::test]
+    async fn test_karma_amount() {
+
+        let provider = ProviderBuilder::new()
+            .connect_anvil_with_wallet()
+            ;
+
+        let contract_distributor_1 = KarmaDistributorMock::deploy(&provider).await.unwrap();
+        let contract_distributor_2 = KarmaDistributorMock::deploy(&provider).await.unwrap();
+
+        // Deploy the KarmaTiers contract.
+        let contract_0 = KarmaSC::deploy(&provider).await.unwrap();
+
+        let addr_alice = address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
+
+        let init_data = KarmaSC::initializeCall { _owner: addr_alice }.abi_encode();
+        let contract_proxy = ERC1967Proxy::deploy(&provider, *contract_0.address(), init_data.into()).await.unwrap();
+
+        println!("contract_proxy: {:?}", contract_proxy.address());
+        let contract = KarmaSC::new(*contract_proxy.address(), &provider);
+        println!("contract KarmaSC: {:?}", contract_proxy.address());
+
+        //
+        let call_0_1 = contract.addRewardDistributor(*contract_distributor_1.address());
+        let _tx_hash_0_1 = call_0_1.send().await.unwrap().watch().await.unwrap();
+        let call_0_2 = contract.addRewardDistributor(*contract_distributor_2.address());
+        let _tx_hash_0_2 = call_0_2.send().await.unwrap().watch().await.unwrap();
+
+        let call_1_1 = contract.setReward(*contract_distributor_1.address(), U256::from(1000), U256::from(1000));
+        let _tx_hash_1_1 = call_1_1.send().await.unwrap().watch().await.unwrap();
+        let call_1_2 = contract.setReward(*contract_distributor_2.address(), U256::from(1000), U256::from(1000));
+        let _tx_hash_1_2 = call_1_2.send().await.unwrap().watch().await.unwrap();
+
+        let call_2_1 = contract_distributor_1.setTotalKarmaShares(U256::from(1000));
+        let _tx_hash_2_1 = call_2_1.send().await.unwrap().watch().await.unwrap();
+        let call_2_2 = contract_distributor_2.setTotalKarmaShares(U256::from(1000));
+        let _tx_hash_2_2 = call_2_2.send().await.unwrap().watch().await.unwrap();
+
+        let addr_bob = address!("0x70997970C51812dc3A010C7d01b50e0d17dc79C8");
+        let call_3_1 = contract_distributor_1.setUserKarmaShare(addr_bob, U256::from(1000e18));
+        let _tx_hash_3_1 = call_3_1.send().await.unwrap().watch().await.unwrap();
+        let call_3_2 = contract_distributor_2.setUserKarmaShare(addr_bob, U256::from(1000e18));
+        let _tx_hash_3_2 = call_3_2.send().await.unwrap().watch().await.unwrap();
+
+        // mint some Karma
+        let call_3_0 = contract.mint(addr_alice, U256::from(500_000));
+        let tx_hash_3 = call_3_0.send().await.unwrap().watch().await.unwrap();
+        println!("tx_hash_3: {:?}", tx_hash_3);
+
+        let call_4 = contract.balanceOf(addr_bob);
+        let result_4 = call_4.call().await.unwrap();
+
+        let ksc = KarmaSCInstance::from((*contract.address(), provider.clone()));
+        let result_5 = ksc.karma_amount(&addr_bob).await.unwrap();
+
+        assert_gt!(result_4, U256::from(0));
+        assert_eq!(result_4, result_5);
+    }
+
 }
