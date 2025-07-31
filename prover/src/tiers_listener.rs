@@ -9,8 +9,10 @@ use futures::StreamExt;
 use tracing::error;
 // internal
 use crate::error::AppError;
+use crate::tier::TierLimits;
 use crate::user_db::UserDb;
-use smart_contract::{AlloyWsProvider, KarmaTiersSC, Tier, TierIndex};
+use smart_contract::KarmaTiers::KarmaTiersInstance;
+use smart_contract::{AlloyWsProvider, KarmaTiers};
 
 pub(crate) struct TiersListener {
     rpc_url: String,
@@ -40,42 +42,43 @@ impl TiersListener {
 
         let filter = alloy::rpc::types::Filter::new()
             .address(self.sc_address)
-            .event(KarmaTiersSC::TierAdded::SIGNATURE)
-            .event(KarmaTiersSC::TierUpdated::SIGNATURE);
+            .event(KarmaTiers::TiersUpdated::SIGNATURE);
 
         // Subscribe to logs matching the filter.
-        let subscription = provider.subscribe_logs(&filter).await?;
+        let subscription = provider.clone().subscribe_logs(&filter).await?;
         let mut stream = subscription.into_stream();
 
         // Loop through the incoming event logs
         while let Some(log) = stream.next().await {
-            if let Ok(tier_added) = KarmaTiersSC::TierAdded::decode_log_data(log.data()) {
-                let tier_id: TierIndex = tier_added.tierId.into();
-                if let Err(e) = self.user_db.on_new_tier(tier_id, Tier::from(tier_added)) {
+            if let Ok(_tu) = KarmaTiers::TiersUpdated::decode_log_data(log.data()) {
+                let tier_limits =
+                    match KarmaTiersInstance::get_tiers_from_provider(&provider, &self.sc_address)
+                        .await
+                    {
+                        Ok(tier_limits) => tier_limits,
+                        Err(e) => {
+                            error!(
+                                "Error while getting tiers limits from smart contract: {}",
+                                e
+                            );
+                            return Err(AppError::TierLimitsError(e));
+                        }
+                    };
+
+                if let Err(e) = self
+                    .user_db
+                    .on_tier_limits_updated(TierLimits::from(tier_limits))
+                {
                     // If there is an error here, we assume this is an error by the user
                     // updating the Tier limits (and thus we don't want to shut down the prover)
-                    error!("Error while adding tier (index: {:?}): {}", tier_id, e);
+                    error!("Error while updating tier limits: {}", e);
                 }
             } else {
-                match KarmaTiersSC::TierUpdated::decode_log_data(log.data()) {
-                    Ok(tier_updated) => {
-                        let tier_id: TierIndex = tier_updated.tierId.into();
-                        if let Err(e) = self
-                            .user_db
-                            .on_tier_updated(tier_updated.tierId.into(), Tier::from(tier_updated))
-                        {
-                            // If there is an error here, we assume this is an error by the user
-                            // updating the Tier limits (and thus we don't want to shut down the prover)
-                            error!("Error while updating tier (index: {:?}): {}", tier_id, e);
-                        };
-                    }
-                    Err(e) => {
-                        eprintln!("Error decoding log data: {e:?}");
-                        // It's also useful to print the raw log data for debugging
-                        eprintln!("Raw log topics: {:?}", log.topics());
-                        eprintln!("Raw log data: {:?}", log.data());
-                    }
-                }
+                // Should never happen as TiersUpdated is empty
+                eprintln!("Error decoding log data");
+                // It's also useful to print the raw log data for debugging
+                eprintln!("Raw log topics: {:?}", log.topics());
+                eprintln!("Raw log data: {:?}", log.data());
             }
         }
 

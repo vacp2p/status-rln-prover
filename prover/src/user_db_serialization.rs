@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::num::TryFromIntError;
 use std::string::FromUtf8Error;
 // third-party
@@ -17,7 +16,7 @@ use rln_proof::RlnUserIdentity;
 // internal
 use crate::tier::TierLimits;
 use crate::user_db_types::MerkleTreeIndex;
-use smart_contract::{Tier, TierIndex};
+use smart_contract::Tier;
 
 pub(crate) struct RlnUserIdentitySerializer {}
 
@@ -106,7 +105,6 @@ impl TierSerializer {
         buffer.extend(name_len.to_le_bytes());
         buffer.extend(value.name.as_bytes());
         buffer.extend(value.tx_per_epoch.to_le_bytes().as_slice());
-        buffer.push(u8::from(value.active));
         Ok(())
     }
 
@@ -155,8 +153,6 @@ impl TierDeserializer {
         let name = String::from_utf8(name.to_vec())
             .map_err(|e| nom::Err::Error(TierDeserializeError::Utf8Error(e)))?;
         let (input, tx_per_epoch) = le_u32(input)?;
-        let (input, active) = take(1usize)(input)?;
-        let active = active[0] != 0;
 
         Ok((
             input,
@@ -165,7 +161,6 @@ impl TierDeserializer {
                 max_karma,
                 name,
                 tx_per_epoch,
-                active,
             },
         ))
     }
@@ -185,9 +180,8 @@ impl TierLimitsSerializer {
         let len = value.len() as u32;
         buffer.extend(len.to_le_bytes());
         let mut tier_buffer = Vec::with_capacity(self.tier_serializer.size_hint());
-        value.iter().try_for_each(|(k, v)| {
-            buffer.push(k.into());
-            self.tier_serializer.serialize(v, &mut tier_buffer)?;
+        value.iter().try_for_each(|t| {
+            self.tier_serializer.serialize(t, &mut tier_buffer)?;
             buffer.extend_from_slice(&tier_buffer);
             tier_buffer.clear();
             Ok(())
@@ -209,16 +203,14 @@ impl TierLimitsDeserializer {
         &self,
         buffer: &'a [u8],
     ) -> IResult<&'a [u8], TierLimits, TierDeserializeError<&'a [u8]>> {
-        let (input, tiers): (&[u8], BTreeMap<TierIndex, Tier>) = length_count(
+        let (input, tiers): (&[u8], Vec<Tier>) = length_count(
             le_u32,
             context("Tier index & Tier deser", |input: &'a [u8]| {
-                let (input, tier_index) = take(1usize)(input)?;
-                let tier_index = TierIndex::from(tier_index[0]);
                 let (input, tier) = self.tier_deserializer.deserialize(input)?;
-                Ok((input, (tier_index, tier)))
+                Ok((input, tier))
             }),
         )
-        .map(BTreeMap::from_iter)
+        .map(Vec::from_iter)
         .parse(buffer)?;
 
         Ok((input, TierLimits::from(tiers)))
@@ -270,7 +262,6 @@ mod tests {
             max_karma: U256::from(u64::MAX),
             name: "All".to_string(),
             tx_per_epoch: 10_000_000,
-            active: false,
         };
 
         let serializer = TierSerializer {};
@@ -290,20 +281,15 @@ mod tests {
             max_karma: U256::from(4),
             name: "Basic".to_string(),
             tx_per_epoch: 10_000,
-            active: false,
         };
         let tier_2 = Tier {
             min_karma: U256::from(10),
             max_karma: U256::from(u64::MAX),
             name: "Premium".to_string(),
             tx_per_epoch: 1_000_000_000,
-            active: true,
         };
 
-        let tier_limits = TierLimits::from(BTreeMap::from([
-            (TierIndex::from(1), tier_1),
-            (TierIndex::from(2), tier_2),
-        ]));
+        let tier_limits = TierLimits::from([tier_1, tier_2]);
 
         let serializer = TierLimitsSerializer::default();
         let mut buffer = Vec::with_capacity(serializer.size_hint(tier_limits.len()));

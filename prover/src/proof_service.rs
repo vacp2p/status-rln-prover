@@ -8,8 +8,10 @@ use metrics::{counter, histogram};
 use parking_lot::RwLock;
 use rln::hashers::hash_to_field;
 use rln::protocol::serialize_proof_values;
-use tracing::{Instrument, // debug,
-              debug_span, info
+use tracing::{
+    Instrument, // debug,
+    debug_span,
+    info,
 };
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
@@ -84,7 +86,6 @@ impl ProofService {
             //       see https://ryhl.io/blog/async-what-is-blocking/
 
             rayon::spawn(move || {
-
                 let proof_generation_start = std::time::Instant::now();
 
                 let message_id = {
@@ -110,7 +111,8 @@ impl ProofService {
                 };
                 let epoch = hash_to_field(epoch_bytes.as_slice());
 
-                let merkle_proof = match user_db.get_merkle_proof(&proof_generation_data.tx_sender) {
+                let merkle_proof = match user_db.get_merkle_proof(&proof_generation_data.tx_sender)
+                {
                     Ok(merkle_proof) => merkle_proof,
                     Err(e) => {
                         let _ = send.send(Err(ProofGenerationError::MerkleProofError(e)));
@@ -138,28 +140,25 @@ impl ProofService {
 
                 // Serialize proof
                 let mut output_buffer = Cursor::new(Vec::with_capacity(PROOF_SIZE));
-                if let Err(e) = proof
-                    .serialize_compressed(&mut output_buffer)
-                {
+                if let Err(e) = proof.serialize_compressed(&mut output_buffer) {
                     let _ = send.send(Err(ProofGenerationError::Serialization(e)));
                     return;
                 }
-                if let Err(e) = output_buffer
-                    .write_all(&serialize_proof_values(&proof_values)) {
+                if let Err(e) = output_buffer.write_all(&serialize_proof_values(&proof_values)) {
                     let _ = send.send(Err(ProofGenerationError::SerializationWrite(e)));
                     return;
                 }
 
                 histogram!(PROOF_SERVICE_GEN_PROOF_TIME.name, "prover" => "proof service")
-                      .record(proof_generation_start.elapsed().as_secs_f64());
+                    .record(proof_generation_start.elapsed().as_secs_f64());
                 // println!("[proof service {counter_id}] proof generation time: {:?} secs", proof_generation_start.elapsed().as_secs_f64());
                 let labels = [("prover", format!("proof service id: {counter_id}"))];
                 counter!(PROOF_SERVICE_PROOF_COMPUTED.name, &labels).increment(1);
 
                 // Send the result back to Tokio.
-                let _ = send.send(
-                    Ok::<Vec<u8>, ProofGenerationError>(output_buffer.into_inner())
-                );
+                let _ = send.send(Ok::<Vec<u8>, ProofGenerationError>(
+                    output_buffer.into_inner(),
+                ));
             });
 
             // Wait for the rayon task.
@@ -205,7 +204,7 @@ mod tests {
     use claims::assert_matches;
     use futures::TryFutureExt;
     use tokio::sync::broadcast;
-    use tracing::{info, debug};
+    use tracing::{debug, info};
     // third-party: zerokit
     use rln::{
         circuit::{Curve, zkey_from_folder},

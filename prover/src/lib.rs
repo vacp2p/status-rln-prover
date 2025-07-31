@@ -47,7 +47,7 @@ use crate::user_db_error::RegisterError;
 use crate::user_db_service::UserDbService;
 use crate::user_db_types::RateLimit;
 use rln_proof::RlnIdentifier;
-use smart_contract::KarmaTiersSC::KarmaTiersSCInstance;
+use smart_contract::KarmaTiers::KarmaTiersInstance;
 use smart_contract::TIER_LIMITS;
 
 const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
@@ -63,9 +63,9 @@ pub async fn run_prover(
     let epoch_service = EpochService::try_from((Duration::from_secs(60 * 2), GENESIS))
         .expect("Failed to create epoch service");
 
-    let mut tier_limits = if app_args.ws_rpc_url.is_some() {
+    let tier_limits = if app_args.ws_rpc_url.is_some() {
         TierLimits::from(
-            KarmaTiersSCInstance::get_tiers(
+            KarmaTiersInstance::get_tiers(
                 app_args.ws_rpc_url.clone().unwrap(),
                 app_args.tsc_address.unwrap(),
             )
@@ -78,7 +78,6 @@ pub async fn run_prover(
         tl
     };
 
-    tier_limits.filter_inactive();
     tier_limits.validate()?;
 
     // User db service

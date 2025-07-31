@@ -35,7 +35,7 @@ use crate::user_db_serialization::{
 };
 use crate::user_db_types::{EpochCounter, EpochSliceCounter, MerkleTreeIndex, RateLimit};
 use rln_proof::{RlnUserIdentity, ZerokitMerkleTree};
-use smart_contract::{KarmaAmountExt, Tier, TierIndex};
+use smart_contract::KarmaAmountExt;
 
 const MERKLE_TREE_HEIGHT: usize = 20;
 pub const USER_CF: &str = "user";
@@ -534,41 +534,10 @@ impl UserDb {
         Ok(tier_limits)
     }
 
-    pub(crate) fn on_new_tier(
+    pub(crate) fn on_tier_limits_updated(
         &self,
-        tier_index: TierIndex,
-        tier: Tier,
+        tier_limits: TierLimits,
     ) -> Result<(), SetTierLimitsError> {
-        let mut tier_limits = self.get_tier_limits()?;
-        tier_limits.insert(tier_index, tier);
-        tier_limits.validate()?;
-
-        // Serialize
-        let tier_limits_serializer = TierLimitsSerializer::default();
-        let mut buffer = Vec::with_capacity(tier_limits_serializer.size_hint(tier_limits.len()));
-        // Unwrap safe - already validated - should always serialize
-        tier_limits_serializer
-            .serialize(&tier_limits, &mut buffer)
-            .unwrap();
-
-        // Write
-        let cf = self.get_tier_limits_cf();
-        self.db
-            .put_cf(cf, TIER_LIMITS_NEXT_KEY.as_slice(), buffer)
-            .map_err(SetTierLimitsError::Db)
-    }
-
-    pub(crate) fn on_tier_updated(
-        &self,
-        tier_index: TierIndex,
-        tier: Tier,
-    ) -> Result<(), SetTierLimitsError> {
-        let mut tier_limits = self.get_tier_limits()?;
-        if !tier_limits.contains_key(&tier_index) {
-            return Err(SetTierLimitsError::InvalidUpdateTierIndex);
-        }
-
-        tier_limits.entry(tier_index).and_modify(|e| *e = tier);
         tier_limits.validate()?;
 
         // Serialize
@@ -622,7 +591,7 @@ impl UserDb {
                 tier_limit: None,
             };
 
-            if let TierMatch::Matched(_tier_index, tier) = tier_match {
+            if let TierMatch::Matched(tier) = tier_match {
                 t.tier_name = Some(tier.name.into());
                 t.tier_limit = Some(TierLimit::from(tier.tx_per_epoch));
             }
@@ -660,25 +629,6 @@ mod tests {
 
     const ADDR_1: Address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
     const ADDR_2: Address = address!("0xb20a608c624Ca5003905aA834De7156C68b2E1d0");
-
-    /*
-    struct MockKarmaSc2 {}
-
-    #[async_trait]
-    impl KarmaAmountExt for MockKarmaSc2 {
-        type Error = DummyError;
-
-        async fn karma_amount(&self, address: &Address) -> Result<U256, Self::Error> {
-            if address == &ADDR_1 {
-                Ok(U256::from(10))
-            } else if address == &ADDR_2 {
-                Ok(U256::from(2000))
-            } else {
-                Ok(U256::ZERO)
-            }
-        }
-    }
-    */
 
     #[test]
     fn test_user_register() {
