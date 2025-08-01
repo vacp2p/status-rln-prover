@@ -161,7 +161,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
     }
 
-    // Test 3: Create tiers similar to the test cases in tier.rs
+    // Test 3: Create tiers
     let test_tiers = vec![
         KarmaTiersSC::Tier {
             minKarma: U256::from(0),
@@ -181,6 +181,18 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             name: "Regular".to_string(),
             txPerEpoch: 720,
         },
+        KarmaTiersSC::Tier {
+            minKarma: U256::from(500),
+            maxKarma: U256::from(999),
+            name: "Power User".to_string(),
+            txPerEpoch: 86400,
+        },
+        KarmaTiersSC::Tier {
+            minKarma: U256::from(1000),
+            maxKarma: U256::from(4999),
+            name: "S-Tier".to_string(),
+            txPerEpoch: 432000,
+        },
     ];
 
     println!(
@@ -199,7 +211,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             Ok(pending_tx) => match pending_tx.get_receipt().await {
                 Ok(receipt) => {
                     if receipt.status() {
-                        println!("✅ Tier update successful!");
+                        println!("Tier update successful!");
                         println!(
                             "   Transaction hash: 0x{}",
                             hex::encode(receipt.transaction_hash)
@@ -207,7 +219,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                         println!("   Block number: {:?}", receipt.block_number);
                         println!("   Gas used: {}", receipt.gas_used);
                     } else {
-                        println!("❌ Tier update transaction failed");
+                        println!("Tier update transaction failed");
                     }
                 }
                 Err(e) => eprintln!("Failed to get receipt: {}", e),
@@ -250,18 +262,28 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
     }
 
-    // Test 7: Test tier lookup by karma balance
+    // Test 7: Test tier lookup by karma balance (updated for new tier ranges)
     println!("\nTesting tier lookup by karma balance:");
     println!("======================================");
 
     let test_karma_balances = vec![
-        U256::from(0),
-        U256::from(25),
-        U256::from(50),
-        U256::from(75),
-        U256::from(100),
-        U256::from(250),
-        U256::from(500),
+        U256::from(0),    // Below all tiers
+        U256::from(10),   // Basic tier (min)
+        U256::from(25),   // Basic tier (mid)
+        U256::from(49),   // Basic tier (max)
+        U256::from(50),   // Active tier (min)
+        U256::from(75),   // Active tier (mid)
+        U256::from(99),   // Active tier (max)
+        U256::from(100),  // Regular tier (min)
+        U256::from(250),  // Regular tier (mid)
+        U256::from(499),  // Regular tier (max)
+        U256::from(500),  // Power User tier (min)
+        U256::from(750),  // Power User tier (mid)
+        U256::from(999),  // Power User tier (max)
+        U256::from(1000), // S-Tier (min)
+        U256::from(2500), // S-Tier (mid)
+        U256::from(4999), // S-Tier (max)
+        U256::from(5000), // Above all tiers
     ];
 
     for karma_balance in test_karma_balances {

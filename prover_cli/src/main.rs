@@ -2,6 +2,7 @@
 use std::path::PathBuf;
 // third-party
 use clap::CommandFactory;
+use rustls::crypto::aws_lc_rs;
 use tracing::level_filters::LevelFilter;
 use tracing::{
     debug,
@@ -20,6 +21,9 @@ const APP_NAME: &str = "prover-cli";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    rustls::crypto::CryptoProvider::install_default(aws_lc_rs::default_provider())
+        .expect("Failed to install default CryptoProvide");
+
     // tracing
     let filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())

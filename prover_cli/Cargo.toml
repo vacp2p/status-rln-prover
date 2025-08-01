@@ -15,6 +15,7 @@ opentelemetry = { version = "0.30", default-features = false, features = ["trace
 opentelemetry_sdk = { version = "0.30", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.30", features = ["grpc-tonic", "reqwest-client", "reqwest-rustls", "http-proto", "tls", "tls-roots"]}
 tracing-opentelemetry = "0.31"
+rustls = "0.23.31"
 
 
 [dev-dependencies]
