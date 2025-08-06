@@ -9,6 +9,8 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY proto ./proto
 COPY prover ./prover
+COPY prover_cli ./prover_cli
+COPY prover_client ./prover_client
 COPY rln_proof ./rln_proof
 COPY smart_contract ./smart_contract
 RUN cargo build --release
