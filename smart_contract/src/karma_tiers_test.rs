@@ -165,6 +165,12 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let test_tiers = vec![
         KarmaTiersSC::Tier {
             minKarma: U256::from(0),
+            maxKarma: U256::from(10),
+            name: "NoTier".to_string(),
+            txPerEpoch: 6,
+        },
+        KarmaTiersSC::Tier {
+            minKarma: U256::from(10),
             maxKarma: U256::from(49),
             name: "Basic".to_string(),
             txPerEpoch: 6,
