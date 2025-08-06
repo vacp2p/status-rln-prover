@@ -52,12 +52,16 @@ impl TierLimits {
             .0
             .iter()
             .try_fold(Context::default(), |mut state, tier| {
-                if tier.min_karma <= *state.prev_min.unwrap_or(&U256::ZERO) {
-                    return Err(ValidateTierLimitsError::InvalidMinKarmaAmount);
+                if let Some(prev_min) = state.prev_min {
+                    if tier.min_karma <= *prev_min {
+                        return Err(ValidateTierLimitsError::InvalidMinKarmaAmount);
+                    }
                 }
 
-                if tier.min_karma <= *state.prev_max.unwrap_or(&U256::ZERO) {
-                    return Err(ValidateTierLimitsError::InvalidMinKarmaAmount);
+                if let Some(prev_max) = state.prev_max {
+                    if tier.min_karma <= *prev_max {
+                        return Err(ValidateTierLimitsError::InvalidMinKarmaAmount);
+                    }
                 }
 
                 if tier.min_karma >= tier.max_karma {
