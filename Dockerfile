@@ -1,7 +1,14 @@
 # Stage 1: Build Prover
-FROM rust:1.87-slim-bookworm AS builder
+FROM rust:1.88-slim-bookworm AS builder
 
-RUN apt update && apt install -y pkg-config libssl-dev protobuf-compiler
+RUN apt update && apt install -y \
+    pkg-config \
+    libssl-dev \
+    protobuf-compiler \
+    libclang-dev \
+    clang \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
 # Working directory
 WORKDIR /app
