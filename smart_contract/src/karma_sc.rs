@@ -4,13 +4,27 @@ use alloy::{
     primitives::{Address, U256},
     providers::{ProviderBuilder, WsConnect},
     sol,
+    transports::{RpcError, TransportErrorKind},
 };
 use async_trait::async_trait;
 use url::Url;
 // internal
 use crate::AlloyWsProvider;
 use crate::KarmaSC::KarmaSCInstance;
-use crate::error::SmartContractError;
+
+#[derive(thiserror::Error, Debug)]
+pub enum KarmaScError {
+    #[error("RPC transport error: {0}")]
+    RpcTransportError(#[from] RpcError<TransportErrorKind>),
+    #[error(transparent)]
+    Alloy(#[from] alloy::contract::Error),
+    #[error("Pending transaction error: {0}")]
+    PendingTransactionError(#[from] alloy::providers::PendingTransactionError),
+    #[error("Private key cannot be empty")]
+    EmptyPrivateKey,
+    #[error("Unable to connect with signer: {0}")]
+    SignerConnectionError(String),
+}
 
 #[async_trait]
 pub trait KarmaAmountExt {
@@ -61,12 +75,12 @@ sol! {
 }
 
 impl KarmaSC::KarmaSCInstance<AlloyWsProvider> {
-    pub async fn try_new(rpc_url: Url, address: Address) -> Result<Self, SmartContractError> {
+    pub async fn try_new(rpc_url: Url, address: Address) -> Result<Self, KarmaScError> {
         let ws = WsConnect::new(rpc_url.as_str());
         let provider = ProviderBuilder::new()
             .connect_ws(ws)
             .await
-            .map_err(SmartContractError::RpcTransportError)?;
+            .map_err(KarmaScError::RpcTransportError)?;
         Ok(KarmaSCInstance::from((address, provider)))
     }
 }

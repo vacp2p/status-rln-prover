@@ -1,7 +1,7 @@
 use alloy::transports::{RpcError, TransportErrorKind};
 use ark_serialize::SerializationError;
 use rln::error::ProofError;
-use smart_contract::SmartContractError;
+use smart_contract::{KarmaScError, KarmaTiersError, RlnScError};
 // internal
 use crate::epoch_service::WaitUntilError;
 use crate::user_db_error::{RegisterError, UserMerkleTreeIndexError};
@@ -21,7 +21,11 @@ pub enum AppError {
     #[error(transparent)]
     RegistryError(#[from] HandleTransferError),
     #[error(transparent)]
-    SmartContractError(#[from] SmartContractError),
+    KarmaScError(#[from] KarmaScError),
+    #[error(transparent)]
+    KarmaTiersError(#[from] KarmaTiersError),
+    #[error(transparent)]
+    RlnScError(#[from] RlnScError),
 }
 
 #[derive(thiserror::Error, Debug)]

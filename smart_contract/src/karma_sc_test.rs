@@ -1,7 +1,7 @@
 use alloy::primitives::Address;
 use clap::Parser;
 use rustls::crypto::aws_lc_rs;
-use smart_contract::{KarmaSC, SmartContractError};
+use smart_contract::{KarmaSC, KarmaScError};
 use std::str::FromStr;
 use url::Url;
 
@@ -22,8 +22,8 @@ struct Args {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), SmartContractError> {
-    // install crypto provider - rustls requires explicit crypto backend
+async fn main() -> Result<(), KarmaScError> {
+    // install crypto provider for rustls - required for WebSocket TLS connections
     rustls::crypto::CryptoProvider::install_default(aws_lc_rs::default_provider())
         .expect("Failed to install default CryptoProvider");
 
@@ -34,15 +34,15 @@ async fn main() -> Result<(), SmartContractError> {
     println!("Connecting to RPC: {}", args.rpc_url);
 
     let karma_contract_addr = Address::from_str(&args.karma_contract_address).map_err(|e| {
-        SmartContractError::SignerConnectionError(format!("Invalid karma contract address: {}", e))
+        KarmaScError::SignerConnectionError(format!("Invalid karma contract address: {}", e))
     })?;
 
     let account_addr = Address::from_str(&args.test_account).map_err(|e| {
-        SmartContractError::SignerConnectionError(format!("Invalid account address: {}", e))
+        KarmaScError::SignerConnectionError(format!("Invalid account address: {}", e))
     })?;
 
     let url = Url::parse(&args.rpc_url)
-        .map_err(|e| SmartContractError::SignerConnectionError(format!("Invalid URL: {}", e)))?;
+        .map_err(|e| KarmaScError::SignerConnectionError(format!("Invalid URL: {}", e)))?;
 
     // Connect to Karma contract
     let karma_contract = KarmaSC::KarmaSCInstance::try_new(url, karma_contract_addr).await?;

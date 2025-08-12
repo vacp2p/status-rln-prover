@@ -7,11 +7,27 @@ use alloy::{
     providers::{ProviderBuilder, WsConnect},
     signers::local::PrivateKeySigner,
     sol,
+    transports::{RpcError, TransportErrorKind},
 };
 use url::Url;
 // internal
 use crate::common::AlloyWsProvider;
-use crate::error::SmartContractError;
+
+#[derive(thiserror::Error, Debug)]
+pub enum KarmaTiersError {
+    #[error("RPC transport error: {0}")]
+    RpcTransportError(#[from] RpcError<TransportErrorKind>),
+    #[error(transparent)]
+    Alloy(#[from] alloy::contract::Error),
+    #[error("Pending transaction error: {0}")]
+    PendingTransactionError(#[from] alloy::providers::PendingTransactionError),
+    #[error("Private key cannot be empty")]
+    EmptyPrivateKey,
+    #[error("Unable to connect with signer: {0}")]
+    SignerConnectionError(String),
+    #[error("Tier count too high (exceeds u8)")]
+    TierCountTooHigh,
+}
 
 /*
 sol! {
@@ -150,23 +166,23 @@ impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
     pub async fn try_new_with_signer(
         rpc_url: Url,
         address: Address,
-        private_key: &str,
-    ) -> Result<KarmaTiers::KarmaTiersInstance<impl alloy::providers::Provider>, SmartContractError>
+        private_key: String,
+    ) -> Result<KarmaTiers::KarmaTiersInstance<impl alloy::providers::Provider>, KarmaTiersError>
     {
         if private_key.is_empty() {
-            return Err(SmartContractError::EmptyPrivateKey);
+            return Err(KarmaTiersError::EmptyPrivateKey);
         }
 
         let ws_connect = WsConnect::new(rpc_url.as_str());
-        let signer = PrivateKeySigner::from_str(private_key)
-            .map_err(|e| SmartContractError::SignerConnectionError(e.to_string()))?;
+        let signer = PrivateKeySigner::from_str(&private_key)
+            .map_err(|e| KarmaTiersError::SignerConnectionError(e.to_string()))?;
 
         let provider = ProviderBuilder::new()
             .network::<Ethereum>()
             .wallet(signer)
             .connect_ws(ws_connect)
             .await
-            .map_err(SmartContractError::RpcTransportError)?;
+            .map_err(KarmaTiersError::RpcTransportError)?;
 
         Ok(KarmaTiers::new(address, provider))
     }
@@ -174,12 +190,12 @@ impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
     pub async fn get_tiers(
         ws_rpc_url: Url,
         sc_address: Address,
-    ) -> Result<Vec<Tier>, SmartContractError> {
+    ) -> Result<Vec<Tier>, KarmaTiersError> {
         let ws = WsConnect::new(ws_rpc_url.as_str());
         let provider = ProviderBuilder::new()
             .connect_ws(ws)
             .await
-            .map_err(SmartContractError::RpcTransportError)?;
+            .map_err(KarmaTiersError::RpcTransportError)?;
 
         Self::get_tiers_from_provider(&provider, &sc_address).await
     }
@@ -187,17 +203,17 @@ impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
     pub async fn get_tiers_from_provider<T: Provider>(
         provider: &T,
         sc_address: &Address,
-    ) -> Result<Vec<Tier>, SmartContractError> {
+    ) -> Result<Vec<Tier>, KarmaTiersError> {
         let karma_tiers_sc = KarmaTiers::new(*sc_address, provider);
 
         let tier_count = karma_tiers_sc
             .getTierCount()
             .call()
             .await
-            .map_err(SmartContractError::Alloy)?;
+            .map_err(KarmaTiersError::Alloy)?;
 
         if tier_count > U256::from(u8::MAX) {
-            return Err(SmartContractError::TierCountTooHigh);
+            return Err(KarmaTiersError::TierCountTooHigh);
         }
         // Note: unwrap safe - just tested
         let tier_count = u8::try_from(tier_count).unwrap();
@@ -235,7 +251,7 @@ impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
                 .getTierById(i)
                 .call()
                 .await
-                .map_err(SmartContractError::Alloy)?;
+                .map_err(KarmaTiersError::Alloy)?;
             tiers.push(Tier::from(tier));
         }
         Ok(tiers)

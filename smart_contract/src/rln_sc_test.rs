@@ -4,7 +4,7 @@ use alloy::{
 };
 use clap::Parser;
 use rustls::crypto::aws_lc_rs;
-use smart_contract::{KarmaRLNSC, SmartContractError};
+use smart_contract::{KarmaRLNSC, RlnScError};
 use std::str::FromStr;
 use url::Url;
 
@@ -33,8 +33,8 @@ struct Args {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), SmartContractError> {
-    // install crypto provider - rustls requires explicit crypto backend
+async fn main() -> Result<(), RlnScError> {
+    // install crypto provider for rustls - required for WebSocket TLS connections
     rustls::crypto::CryptoProvider::install_default(aws_lc_rs::default_provider())
         .expect("Failed to install default CryptoProvider");
 
@@ -45,24 +45,23 @@ async fn main() -> Result<(), SmartContractError> {
     println!("Connecting to RPC: {}", args.ws_rpc_url);
 
     let contract_addr = Address::from_str(&args.contract_address).map_err(|e| {
-        SmartContractError::SignerConnectionError(format!("Invalid contract address: {}", e))
+        RlnScError::SignerConnectionError(format!("Invalid contract address: {}", e))
     })?;
 
     let test_identity_commitment = U256::from(args.test_identity_commitment);
-    let test_user_address = Address::from_str(&args.test_user_address).map_err(|e| {
-        SmartContractError::SignerConnectionError(format!("Invalid user address: {}", e))
-    })?;
+    let test_user_address = Address::from_str(&args.test_user_address)
+        .map_err(|e| RlnScError::SignerConnectionError(format!("Invalid user address: {}", e)))?;
 
     let url = Url::parse(&args.ws_rpc_url)
-        .map_err(|e| SmartContractError::SignerConnectionError(format!("Invalid URL: {}", e)))?;
+        .map_err(|e| RlnScError::SignerConnectionError(format!("Invalid URL: {}", e)))?;
 
     if args.private_key.is_empty() {
-        return Err(SmartContractError::EmptyPrivateKey);
+        return Err(RlnScError::EmptyPrivateKey);
     }
 
     // Connect to KarmaRLN contract with signer
     let rln_contract =
-        KarmaRLNSC::KarmaRLNSCInstance::try_new_with_signer(url, contract_addr, &args.private_key)
+        KarmaRLNSC::KarmaRLNSCInstance::try_new_with_signer(url, contract_addr, args.private_key)
             .await?;
 
     println!(
@@ -203,13 +202,13 @@ async fn main() -> Result<(), SmartContractError> {
                             }
                             Err(e) => {
                                 eprintln!("Failed to wait for transaction: {}", e);
-                                return Err(SmartContractError::PendingTransactionError(e));
+                                return Err(RlnScError::PendingTransactionError(e));
                             }
                         }
                     }
                     Err(e) => {
                         eprintln!("Failed to register member: {}", e);
-                        return Err(SmartContractError::Alloy(e));
+                        return Err(RlnScError::Alloy(e));
                     }
                 }
             } else {
@@ -220,7 +219,7 @@ async fn main() -> Result<(), SmartContractError> {
         }
         Err(e) => {
             eprintln!("Failed to check if member exists: {}", e);
-            return Err(SmartContractError::Alloy(e));
+            return Err(RlnScError::Alloy(e));
         }
     }
 

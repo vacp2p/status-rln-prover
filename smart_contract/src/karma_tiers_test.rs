@@ -4,7 +4,7 @@ use alloy::{
 };
 use clap::Parser;
 use rustls::crypto::aws_lc_rs;
-use smart_contract::{KarmaTiers, SmartContractError};
+use smart_contract::{KarmaTiers, KarmaTiersError};
 use std::str::FromStr;
 use url::Url;
 
@@ -25,8 +25,8 @@ struct Args {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), SmartContractError> {
-    // install crypto provider - rustls requires explicit crypto backend
+async fn main() -> Result<(), KarmaTiersError> {
+    // install crypto provider for rustls - required for WebSocket TLS connections
     rustls::crypto::CryptoProvider::install_default(aws_lc_rs::default_provider())
         .expect("Failed to install default CryptoProvider");
 
@@ -37,21 +37,21 @@ async fn main() -> Result<(), SmartContractError> {
     println!("Connecting to RPC: {}", args.ws_rpc_url);
 
     let contract_addr = Address::from_str(&args.contract_address).map_err(|e| {
-        SmartContractError::SignerConnectionError(format!("Invalid contract address: {}", e))
+        KarmaTiersError::SignerConnectionError(format!("Invalid contract address: {}", e))
     })?;
 
     let url = Url::parse(&args.ws_rpc_url)
-        .map_err(|e| SmartContractError::SignerConnectionError(format!("Invalid URL: {}", e)))?;
+        .map_err(|e| KarmaTiersError::SignerConnectionError(format!("Invalid URL: {}", e)))?;
 
     if args.private_key.is_empty() {
-        return Err(SmartContractError::EmptyPrivateKey);
+        return Err(KarmaTiersError::EmptyPrivateKey);
     }
 
     // Connect to KarmaTiers contract
     let karma_tiers_contract = KarmaTiers::KarmaTiersInstance::try_new_with_signer(
         url.clone(),
         contract_addr,
-        &args.private_key,
+        args.private_key,
     )
     .await?;
 
@@ -78,7 +78,7 @@ async fn main() -> Result<(), SmartContractError> {
         }
         _ => {
             eprintln!("Failed to get contract info");
-            return Err(SmartContractError::SignerConnectionError(
+            return Err(KarmaTiersError::SignerConnectionError(
                 "Failed to get contract info".to_string(),
             ));
         }

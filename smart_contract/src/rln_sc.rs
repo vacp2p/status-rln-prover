@@ -7,13 +7,27 @@ use alloy::{
     providers::{ProviderBuilder, WsConnect},
     signers::local::PrivateKeySigner,
     sol,
+    transports::{RpcError, TransportErrorKind},
 };
 use async_trait::async_trait;
 use std::str::FromStr;
 use url::Url;
 // internal
 use crate::common::AlloyWsProvider;
-use crate::error::SmartContractError;
+
+#[derive(thiserror::Error, Debug)]
+pub enum RlnScError {
+    #[error("RPC transport error: {0}")]
+    RpcTransportError(#[from] RpcError<TransportErrorKind>),
+    #[error(transparent)]
+    Alloy(#[from] alloy::contract::Error),
+    #[error("Pending transaction error: {0}")]
+    PendingTransactionError(#[from] alloy::providers::PendingTransactionError),
+    #[error("Private key cannot be empty")]
+    EmptyPrivateKey,
+    #[error("Unable to connect with signer: {0}")]
+    SignerConnectionError(String),
+}
 
 #[async_trait]
 pub trait RLNRegister {
@@ -56,35 +70,25 @@ sol! {
 }
 
 impl KarmaRLNSC::KarmaRLNSCInstance<AlloyWsProvider> {
-    pub async fn try_new(rpc_url: Url, address: Address) -> Result<Self, SmartContractError> {
-        let ws = WsConnect::new(rpc_url.as_str());
-        let provider = ProviderBuilder::new()
-            .connect_ws(ws)
-            .await
-            .map_err(SmartContractError::RpcTransportError)?;
-        Ok(KarmaRLNSC::new(address, provider))
-    }
-
     pub async fn try_new_with_signer(
         rpc_url: Url,
         address: Address,
-        private_key: &str,
-    ) -> Result<KarmaRLNSC::KarmaRLNSCInstance<impl alloy::providers::Provider>, SmartContractError>
-    {
+        private_key: String,
+    ) -> Result<KarmaRLNSC::KarmaRLNSCInstance<impl alloy::providers::Provider>, RlnScError> {
         if private_key.is_empty() {
-            return Err(SmartContractError::EmptyPrivateKey);
+            return Err(RlnScError::EmptyPrivateKey);
         }
 
         let ws_connect = WsConnect::new(rpc_url.as_str());
-        let signer = PrivateKeySigner::from_str(private_key)
-            .map_err(|e| SmartContractError::SignerConnectionError(e.to_string()))?;
+        let signer = PrivateKeySigner::from_str(&private_key)
+            .map_err(|e| RlnScError::SignerConnectionError(e.to_string()))?;
 
         let provider = ProviderBuilder::new()
             .network::<Ethereum>()
             .wallet(signer)
             .connect_ws(ws_connect)
             .await
-            .map_err(SmartContractError::RpcTransportError)?;
+            .map_err(RlnScError::RpcTransportError)?;
 
         Ok(KarmaRLNSC::new(address, provider))
     }
@@ -94,12 +98,14 @@ impl KarmaRLNSC::KarmaRLNSCInstance<AlloyWsProvider> {
         &self,
         address: &Address,
         identity_commitment: U256,
-    ) -> Result<(), SmartContractError> {
+    ) -> Result<(), RlnScError> {
         self.register(identity_commitment, *address)
             .send()
-            .await?
+            .await
+            .map_err(RlnScError::Alloy)?
             .watch()
-            .await?;
+            .await
+            .map_err(RlnScError::PendingTransactionError)?;
         Ok(())
     }
 }
