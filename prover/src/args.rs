@@ -44,6 +44,7 @@ pub struct AppArgs {
     #[arg(
         short = 'u',
         long = "ws-rpc-url",
+        default_value = "wss://public.sepolia.rpc.status.network/ws",
         help = "Websocket rpc url (e.g. wss://eth-mainnet.g.alchemy.com/v2/your-api-key)"
     )]
     pub ws_rpc_url: Option<Url>,
@@ -55,11 +56,26 @@ pub struct AppArgs {
         default_value = "./storage/tree"
     )]
     pub merkle_tree_path: PathBuf,
-    #[arg(short = 'k', long = "ksc", help = "Karma smart contract address")]
+    #[arg(
+        short = 'k',
+        long = "ksc",
+        default_value = "0x011b9de308BE357BbF24EfB387a270a14A04E5d2",
+        help = "Karma smart contract address"
+    )]
     pub ksc_address: Option<Address>,
-    #[arg(short = 'r', long = "rlnsc", help = "RLN smart contract address")]
+    #[arg(
+        short = 'r',
+        long = "rlnsc",
+        default_value = "0xc98994691E96D2f4CA2a718Bc8FDF30bd21d1c59",
+        help = "RLN smart contract address"
+    )]
     pub rlnsc_address: Option<Address>,
-    #[arg(short = 't', long = "tsc", help = "KarmaTiers smart contract address")]
+    #[arg(
+        short = 't',
+        long = "tsc",
+        default_value = "0x011b9de308BE357BbF24EfB387a270a14A04E5d2",
+        help = "KarmaTiers smart contract address"
+    )]
     pub tsc_address: Option<Address>,
     #[arg(
         help_heading = "mock",

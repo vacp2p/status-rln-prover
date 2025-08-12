@@ -1,7 +1,14 @@
 # Stage 1: Build Prover
-FROM rust:1.87-slim-bookworm AS builder
+FROM rust:1.89-slim-bookworm AS builder
 
-RUN apt update && apt install -y pkg-config libssl-dev protobuf-compiler
+RUN apt update && apt install -y \
+    pkg-config \
+    libssl-dev \
+    protobuf-compiler \
+    libclang-dev \
+    clang \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
 # Working directory
 WORKDIR /app
@@ -9,6 +16,8 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY proto ./proto
 COPY prover ./prover
+COPY prover_cli ./prover_cli
+COPY prover_client ./prover_client
 COPY rln_proof ./rln_proof
 COPY smart_contract ./smart_contract
 RUN cargo build --release

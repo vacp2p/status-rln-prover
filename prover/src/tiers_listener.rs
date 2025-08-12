@@ -61,7 +61,7 @@ impl TiersListener {
                                 "Error while getting tiers limits from smart contract: {}",
                                 e
                             );
-                            return Err(AppError::TierLimitsError(e));
+                            return Err(AppError::KarmaTiersError(e));
                         }
                     };
 

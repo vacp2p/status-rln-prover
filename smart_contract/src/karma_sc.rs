@@ -4,13 +4,26 @@ use alloy::{
     primitives::{Address, U256},
     providers::{ProviderBuilder, WsConnect},
     sol,
-    transports::{RpcError, TransportError},
+    transports::{RpcError, TransportErrorKind},
 };
 use async_trait::async_trait;
 use url::Url;
 // internal
 use crate::AlloyWsProvider;
-use crate::KarmaSC::KarmaSCInstance;
+
+#[derive(thiserror::Error, Debug)]
+pub enum KarmaScError {
+    #[error("RPC transport error: {0}")]
+    RpcTransportError(#[from] RpcError<TransportErrorKind>),
+    #[error(transparent)]
+    Alloy(#[from] alloy::contract::Error),
+    #[error("Pending transaction error: {0}")]
+    PendingTransactionError(#[from] alloy::providers::PendingTransactionError),
+    #[error("Private key cannot be empty")]
+    EmptyPrivateKey,
+    #[error("Unable to connect with signer: {0}")]
+    SignerConnectionError(String),
+}
 
 #[async_trait]
 pub trait KarmaAmountExt {
@@ -61,17 +74,13 @@ sol! {
 }
 
 impl KarmaSC::KarmaSCInstance<AlloyWsProvider> {
-    pub async fn try_new(rpc_url: Url, address: Address) -> Result<Self, RpcError<TransportError>> {
+    pub async fn try_new(rpc_url: Url, address: Address) -> Result<Self, KarmaScError> {
         let ws = WsConnect::new(rpc_url.as_str());
-        let provider = ProviderBuilder::new().connect_ws(ws).await?;
-        // Ok(KarmaSC::new(address, provider))
-        Ok(KarmaSCInstance::from((address, provider)))
-    }
-}
-
-impl<T: Provider> From<(Address, T)> for KarmaSC::KarmaSCInstance<T> {
-    fn from((address, provider): (Address, T)) -> Self {
-        KarmaSC::new(address, provider)
+        let provider = ProviderBuilder::new()
+            .connect_ws(ws)
+            .await
+            .map_err(KarmaScError::RpcTransportError)?;
+        Ok(KarmaSC::new(address, provider))
     }
 }
 
@@ -240,7 +249,7 @@ pub(crate) mod tests {
         let call_4 = contract.balanceOf(addr_bob);
         let result_4 = call_4.call().await.unwrap();
 
-        let ksc = KarmaSCInstance::from((*contract.address(), provider.clone()));
+        let ksc = KarmaSC::new(*contract.address(), provider.clone());
         let result_5 = ksc.karma_amount(&addr_bob).await.unwrap();
 
         assert_gt!(result_4, U256::from(0));

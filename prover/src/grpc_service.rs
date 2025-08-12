@@ -10,13 +10,14 @@ use futures::TryFutureExt;
 use http::Method;
 use metrics::{counter, histogram};
 use num_bigint::BigUint;
+use smart_contract::RlnScError;
 use tokio::sync::{broadcast, mpsc};
 use tonic::{
     Request, Response, Status, codegen::tokio_stream::wrappers::ReceiverStream, transport::Server,
 };
 use tonic_web::GrpcWebLayer;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::debug;
+use tracing::{debug, error};
 use url::Url;
 // internal
 use crate::error::{AppError, ProofGenerationStringError};
@@ -310,7 +311,16 @@ impl GrpcProverService {
             panic!("Please provide karma_sc_info or use serve_with_mock");
         };
         let karma_rln_sc = if let Some(rln_sc_info) = self.rln_sc_info.as_ref() {
-            KarmaRLNSCInstance::try_new(rln_sc_info.0.clone(), rln_sc_info.1).await?
+            let private_key = std::env::var("PRIVATE_KEY").map_err(|_| {
+                error!("PRIVATE_KEY environment variable is not set");
+                AppError::RlnScError(RlnScError::EmptyPrivateKey)
+            })?;
+            KarmaRLNSCInstance::try_new_with_signer(
+                rln_sc_info.0.clone(),
+                rln_sc_info.1,
+                private_key,
+            )
+            .await?
         } else {
             panic!("Please provide rln_sc_info or use serve_with_mock");
         };
