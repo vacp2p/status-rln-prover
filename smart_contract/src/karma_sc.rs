@@ -10,7 +10,6 @@ use async_trait::async_trait;
 use url::Url;
 // internal
 use crate::AlloyWsProvider;
-use crate::KarmaSC::KarmaSCInstance;
 
 #[derive(thiserror::Error, Debug)]
 pub enum KarmaScError {
@@ -81,13 +80,7 @@ impl KarmaSC::KarmaSCInstance<AlloyWsProvider> {
             .connect_ws(ws)
             .await
             .map_err(KarmaScError::RpcTransportError)?;
-        Ok(KarmaSCInstance::from((address, provider)))
-    }
-}
-
-impl<T: Provider> From<(Address, T)> for KarmaSC::KarmaSCInstance<T> {
-    fn from((address, provider): (Address, T)) -> Self {
-        KarmaSC::new(address, provider)
+        Ok(KarmaSC::new(address, provider))
     }
 }
 
@@ -256,7 +249,7 @@ pub(crate) mod tests {
         let call_4 = contract.balanceOf(addr_bob);
         let result_4 = call_4.call().await.unwrap();
 
-        let ksc = KarmaSCInstance::from((*contract.address(), provider.clone()));
+        let ksc = KarmaSC::new(*contract.address(), provider.clone());
         let result_5 = ksc.karma_amount(&addr_bob).await.unwrap();
 
         assert_gt!(result_4, U256::from(0));

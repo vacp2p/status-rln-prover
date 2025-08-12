@@ -92,22 +92,6 @@ impl KarmaRLNSC::KarmaRLNSCInstance<AlloyWsProvider> {
 
         Ok(KarmaRLNSC::new(address, provider))
     }
-
-    /// Register a user using the shared register_user function from RLNRegister trait
-    pub async fn register_user_with_commitment(
-        &self,
-        address: &Address,
-        identity_commitment: U256,
-    ) -> Result<(), RlnScError> {
-        self.register(identity_commitment, *address)
-            .send()
-            .await
-            .map_err(RlnScError::Alloy)?
-            .watch()
-            .await
-            .map_err(RlnScError::PendingTransactionError)?;
-        Ok(())
-    }
 }
 
 #[async_trait]
