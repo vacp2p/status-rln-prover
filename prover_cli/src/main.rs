@@ -21,8 +21,9 @@ const APP_NAME: &str = "prover-cli";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    // install crypto provider - rustls requires explicit crypto backend
     rustls::crypto::CryptoProvider::install_default(aws_lc_rs::default_provider())
-        .expect("Failed to install default CryptoProvide");
+        .expect("Failed to install default CryptoProvider");
 
     // tracing
     let filter = EnvFilter::builder()

@@ -1,15 +1,17 @@
-use std::fmt::Formatter;
+use std::{fmt::Formatter, str::FromStr};
 // third-party
-use alloy::providers::{MulticallError, Provider};
-use alloy::transports::{RpcError, TransportErrorKind};
+use alloy::providers::Provider;
 use alloy::{
+    network::Ethereum,
     primitives::{Address, U256},
     providers::{ProviderBuilder, WsConnect},
+    signers::local::PrivateKeySigner,
     sol,
 };
 use url::Url;
 // internal
-use crate::AlloyWsProvider;
+use crate::common::AlloyWsProvider;
+use crate::error::SmartContractError;
 
 /*
 sol! {
@@ -144,16 +146,40 @@ sol!(
 );
 
 impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
+    /// Try to create a new instance with a signer
+    pub async fn try_new_with_signer(
+        rpc_url: Url,
+        address: Address,
+        private_key: &str,
+    ) -> Result<KarmaTiers::KarmaTiersInstance<impl alloy::providers::Provider>, SmartContractError>
+    {
+        if private_key.is_empty() {
+            return Err(SmartContractError::EmptyPrivateKey);
+        }
+
+        let ws_connect = WsConnect::new(rpc_url.as_str());
+        let signer = PrivateKeySigner::from_str(private_key)
+            .map_err(|e| SmartContractError::SignerConnectionError(e.to_string()))?;
+
+        let provider = ProviderBuilder::new()
+            .network::<Ethereum>()
+            .wallet(signer)
+            .connect_ws(ws_connect)
+            .await
+            .map_err(SmartContractError::RpcTransportError)?;
+
+        Ok(KarmaTiers::new(address, provider))
+    }
     /// Read smart contract `tiers` mapping
     pub async fn get_tiers(
         ws_rpc_url: Url,
         sc_address: Address,
-    ) -> Result<Vec<Tier>, GetScTiersError> {
+    ) -> Result<Vec<Tier>, SmartContractError> {
         let ws = WsConnect::new(ws_rpc_url.as_str());
         let provider = ProviderBuilder::new()
             .connect_ws(ws)
             .await
-            .map_err(GetScTiersError::RpcTransportError)?;
+            .map_err(SmartContractError::RpcTransportError)?;
 
         Self::get_tiers_from_provider(&provider, &sc_address).await
     }
@@ -161,21 +187,20 @@ impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
     pub async fn get_tiers_from_provider<T: Provider>(
         provider: &T,
         sc_address: &Address,
-    ) -> Result<Vec<Tier>, GetScTiersError> {
+    ) -> Result<Vec<Tier>, SmartContractError> {
         let karma_tiers_sc = KarmaTiers::new(*sc_address, provider);
 
         let tier_count = karma_tiers_sc
             .getTierCount()
             .call()
             .await
-            .map_err(GetScTiersError::Alloy)?;
+            .map_err(SmartContractError::Alloy)?;
 
         if tier_count > U256::from(u8::MAX) {
-            return Err(GetScTiersError::TierCount);
+            return Err(SmartContractError::TierCountTooHigh);
         }
         // Note: unwrap safe - just tested
         let tier_count = u8::try_from(tier_count).unwrap();
-        println!("tier_count: {tier_count}");
 
         // Wait for issue: https://github.com/alloy-rs/alloy/issues/2744 to be fixed
         /*
@@ -210,27 +235,11 @@ impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
                 .getTierById(i)
                 .call()
                 .await
-                .map_err(GetScTiersError::Alloy)?;
+                .map_err(SmartContractError::Alloy)?;
             tiers.push(Tier::from(tier));
         }
         Ok(tiers)
     }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum GetScTiersError {
-    // #[error("Rpc error 1: {0}")]
-    // RpcError(#[from] RpcError<RpcError<TransportErrorKind>>),
-    #[error("Rpc transport error 2: {0}")]
-    RpcTransportError(#[from] RpcError<TransportErrorKind>),
-    #[error(transparent)]
-    Alloy(#[from] alloy::contract::Error),
-    #[error(transparent)]
-    Multicall(MulticallError),
-    #[error("Error retrieving tier from multicall SC")]
-    MulticallInner,
-    #[error("Tier count too high (exceeds u16)")]
-    TierCount,
 }
 
 /*
@@ -386,12 +395,10 @@ mod tests {
 
         let call_4 = contract.getTierById(0);
         let result_4 = call_4.call().await.unwrap();
-        println!("result 4: {:?}", result_4);
         assert_eq!(result_4, tiers[0]);
 
         let call_5 = contract.getTierById(1);
         let result_5 = call_5.call().await.unwrap();
-        println!("result 5: {:?}", result_5);
         assert_eq!(result_5, tiers[1]);
 
         let res = KarmaTiersInstance::get_tiers_from_provider(&provider, contract.address())

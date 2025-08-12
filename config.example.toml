@@ -1,0 +1,6 @@
+ip = "127.0.0.1"
+port = 8888
+ws_rpc_url = "wss://public.sepolia.rpc.status.network/ws"
+ksc_address = "0x011b9de308BE357BbF24EfB387a270a14A04E5d2"
+rlnsc_address = "0xc98994691E96D2f4CA2a718Bc8FDF30bd21d1c59"
+tsc_address = "0x011b9de308BE357BbF24EfB387a270a14A04E5d2"
