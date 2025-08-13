@@ -50,10 +50,10 @@ async fn main() -> Result<(), RlnScError> {
 
     let test_identity_commitment = U256::from(args.test_identity_commitment);
     let test_user_address = Address::from_str(&args.test_user_address)
-        .map_err(|e| RlnScError::SignerConnectionError(format!("Invalid user address: {}", e)))?;
+        .map_err(|e| RlnScError::SignerConnectionError(format!("Invalid user address: {e}")))?;
 
     let url = Url::parse(&args.ws_rpc_url)
-        .map_err(|e| RlnScError::SignerConnectionError(format!("Invalid URL: {}", e)))?;
+        .map_err(|e| RlnScError::SignerConnectionError(format!("Invalid URL: {e}")))?;
 
     if args.private_key.is_empty() {
         return Err(RlnScError::EmptyPrivateKey);
@@ -64,10 +64,7 @@ async fn main() -> Result<(), RlnScError> {
         KarmaRLNSC::KarmaRLNSCInstance::try_new_with_signer(url, contract_addr, args.private_key)
             .await?;
 
-    println!(
-        "Successfully connected to RLN contract with signer at {}",
-        contract_addr
-    );
+    println!("Successfully connected to RLN contract with signer at {contract_addr}",);
 
     println!("\nTesting RLN Contract Functions:");
     println!("=====================================");
@@ -106,11 +103,11 @@ async fn main() -> Result<(), RlnScError> {
                 println!("   User address: {}", member.userAddress);
                 println!("   Index: {}", member.index);
             } else {
-                println!("Member {} is not registered", test_identity_commitment);
+                println!("Member {test_identity_commitment} is not registered");
             }
         }
         Err(e) => {
-            eprintln!("Failed to check member status: {}", e);
+            eprintln!("Failed to check member status: {e}");
         }
     }
 
@@ -141,12 +138,9 @@ async fn main() -> Result<(), RlnScError> {
                 .await
             {
                 Ok(can_register) => {
-                    println!(
-                        "Account {} can register: {}",
-                        test_user_address, can_register
-                    );
+                    println!("Account {test_user_address} can register: {can_register}",);
                 }
-                Err(e) => eprintln!("Failed to check register permission: {}", e),
+                Err(e) => eprintln!("Failed to check register permission: {e}"),
             }
 
             match rln_contract
@@ -155,9 +149,9 @@ async fn main() -> Result<(), RlnScError> {
                 .await
             {
                 Ok(can_slash) => {
-                    println!("Account {} can slash: {}", test_user_address, can_slash);
+                    println!("Account {test_user_address} can slash: {can_slash}");
                 }
-                Err(e) => eprintln!("Failed to check slash permission: {}", e),
+                Err(e) => eprintln!("Failed to check slash permission: {e}"),
             }
         }
         _ => {
@@ -170,8 +164,8 @@ async fn main() -> Result<(), RlnScError> {
         Ok(member) => {
             if member.userAddress == Address::ZERO {
                 println!("Attempting to register new member...");
-                println!("   Identity commitment: {}", test_identity_commitment);
-                println!("   User address: {}", test_user_address);
+                println!("   Identity commitment: {test_identity_commitment}");
+                println!("   User address: {test_user_address}");
 
                 // Test 6: Register new member using the register function
                 match rln_contract
@@ -196,29 +190,29 @@ async fn main() -> Result<(), RlnScError> {
                                         }
                                     }
                                     Err(e) => {
-                                        eprintln!("Failed to verify registration: {}", e);
+                                        eprintln!("Failed to verify registration: {e}");
                                     }
                                 }
                             }
                             Err(e) => {
-                                eprintln!("Failed to wait for transaction: {}", e);
+                                eprintln!("Failed to wait for transaction: {e}");
                                 return Err(RlnScError::PendingTransactionError(e));
                             }
                         }
                     }
                     Err(e) => {
-                        eprintln!("Failed to register member: {}", e);
+                        eprintln!("Failed to register member: {e}");
                         return Err(RlnScError::Alloy(e));
                     }
                 }
             } else {
-                println!("Member {} already registered:", test_identity_commitment);
+                println!("Member {test_identity_commitment} already registered:");
                 println!("   User: {}", member.userAddress);
                 println!("   Index: {}", member.index);
             }
         }
         Err(e) => {
-            eprintln!("Failed to check if member exists: {}", e);
+            eprintln!("Failed to check if member exists: {e}");
             return Err(RlnScError::Alloy(e));
         }
     }
