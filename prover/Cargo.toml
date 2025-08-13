@@ -45,6 +45,7 @@ zerokit_utils = { git = "https://github.com/vacp2p/zerokit", package = "zerokit_
 rln_proof = { path = "../rln_proof" }
 smart_contract = { path = "../smart_contract" }
 rayon = "1.7"
+zeroize.workspace = true
 
 [build-dependencies]
 tonic-build = "*"

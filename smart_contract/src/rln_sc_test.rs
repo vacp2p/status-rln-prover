@@ -1,12 +1,16 @@
+// std
+use std::str::FromStr;
+// third-party
 use alloy::{
     hex,
     primitives::{Address, U256},
 };
 use clap::Parser;
 use rustls::crypto::aws_lc_rs;
-use smart_contract::{KarmaRLNSC, RlnScError};
-use std::str::FromStr;
 use url::Url;
+use zeroize::Zeroizing;
+// internal
+use smart_contract::{KarmaRLNSC, RlnScError};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -20,6 +24,7 @@ struct Args {
     contract_address: String,
 
     /// Private key for signing transactions
+    /// Warning: this is a test key, do not use in production
     #[arg(long, default_value = "")]
     private_key: String,
 
@@ -61,7 +66,7 @@ async fn main() -> Result<(), RlnScError> {
 
     // Connect to KarmaRLN contract with signer
     let rln_contract =
-        KarmaRLNSC::KarmaRLNSCInstance::try_new_with_signer(url, contract_addr, args.private_key)
+        KarmaRLNSC::KarmaRLNSCInstance::try_new_with_signer(url, contract_addr, Zeroizing::new(args.private_key))
             .await?;
 
     println!("Successfully connected to RLN contract with signer at {contract_addr}",);
