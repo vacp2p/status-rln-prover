@@ -37,11 +37,11 @@ async fn main() -> Result<(), KarmaTiersError> {
     println!("Connecting to RPC: {}", args.ws_rpc_url);
 
     let contract_addr = Address::from_str(&args.contract_address).map_err(|e| {
-        KarmaTiersError::SignerConnectionError(format!("Invalid contract address: {}", e))
+        KarmaTiersError::SignerConnectionError(format!("Invalid contract address: {e}"))
     })?;
 
     let url = Url::parse(&args.ws_rpc_url)
-        .map_err(|e| KarmaTiersError::SignerConnectionError(format!("Invalid URL: {}", e)))?;
+        .map_err(|e| KarmaTiersError::SignerConnectionError(format!("Invalid URL: {e}")))?;
 
     if args.private_key.is_empty() {
         return Err(KarmaTiersError::EmptyPrivateKey);
@@ -55,10 +55,7 @@ async fn main() -> Result<(), KarmaTiersError> {
     )
     .await?;
 
-    println!(
-        "Successfully connected to KarmaTiers contract for reading at {}",
-        contract_addr
-    );
+    println!("Successfully connected to KarmaTiers contract for reading at {contract_addr}",);
 
     println!("\nChecking Current Contract State:");
     println!("=====================================");
@@ -70,9 +67,9 @@ async fn main() -> Result<(), KarmaTiersError> {
     ) {
         (Ok(tier_count), Ok(max_length)) => {
             let is_empty = tier_count == U256::ZERO;
-            println!("Current tier count: {}", tier_count);
-            println!("Maximum tier name length: {}", max_length);
-            println!("Contract is empty: {}", is_empty);
+            println!("Current tier count: {tier_count}");
+            println!("Maximum tier name length: {max_length}");
+            println!("Contract is empty: {is_empty}");
 
             (tier_count, is_empty)
         }
@@ -170,9 +167,9 @@ async fn main() -> Result<(), KarmaTiersError> {
                         println!("Tier update transaction failed");
                     }
                 }
-                Err(e) => eprintln!("Failed to get receipt: {}", e),
+                Err(e) => eprintln!("Failed to get receipt: {e}"),
             },
-            Err(e) => eprintln!("Failed to send tier update transaction: {}", e),
+            Err(e) => eprintln!("Failed to send tier update transaction: {e}"),
         }
     }
 
@@ -182,7 +179,7 @@ async fn main() -> Result<(), KarmaTiersError> {
 
     match karma_tiers_contract.getTierCount().call().await {
         Ok(new_tier_count) => {
-            println!("New tier count: {}", new_tier_count);
+            println!("New tier count: {new_tier_count}");
 
             if new_tier_count > U256::ZERO {
                 println!("\nUpdated tiers in contract:");
@@ -201,7 +198,7 @@ async fn main() -> Result<(), KarmaTiersError> {
             }
         }
         Err(e) => {
-            eprintln!("Failed to get new tier count: {}", e);
+            eprintln!("Failed to get new tier count: {e}");
         }
     }
 
@@ -216,16 +213,10 @@ async fn main() -> Result<(), KarmaTiersError> {
         .await
     {
         Ok(_tier) => {
-            println!(
-                "Unexpectedly found a tier for invalid tier ID {}",
-                invalid_tier_id
-            );
+            println!("Unexpectedly found a tier for invalid tier ID: {invalid_tier_id}",);
         }
         Err(e) => {
-            println!(
-                "Expected error for invalid tier ID {}: {}",
-                invalid_tier_id, e
-            );
+            println!("Expected error for invalid tier ID {invalid_tier_id}: {e}",);
         }
     }
 

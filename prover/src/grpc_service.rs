@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)]
+
 // std
 use std::net::SocketAddr;
 use std::sync::Arc;
