@@ -95,8 +95,6 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Install protoc
@@ -106,26 +104,5 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "stable"
-      - name: Install critcmp
-        uses: taiki-e/install-action@v2
-        with:
-          tool: critcmp
-      - name: Check for existing baseline
-        id: baseline_check
-        run: |
-          if [ -d "target/criterion" ] && critcmp --list | grep -q "base"; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-      - name: Run baseline benchmarks
-        if: steps.baseline_check.outputs.exists == 'false'
-        run: |
-          git checkout ${{ github.base_ref }}
-          cargo bench -- --save-baseline base
-      - name: Run current benchmarks
-        run: |
-          git checkout ${{ github.head_ref }}
-          cargo bench -- --save-baseline changes
-      - name: Compare benchmarks
-        run: critcmp base changes || true
+      - name: Run benchmarks
+        run: cargo bench

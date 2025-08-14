@@ -60,3 +60,6 @@ tracing-test = "0.2.5"
 [[bench]]
 name = "prover_bench"
 harness = false
+
+[lib]
+bench = false
