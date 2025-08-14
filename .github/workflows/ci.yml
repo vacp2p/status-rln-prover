@@ -19,7 +19,6 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-
     name: Lint
     steps:
       - name: Checkout sources
@@ -28,13 +27,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "stable"
       - name: Install protoc
         uses: taiki-e/install-action@v2
         with:
           tool: protoc@${{ env.PROTOC_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "stable"
       - name: Check formatting
         if: success() || failure()
         run: cargo fmt --all -- --check
@@ -45,24 +44,21 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-
     name: Test
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "stable"
       - name: Install protoc
         uses: taiki-e/install-action@v2
         with:
           tool: protoc@${{ env.PROTOC_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "stable"
       - name: Install foundry
         uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: nightly
       - name: Test
         run: cargo test --workspace --all-features --release
 
@@ -70,20 +66,19 @@ jobs:
     needs: [lint, test]
     runs-on: ubuntu-latest
     timeout-minutes: 60
-
     name: Unused Dependencies
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
       - name: Install nightly toolchain
         uses: dtolnay/rust-toolchain@nightly
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "nightly"
       - name: Install protoc
         uses: taiki-e/install-action@v2
         with:
           tool: protoc@${{ env.PROTOC_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "nightly"
       - name: Install cargo-udeps
         uses: taiki-e/install-action@v2
         with:
@@ -93,15 +88,17 @@ jobs:
 
   benchmark:
     needs: [lint, test]
-    # run only in pull requests
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 60
-
     name: Benchmark
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
       - name: Install protoc
         uses: taiki-e/install-action@v2
         with:
@@ -109,6 +106,26 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "stable"
-      - uses: boa-dev/criterion-compare-action@v3
+      - name: Install critcmp
+        uses: taiki-e/install-action@v2
         with:
-          branchName: ${{ github.base_ref }}
+          tool: critcmp
+      - name: Check for existing baseline
+        id: baseline_check
+        run: |
+          if [ -d "target/criterion" ] && critcmp --list | grep -q "base"; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Run baseline benchmarks
+        if: steps.baseline_check.outputs.exists == 'false'
+        run: |
+          git checkout ${{ github.base_ref }}
+          cargo bench -- --save-baseline base
+      - name: Run current benchmarks
+        run: |
+          git checkout ${{ github.head_ref }}
+          cargo bench -- --save-baseline changes
+      - name: Compare benchmarks
+        run: critcmp base changes || true
