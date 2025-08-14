@@ -1,3 +1,5 @@
+#![allow(clippy::module_inception)]
+
 mod args;
 // mod epoch_service;
 mod epoch_service;

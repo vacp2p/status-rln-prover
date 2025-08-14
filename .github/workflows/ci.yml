@@ -1,0 +1,84 @@
+on:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - "**.md"
+      - "!.github/workflows/*.yml"
+  pull_request:
+    paths-ignore:
+      - "**.md"
+      - "!.github/workflows/*.yml"
+
+name: Tests
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    name: Lint
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Check formatting
+        if: success() || failure()
+        run: cargo fmt --all -- --check
+      - name: Check clippy
+        if: success() || failure()
+        run: cargo clippy --all-targets --release -- -D warnings
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    name: Test
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test
+        run: cargo test --workspace --all-features --release
+
+  unused-deps:
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    name: Unused Dependencies
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-udeps
+        run: |
+          if ! command -v cargo-udeps &> /dev/null; then
+            cargo install cargo-udeps --locked
+          fi
+      - name: Check unused dependencies
+        run: cargo +nightly udeps --all-targets
+
+  benchmark:
+    needs: [lint, test]
+    # run only in pull requests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    name: Benchmark
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - uses: boa-dev/criterion-compare-action@v3
+        with:
+          branchName: ${{ github.base_ref }}

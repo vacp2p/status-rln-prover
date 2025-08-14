@@ -78,7 +78,7 @@ async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
         let request = tonic::Request::new(request_0);
         let response: Response<SendTransactionReply> =
             client.send_transaction(request).await.unwrap();
-        assert_eq!(response.into_inner().result, true);
+        assert!(response.into_inner().result);
     }
 }
 
@@ -103,10 +103,7 @@ async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
         }
     }
 
-    let res = std::mem::take(&mut *result.write());
-
-    // println!("[Proof collector] Received {} proofs", res.len());
-    res
+    std::mem::take(&mut *result.write())
 }
 
 fn proof_generation_bench(c: &mut Criterion) {
@@ -160,7 +157,7 @@ fn proof_generation_bench(c: &mut Criterion) {
     let addresses_0 = addresses.clone();
 
     // Wait for proof_collector to be connected and waiting for some proofs
-    let _res = rt.block_on(async move {
+    rt.block_on(async move {
         notify_start_2.notified().await;
         println!("Prover is ready, registering users...");
         register_users(port, addresses_0).await;
