@@ -28,3 +28,6 @@ zeroize.workspace = true
 
 [dev-dependencies]
 claims = "0.8"
+
+[features]
+anvil = ["alloy/provider-anvil-node"]
