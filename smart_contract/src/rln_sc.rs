@@ -12,6 +12,7 @@ use alloy::{
 use async_trait::async_trait;
 use std::str::FromStr;
 use url::Url;
+use zeroize::Zeroizing;
 // internal
 use crate::common::AlloyWsProvider;
 
@@ -73,7 +74,7 @@ impl KarmaRLNSC::KarmaRLNSCInstance<AlloyWsProvider> {
     pub async fn try_new_with_signer(
         rpc_url: Url,
         address: Address,
-        private_key: String,
+        private_key: Zeroizing<String>,
     ) -> Result<KarmaRLNSC::KarmaRLNSCInstance<impl alloy::providers::Provider>, RlnScError> {
         if private_key.is_empty() {
             return Err(RlnScError::EmptyPrivateKey);

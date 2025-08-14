@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)]
+
 // std
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -19,6 +21,7 @@ use tonic_web::GrpcWebLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, error};
 use url::Url;
+use zeroize::Zeroizing;
 // internal
 use crate::error::{AppError, ProofGenerationStringError};
 use crate::metrics::{
@@ -311,10 +314,10 @@ impl GrpcProverService {
             panic!("Please provide karma_sc_info or use serve_with_mock");
         };
         let karma_rln_sc = if let Some(rln_sc_info) = self.rln_sc_info.as_ref() {
-            let private_key = std::env::var("PRIVATE_KEY").map_err(|_| {
+            let private_key = Zeroizing::new(std::env::var("PRIVATE_KEY").map_err(|_| {
                 error!("PRIVATE_KEY environment variable is not set");
                 AppError::RlnScError(RlnScError::EmptyPrivateKey)
-            })?;
+            })?);
             KarmaRLNSCInstance::try_new_with_signer(
                 rln_sc_info.0.clone(),
                 rln_sc_info.1,
