@@ -10,7 +10,7 @@ on:
       - "**.md"
       - "!.github/workflows/*.yml"
 
-name: Tests
+name: CI
 
 env:
   PROTOC_VERSION: "3.25.3"
