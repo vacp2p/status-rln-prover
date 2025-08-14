@@ -95,6 +95,8 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Install protoc
@@ -104,5 +106,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "stable"
-      - name: Run benchmarks
-        run: cargo bench
+      - name: Run benchmark comparison
+        uses: boa-dev/criterion-compare-action@v3
+        with:
+          benchName: "proof_generation_bench"
+          branchName: ${{ github.base_ref }}
