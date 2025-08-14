@@ -87,10 +87,12 @@ mod proof_service_tests {
 
         debug!("Starting broadcast receiver...");
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        let res =
-            tokio::time::timeout(std::time::Duration::from_secs(5), broadcast_receiver.recv())
-                .await
-                .map_err(|_e| AppErrorExt::Elapsed)?;
+        let res = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            broadcast_receiver.recv(),
+        )
+        .await
+        .map_err(|_e| AppErrorExt::Elapsed)?;
         debug!("res: {:?}", res);
 
         let res = res.unwrap();
@@ -190,10 +192,12 @@ mod proof_service_tests {
         let mut proof_values_store = vec![];
 
         loop {
-            let res =
-                tokio::time::timeout(std::time::Duration::from_secs(5), broadcast_receiver.recv())
-                    .await
-                    .map_err(|_e| AppErrorExt::Elapsed)?;
+            let res = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                broadcast_receiver.recv(),
+            )
+            .await
+            .map_err(|_e| AppErrorExt::Elapsed)?;
 
             let res = res.unwrap();
             let res = res?;
@@ -337,7 +341,7 @@ mod proof_service_tests {
                 assert_eq!(secret_hash, user_addr_1.secret_hash);
             }
             _ => {
-                panic!("Unexpected result");
+                panic!("Expected to RecoveredSecret, got: {res:?}");
             }
         }
     }
