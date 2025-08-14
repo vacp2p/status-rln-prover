@@ -12,6 +12,9 @@ on:
 
 name: Tests
 
+env:
+  PROTOC_VERSION: "3.25.3"
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -26,6 +29,12 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "stable"
+      - name: Install protoc
+        uses: taiki-e/install-action@v2
+        with:
+          tool: protoc@${{ env.PROTOC_VERSION }}
       - name: Check formatting
         if: success() || failure()
         run: cargo fmt --all -- --check
@@ -44,6 +53,12 @@ jobs:
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "stable"
+      - name: Install protoc
+        uses: taiki-e/install-action@v2
+        with:
+          tool: protoc@${{ env.PROTOC_VERSION }}
       - name: Test
         run: cargo test --workspace --all-features --release
 
@@ -59,11 +74,16 @@ jobs:
       - name: Install nightly toolchain
         uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "nightly"
+      - name: Install protoc
+        uses: taiki-e/install-action@v2
+        with:
+          tool: protoc@${{ env.PROTOC_VERSION }}
       - name: Install cargo-udeps
-        run: |
-          if ! command -v cargo-udeps &> /dev/null; then
-            cargo install cargo-udeps --locked
-          fi
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-udeps
       - name: Check unused dependencies
         run: cargo +nightly udeps --all-targets
 
@@ -78,7 +98,13 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
+      - name: Install protoc
+        uses: taiki-e/install-action@v2
+        with:
+          tool: protoc@${{ env.PROTOC_VERSION }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "stable"
       - uses: boa-dev/criterion-compare-action@v3
         with:
           branchName: ${{ github.base_ref }}
