@@ -109,5 +109,4 @@ jobs:
       - name: Run benchmark comparison
         uses: boa-dev/criterion-compare-action@v3
         with:
-          benchName: "proof_generation_bench"
           branchName: ${{ github.base_ref }}
