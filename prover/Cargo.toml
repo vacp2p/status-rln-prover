@@ -3,6 +3,9 @@ name = "prover"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+bench = false
+
 [dependencies]
 clap = { version = "4.5.37", features = ["derive", "wrap_help"] }
 tonic = { version = "0.13", features = ["gzip"] }
@@ -60,6 +63,3 @@ tracing-test = "0.2.5"
 [[bench]]
 name = "prover_bench"
 harness = false
-
-[lib]
-bench = false

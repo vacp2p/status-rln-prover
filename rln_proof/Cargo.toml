@@ -3,6 +3,9 @@ name = "rln_proof"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+bench = false
+
 [dependencies]
 rln = { git = "https://github.com/vacp2p/zerokit", package = "rln", features = [
     "pmtree-ft",
@@ -21,6 +24,3 @@ criterion.workspace = true
 [[bench]]
 name = "generate_proof"
 harness = false
-
-[lib]
-bench = false
