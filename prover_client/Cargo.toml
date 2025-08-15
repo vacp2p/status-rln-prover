@@ -4,14 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-# TODO: workspace?
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-# TODO: workspace?
-tonic = "0.13.1"
-prost = "0.13"
-clap = { version = "4.5.40", features = ["derive", "wrap_help"] }
+tokio.workspace = true
+clap.workspace = true
 alloy.workspace = true
-sha2 = "0.10"
+tonic.workspace = true
+prost.workspace = true
+tonic-prost.workspace = true
+sha2 = "0.10.9"
 
 [build-dependencies]
-tonic-build = "*"
+tonic-prost-build.workspace = true
