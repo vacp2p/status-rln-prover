@@ -149,9 +149,9 @@ mod user_db_tests {
             )
             .unwrap();
 
-            assert_eq!(user_db.has_user(&addr).unwrap(), false);
-            assert_eq!(user_db.has_user(&ADDR_1).unwrap(), true);
-            assert_eq!(user_db.has_user(&ADDR_2).unwrap(), true);
+            assert!(!user_db.has_user(&addr).unwrap());
+            assert!(user_db.has_user(&ADDR_1).unwrap());
+            assert!(user_db.has_user(&ADDR_2).unwrap());
             assert_eq!(
                 user_db.get_tx_counter(&ADDR_1).unwrap(),
                 (2.into(), 2.into())

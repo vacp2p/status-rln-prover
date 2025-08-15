@@ -2,7 +2,6 @@
 
 # local run
 /storage
-config.toml
 
 # heaptrack
 *.zst

@@ -209,7 +209,7 @@ mod proof_service_tests {
         }
 
         debug!("Now recovering secret hash...");
-        let proof_values_0 = proof_values_store.get(0).unwrap();
+        let proof_values_0 = proof_values_store.first().unwrap();
         let proof_values_1 = proof_values_store.get(1).unwrap();
         println!("proof_values_0: {:?}", proof_values_0);
         println!("proof_values_1: {:?}", proof_values_1);
@@ -218,7 +218,7 @@ mod proof_service_tests {
 
         // Note: if not in test, should check for external nullifier
         let recovered_identity_secret_hash =
-            compute_id_secret(share1, share2).map_err(|e| AppErrorExt::RecoverSecretFailed(e))?;
+            compute_id_secret(share1, share2).map_err(AppErrorExt::RecoverSecretFailed)?;
 
         debug!(
             "recovered_identity_secret_hash: {:?}",
@@ -247,7 +247,7 @@ mod proof_service_tests {
                 user_identity: user_db.get_user(&sender).unwrap(),
                 rln_identifier: rln_identifier.clone(),
                 tx_counter: 0,
-                tx_sender: sender.clone(),
+                tx_sender: sender,
                 tx_hash: tx_hashes.0.to_vec(),
             })
             .await
