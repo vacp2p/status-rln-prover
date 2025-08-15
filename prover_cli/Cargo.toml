@@ -4,19 +4,23 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-clap = { version = "4.5.37", features = ["derive", "wrap_help"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
-tracing = "0.1.41"
-toml = "0.8"
 prover = { path = "../prover" }
-
-opentelemetry = { version = "0.30", default-features = false, features = ["trace"]}
-opentelemetry_sdk = { version = "0.30", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.30", features = ["grpc-tonic", "reqwest-client", "reqwest-rustls", "http-proto", "tls", "tls-roots"]}
-tracing-opentelemetry = "0.31"
-rustls = "0.23.31"
-
-
-[dev-dependencies]
-tracing-test = "0.2.5"
+tokio.workspace = true
+clap.workspace = true
+rustls.workspace = true
+tracing-subscriber.workspace = true
+tracing.workspace = true
+toml = "0.9.5"
+opentelemetry = { version = "0.30.0", default-features = false, features = [
+    "trace",
+] }
+opentelemetry_sdk = { version = "0.30.0", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.30.0", features = [
+    "grpc-tonic",
+    "reqwest-client",
+    "reqwest-rustls",
+    "http-proto",
+    "tls",
+    "tls-roots",
+] }
+tracing-opentelemetry = "0.31.0"
