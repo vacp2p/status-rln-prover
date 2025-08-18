@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod epoch_service_tests {
+mod tests {
 
     // std
     use std::sync::Arc;

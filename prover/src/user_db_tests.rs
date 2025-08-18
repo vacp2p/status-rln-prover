@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod user_db_tests {
+mod tests {
     // std
     use std::path::PathBuf;
     use std::sync::Arc;

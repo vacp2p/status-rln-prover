@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod proof_service_tests {
+mod tests {
     use std::io::Cursor;
     use std::path::PathBuf;
     use std::sync::Arc;
