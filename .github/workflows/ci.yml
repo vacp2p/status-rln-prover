@@ -60,7 +60,7 @@ jobs:
       - name: Install foundry
         uses: foundry-rs/foundry-toolchain@v1
       - name: Test
-        run: cargo test --workspace --all-features --release
+        run: cargo test --all-targets --all-features --release
 
   unused-deps:
     needs: [lint, test]
@@ -84,7 +84,7 @@ jobs:
         with:
           tool: cargo-udeps
       - name: Check unused dependencies
-        run: cargo +nightly udeps --all-targets
+        run: cargo +nightly udeps --all-targets --all-features
 
   benchmark:
     needs: [lint, test]
