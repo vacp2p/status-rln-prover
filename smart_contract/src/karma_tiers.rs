@@ -347,6 +347,7 @@ impl std::fmt::Debug for KarmaTiers::Tier {
     }
 }
 
+#[cfg(feature = "anvil")]
 #[cfg(test)]
 mod tests {
     use super::*;

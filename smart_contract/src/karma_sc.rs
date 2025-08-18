@@ -92,6 +92,7 @@ impl<T: Provider> KarmaAmountExt for KarmaSC::KarmaSCInstance<T> {
     }
 }
 
+#[cfg(feature = "anvil")]
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
