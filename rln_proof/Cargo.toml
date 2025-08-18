@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rln = { git = "https://github.com/vacp2p/zerokit", package = "rln", features = ["pmtree-ft"] }
-zerokit_utils = { git = "https://github.com/vacp2p/zerokit", package = "zerokit_utils", features = ["default"] }
+rln.workspace = true
+zerokit_utils.workspace = true
 ark-bn254.workspace = true
+ark-relations.workspace = true
 ark-groth16.workspace = true
 ark-serialize.workspace = true
-ark-relations = "0.5"
 
 [dev-dependencies]
 criterion.workspace = true
