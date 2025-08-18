@@ -32,6 +32,9 @@ mod tests {
     const TX_HASH_1: [u8; 32] = [0x011; 32];
     const TX_HASH_1_2: [u8; 32] = [0x12; 32];
 
+    // Set to 10 seconds as 5 seconds can cause failures on Mac M1 machines.
+    const PROOF_VERIFY_TEST_TIMEOUT: u64 = 10;
+
     #[derive(thiserror::Error, Debug)]
     enum AppErrorExt {
         #[error("AppError: {0}")]
@@ -87,10 +90,12 @@ mod tests {
 
         debug!("Starting broadcast receiver...");
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        let res =
-            tokio::time::timeout(std::time::Duration::from_secs(5), broadcast_receiver.recv())
-                .await
-                .map_err(|_e| AppErrorExt::Elapsed)?;
+        let res = tokio::time::timeout(
+            std::time::Duration::from_secs(PROOF_VERIFY_TEST_TIMEOUT),
+            broadcast_receiver.recv(),
+        )
+        .await
+        .map_err(|_e| AppErrorExt::Elapsed)?;
         debug!("res: {:?}", res);
 
         let res = res.unwrap();
@@ -190,10 +195,12 @@ mod tests {
         let mut proof_values_store = vec![];
 
         loop {
-            let res =
-                tokio::time::timeout(std::time::Duration::from_secs(5), broadcast_receiver.recv())
-                    .await
-                    .map_err(|_e| AppErrorExt::Elapsed)?;
+            let res = tokio::time::timeout(
+                std::time::Duration::from_secs(PROOF_VERIFY_TEST_TIMEOUT),
+                broadcast_receiver.recv(),
+            )
+            .await
+            .map_err(|_e| AppErrorExt::Elapsed)?;
 
             let res = res.unwrap();
             let res = res?;
@@ -337,7 +344,7 @@ mod tests {
                 assert_eq!(secret_hash, user_addr_1.secret_hash);
             }
             _ => {
-                panic!("Unexpected result");
+                panic!("Expected to RecoveredSecret, got: {res:?}");
             }
         }
     }

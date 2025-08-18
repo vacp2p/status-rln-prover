@@ -113,6 +113,7 @@ impl<T: Provider> RLNRegister for KarmaRLNSC::KarmaRLNSCInstance<T> {
     }
 }
 
+#[cfg(feature = "anvil")]
 #[cfg(test)]
 mod tests {
     use super::*;
