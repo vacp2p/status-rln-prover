@@ -73,9 +73,17 @@ pub enum GetMerkleTreeProofError {
 }
 
 #[derive(thiserror::Error, Debug)]
+#[error(transparent)]
+pub struct RegisterSCError(#[from] alloy::contract::Error);
+
+#[derive(thiserror::Error, Debug)]
 pub enum HandleTransferError {
     #[error(transparent)]
     Register(#[from] RegisterError),
+
+    #[error("Fail to register user in RLN SC: {0}")]
+    ScRegister(#[from] RegisterSCError),
     #[error("Unable to query balance: {0}")]
     FetchBalanceOf(#[from] alloy::contract::Error),
+
 }
