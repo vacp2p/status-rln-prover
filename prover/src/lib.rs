@@ -33,6 +33,7 @@ use tracing::{
     // error,
     // info
 };
+use zeroize::Zeroizing;
 // internal
 pub use crate::args::{AppArgs, AppArgsConfig};
 use crate::epoch_service::EpochService;
@@ -122,8 +123,11 @@ pub async fn run_prover(
         Some(RegistryListener::new(
             app_args.ws_rpc_url.clone().unwrap().as_str(),
             app_args.ksc_address.unwrap(),
+            app_args.rlnsc_address.unwrap(),
             user_db_service.get_user_db(),
             PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION,
+            // FIXME
+            Zeroizing::new(String::new())
         ))
     };
 
