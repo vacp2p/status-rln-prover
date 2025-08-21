@@ -24,3 +24,7 @@ opentelemetry-otlp = { version = "0.30.0", features = [
     "tls-roots",
 ] }
 tracing-opentelemetry = "0.31.0"
+
+[profile.release]
+codegen-units = 1    # Do not split into multiple codegen units, improve performance, may compile slower
+lto = "fat"          # Enables Link Time Optimization, enabling more aggressive optimizations across the entire codebase
