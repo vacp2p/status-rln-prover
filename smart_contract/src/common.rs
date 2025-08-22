@@ -1,9 +1,7 @@
 use alloy::network::{EthereumWallet};
-use alloy::providers::{
-    Identity, RootProvider,
-    fillers::{BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller},
-};
+use alloy::providers::{Identity, RootProvider, fillers::{BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller}, Provider, WsConnect, ProviderBuilder};
 use alloy::providers::fillers::WalletFiller;
+use alloy::transports::TransportError;
 
 pub type AlloyWsProvider = FillProvider<
     JoinFill<
@@ -23,3 +21,11 @@ pub type AlloyWsProviderWithSigner = FillProvider<
     >,
     RootProvider
 >;
+
+pub async fn ws_provider(rpc_url: String) -> Result<impl Provider, TransportError> {
+    let ws = WsConnect::new(rpc_url);
+    let provider = ProviderBuilder::new()
+        .connect_ws(ws)
+        .await;
+    provider
+}
