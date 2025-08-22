@@ -1,3 +1,4 @@
+use std::str::FromStr;
 // third-party
 use alloy::{
     contract::Error as AlloyContractError,
@@ -6,33 +7,42 @@ use alloy::{
     sol_types::SolEvent,
     transports::{RpcError, TransportError},
 };
+use alloy::signers::local::PrivateKeySigner;
 use tonic::codegen::tokio_stream::StreamExt;
+use num_bigint::BigUint;
 use tracing::{debug, error, info};
+use zeroize::Zeroizing;
 // internal
-use crate::error::{AppError, HandleTransferError};
+use crate::error::{AppError, HandleTransferError, RegisterSCError};
 use crate::user_db::UserDb;
 use crate::user_db_error::RegisterError;
-use smart_contract::{AlloyWsProvider, KarmaAmountExt, KarmaSC};
+use smart_contract::{AlloyWsProvider, KarmaAmountExt, KarmaSC, KarmaRLNSC, RLNRegister, AlloyWsProviderWithSigner};
 
 pub(crate) struct RegistryListener {
     rpc_url: String,
-    sc_address: Address,
+    karma_sc_address: Address,
+    rln_sc_address: Address,
     user_db: UserDb,
     minimal_amount: U256,
+    private_key: Zeroizing<String>,
 }
 
 impl RegistryListener {
     pub(crate) fn new(
         rpc_url: &str,
-        sc_address: Address,
+        karma_sc_address: Address,
+        rln_sc_address: Address,
         user_db: UserDb,
         minimal_amount: U256,
+        private_key: Zeroizing<String>,
     ) -> Self {
         Self {
             rpc_url: rpc_url.to_string(),
-            sc_address,
+            karma_sc_address,
+            rln_sc_address,
             user_db,
             minimal_amount,
+            private_key,
         }
     }
 
@@ -43,13 +53,32 @@ impl RegistryListener {
         Ok(provider)
     }
 
+    /// Create a provider with signer (aka connect to websocket url)
+    async fn setup_provider_with_signer(&self, private_key: Zeroizing<String>) -> Result<AlloyWsProviderWithSigner, RpcError<TransportError>> {
+
+        // no unwrap
+        let signer = PrivateKeySigner::from_str(&private_key).unwrap();
+
+        let ws = WsConnect::new(self.rpc_url.as_str());
+        let provider = ProviderBuilder::new()
+            .wallet(signer)
+            .connect_ws(ws)
+            .await?;
+        Ok(provider)
+    }
+
     /// Listen to Smart Contract specified events
     pub(crate) async fn listen(&self) -> Result<(), AppError> {
         let provider = self.setup_provider_ws().await.map_err(AppError::from)?;
-        let karma_sc = KarmaSC::new(self.sc_address, provider.clone());
+        let karma_sc = KarmaSC::new(self.karma_sc_address, provider.clone());
+
+        let provider_with_signer = self.setup_provider_with_signer(self.private_key.clone())
+            .await
+            .map_err(AppError::from)?;
+        let rln_sc = KarmaRLNSC::new(self.rln_sc_address, provider_with_signer);
 
         let filter = alloy::rpc::types::Filter::new()
-            .address(self.sc_address)
+            .address(self.karma_sc_address)
             .event(KarmaSC::Transfer::SIGNATURE);
 
         // Subscribe to logs matching the filter.
@@ -60,7 +89,7 @@ impl RegistryListener {
         while let Some(log) = stream.next().await {
             match KarmaSC::Transfer::decode_log_data(log.data()) {
                 Ok(transfer_event) => {
-                    match self.handle_transfer_event(&karma_sc, transfer_event).await {
+                    match self.handle_transfer_event(&karma_sc, &rln_sc, transfer_event).await {
                         Ok(addr) => {
                             info!("Registered new user: {}", addr);
                         }
@@ -94,9 +123,10 @@ impl RegistryListener {
     }
 
     // async fn handle_transfer_event(&self, karma_sc: &KarmaSCInstance<AlloyWsProvider>, transfer_event: KarmaSC::Transfer) -> Result<(), HandleTransferError> {
-    async fn handle_transfer_event<E: Into<AlloyContractError>, KSC: KarmaAmountExt<Error = E>>(
+    async fn handle_transfer_event<E: Into<AlloyContractError>, KSC: KarmaAmountExt<Error = E>, RLNSC: RLNRegister<Error = E> >(
         &self,
         karma_sc: &KSC,
+        rln_sc: &RLNSC,
         transfer_event: KarmaSC::Transfer,
     ) -> Result<Address, HandleTransferError> {
         let from_address: Address = transfer_event.from;
@@ -119,9 +149,26 @@ impl RegistryListener {
             };
 
             if should_register {
-                self.user_db
+
+                let id_commitment = self.user_db
                     .on_new_user(&to_address)
                     .map_err(HandleTransferError::Register)?;
+
+                let id_co =
+                    U256::from_le_slice(BigUint::from(id_commitment).to_bytes_le().as_slice());
+
+                if let Err(e) = rln_sc.register_user(&to_address, id_co).await {
+                    // Fail to register user on smart contract
+                    // Remove the user in internal Db
+                    if !self.user_db.remove_user(&to_address, false) {
+                        // Fails if DB & SC are inconsistent
+                        panic!("Unable to register user to SC and to remove it from DB...");
+                    }
+
+                    let e_ = RegisterSCError::from(e.into());
+                    return Err(HandleTransferError::ScRegister(e_))
+                }
+
             }
         }
 
@@ -178,7 +225,7 @@ mod tests {
         let minimal_amount = U256::from(25);
         let registry = RegistryListener {
             rpc_url: "".to_string(),
-            sc_address: Default::default(),
+            karma_sc_address: Default::default(),
             user_db,
             minimal_amount: U256::from(25),
         };

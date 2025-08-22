@@ -5,14 +5,12 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 // third-party
-use alloy::primitives::{Address, U256};
+use alloy::primitives::{Address};
 use async_channel::Sender;
 use bytesize::ByteSize;
 use futures::TryFutureExt;
 use http::Method;
 use metrics::{counter, histogram};
-use num_bigint::BigUint;
-use smart_contract::RlnScError;
 use tokio::sync::{broadcast, mpsc};
 use tonic::{
     Request, Response, Status, codegen::tokio_stream::wrappers::ReceiverStream, transport::Server,
@@ -21,21 +19,17 @@ use tonic_web::GrpcWebLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{debug, error};
 use url::Url;
-use zeroize::Zeroizing;
 // internal
 use crate::error::{AppError, ProofGenerationStringError};
 use crate::metrics::{
     GET_PROOFS_LISTENERS, GET_USER_TIER_INFO_REQUESTS, GaugeWrapper,
-    PROOF_SERVICES_CHANNEL_QUEUE_LEN, SEND_TRANSACTION_REQUESTS, USER_REGISTERED,
-    USER_REGISTERED_REQUESTS,
+    PROOF_SERVICES_CHANNEL_QUEUE_LEN, SEND_TRANSACTION_REQUESTS,
 };
 use crate::proof_generation::{ProofGenerationData, ProofSendingData};
 use crate::user_db::{UserDb, UserTierInfo};
-use crate::user_db_error::RegisterError;
 use rln_proof::RlnIdentifier;
 use smart_contract::{
     KarmaAmountExt,
-    KarmaRLNSC::KarmaRLNSCInstance,
     KarmaSC::KarmaSCInstance,
     MockKarmaRLNSc,
     MockKarmaSc,
@@ -53,9 +47,9 @@ pub mod prover_proto {
 use prover_proto::{
     GetUserTierInfoReply,
     GetUserTierInfoRequest,
-    RegisterUserReply,
-    RegisterUserRequest,
-    RegistrationStatus,
+    // RegisterUserReply,
+    // RegisterUserRequest,
+    // RegistrationStatus,
     RlnProof,
     RlnProofFilter,
     RlnProofReply,
@@ -166,6 +160,7 @@ where
         Ok(Response::new(reply))
     }
 
+    /*
     #[tracing::instrument(skip(self), err, ret)]
     async fn register_user(
         &self,
@@ -215,6 +210,7 @@ where
         counter!(USER_REGISTERED.name, "prover" => "grpc").increment(1);
         Ok(Response::new(reply))
     }
+    */
 
     type GetProofsStream = ReceiverStream<Result<RlnProofReply, Status>>;
 
@@ -313,6 +309,8 @@ impl GrpcProverService {
         } else {
             panic!("Please provide karma_sc_info or use serve_with_mock");
         };
+
+        // FIXME: remove this
         let karma_rln_sc = if let Some(rln_sc_info) = self.rln_sc_info.as_ref() {
             let private_key = Zeroizing::new(std::env::var("PRIVATE_KEY").map_err(|_| {
                 error!("PRIVATE_KEY environment variable is not set");

@@ -10,7 +10,7 @@ option java_multiple_files = true;
 service RlnProver {
 
   rpc SendTransaction (SendTransactionRequest) returns (SendTransactionReply);
-  rpc RegisterUser (RegisterUserRequest) returns (RegisterUserReply);
+  // rpc RegisterUser (RegisterUserRequest) returns (RegisterUserReply);
   // Server side streaming RPC: 1 request -> X responses (stream)
   rpc GetProofs(RlnProofFilter) returns (stream RlnProofReply);
 

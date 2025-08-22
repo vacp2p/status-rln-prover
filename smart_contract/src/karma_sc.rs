@@ -10,6 +10,8 @@ use async_trait::async_trait;
 use url::Url;
 // internal
 use crate::AlloyWsProvider;
+use crate::common::ws_provider;
+use crate::KarmaSC::KarmaSCInstance;
 
 #[derive(thiserror::Error, Debug)]
 pub enum KarmaScError {
@@ -73,19 +75,23 @@ sol! {
     }
 }
 
-impl KarmaSC::KarmaSCInstance<AlloyWsProvider> {
-    pub async fn try_new(rpc_url: Url, address: Address) -> Result<Self, KarmaScError> {
-        let ws = WsConnect::new(rpc_url.as_str());
-        let provider = ProviderBuilder::new()
-            .connect_ws(ws)
-            .await
+/*
+impl<P: Provider> KarmaSC::KarmaSCInstance<P> {
+    pub async fn try_new(rpc_url: Url, address: Address) -> Result<KarmaSCInstance<impl Provider>, KarmaScError> {
+        // let ws = WsConnect::new(rpc_url.as_str());
+        // let provider = ProviderBuilder::new()
+        //     .connect_ws(ws)
+        //     .await
+        //     .map_err(KarmaScError::RpcTransportError)?;
+        let provider = ws_provider(rpc_url.to_string()).await
             .map_err(KarmaScError::RpcTransportError)?;
         Ok(KarmaSC::new(address, provider))
     }
 }
+*/
 
 #[async_trait]
-impl<T: Provider> KarmaAmountExt for KarmaSC::KarmaSCInstance<T> {
+impl<P: Provider> KarmaAmountExt for KarmaSC::KarmaSCInstance<P> {
     type Error = alloy::contract::Error;
     async fn karma_amount(&self, address: &Address) -> Result<U256, Self::Error> {
         self.balanceOf(*address).call().await
