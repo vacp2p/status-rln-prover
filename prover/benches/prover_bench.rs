@@ -107,6 +107,18 @@ async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
 }
 
 fn proof_generation_bench(c: &mut Criterion) {
+
+    let rayon_num_threads = std::env::var("RAYON_NUM_THREADS")
+        .unwrap_or("".to_string());
+    let proof_service_count_default = 4;
+    let proof_service_count = std::env::var("PROOF_SERVICE_COUNT")
+        .map(|c| u16::from_str(c.as_str()).unwrap_or(proof_service_count_default))
+        .unwrap_or(proof_service_count_default);
+    let proof_count_default = 5;
+    let proof_count = std::env::var("PROOF_COUNT")
+        .map(|c| u32::from_str(c.as_str()).unwrap_or(proof_count_default))
+        .unwrap_or(proof_count_default);
+
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -115,6 +127,7 @@ fn proof_generation_bench(c: &mut Criterion) {
     let port = 50051;
     let temp_folder = tempfile::tempdir().unwrap();
     let temp_folder_tree = tempfile::tempdir().unwrap();
+    // let proof_service_count = 4;
     let app_args = AppArgs {
         ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         port,
@@ -131,7 +144,7 @@ fn proof_generation_bench(c: &mut Criterion) {
         metrics_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         metrics_port: 30051,
         broadcast_channel_size: 100,
-        proof_service_count: 4,
+        proof_service_count,
         transaction_channel_size: 100,
         proof_sender_channel_size: 100,
     };
@@ -169,11 +182,13 @@ fn proof_generation_bench(c: &mut Criterion) {
     let mut group = c.benchmark_group("prover_bench");
     // group.sampling_mode(criterion::SamplingMode::Flat);
 
-    let proof_count = 5;
+    // let proof_count = 5;
+    let proof_count = proof_count as usize;
 
     group.throughput(Throughput::Elements(proof_count as u64));
+    let benchmark_name = format!("prover_proof_{}_proof_service_{}_rt_{}", proof_count, proof_service_count, rayon_num_threads);
     group.bench_with_input(
-        BenchmarkId::new("proof generation", proof_count),
+        BenchmarkId::new(benchmark_name, proof_count),
         &proof_count,
         |b, &_s| {
             b.to_async(&rt).iter(|| {
