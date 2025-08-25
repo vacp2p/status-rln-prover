@@ -143,7 +143,7 @@ async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
         let request = tonic::Request::new(request_0);
         let response: Response<SendTransactionReply> =
             client.send_transaction(request).await.unwrap();
-        assert_eq!(response.into_inner().result, true);
+        assert!(response.into_inner().result);
         count += 1;
     }
 

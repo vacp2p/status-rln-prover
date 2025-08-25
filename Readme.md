@@ -7,7 +7,7 @@
 
 ## Run prover
 
-PRIVATE_KEY=__MY_PRIVATE_KEY__ RUST_LOG=debug cargo run -p prover_cli
+PRIVATE_KEY=__MY_PRIVATE_KEY__ RUST_LOG=debug cargo run -p prover_cli -- --no-config
 
 ### Run prover + Mock
 
