@@ -1,7 +1,7 @@
-use std::io::Write;
 use criterion::Criterion;
 use criterion::{BenchmarkId, Throughput};
 use criterion::{criterion_group, criterion_main};
+use std::io::Write;
 
 // std
 use std::net::{IpAddr, Ipv4Addr};
@@ -17,7 +17,7 @@ use tokio::sync::Notify;
 use tokio::task::JoinSet;
 use tonic::Response;
 // internal
-use prover::{AppArgs, run_prover, MockUser};
+use prover::{AppArgs, MockUser, run_prover};
 
 // grpc
 pub mod prover_proto {
@@ -25,9 +25,8 @@ pub mod prover_proto {
     tonic::include_proto!("prover");
 }
 use prover_proto::{
-    Address as GrpcAddress,
-    RlnProofFilter, RlnProofReply, SendTransactionReply, SendTransactionRequest, U256 as GrpcU256,
-    Wei as GrpcWei, rln_prover_client::RlnProverClient,
+    Address as GrpcAddress, RlnProofFilter, RlnProofReply, SendTransactionReply,
+    SendTransactionRequest, U256 as GrpcU256, Wei as GrpcWei, rln_prover_client::RlnProverClient,
 };
 
 async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
@@ -89,7 +88,6 @@ async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
 }
 
 fn proof_generation_bench(c: &mut Criterion) {
-    let start = std::time::Instant::now();
     let rayon_num_threads = std::env::var("RAYON_NUM_THREADS").unwrap_or("".to_string());
     let proof_service_count_default = 4;
     let proof_service_count = std::env::var("PROOF_SERVICE_COUNT")
@@ -114,7 +112,7 @@ fn proof_generation_bench(c: &mut Criterion) {
         MockUser {
             address: Address::from_str("0xb20a608c624Ca5003905aA834De7156C68b2E1d0").unwrap(),
             tx_count: 0,
-        }
+        },
     ];
     let addresses: Vec<Address> = mock_users.iter().map(|u| u.address.clone()).collect();
     let mock_users_as_str = serde_json::to_string(&mock_users).unwrap();
@@ -203,7 +201,6 @@ fn proof_generation_bench(c: &mut Criterion) {
     );
 
     group.finish();
-    println!("Benchmark finished in {:?}", start.elapsed());
 }
 
 criterion_group!(

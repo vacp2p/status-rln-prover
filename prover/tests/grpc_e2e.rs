@@ -1,8 +1,8 @@
-use std::io::Write;
 use alloy::primitives::{Address, U256};
 use futures::FutureExt;
 use parking_lot::RwLock;
-use prover::{AppArgs, run_prover, MockUser};
+use prover::{AppArgs, MockUser, run_prover};
+use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -19,9 +19,9 @@ pub mod prover_proto {
     tonic::include_proto!("prover");
 }
 use crate::prover_proto::{
-    Address as GrpcAddress, GetUserTierInfoReply, GetUserTierInfoRequest,
-    RlnProofFilter, RlnProofReply, SendTransactionReply,
-    SendTransactionRequest, U256 as GrpcU256, Wei as GrpcWei, rln_prover_client::RlnProverClient,
+    Address as GrpcAddress, GetUserTierInfoReply, GetUserTierInfoRequest, RlnProofFilter,
+    RlnProofReply, SendTransactionReply, SendTransactionRequest, U256 as GrpcU256, Wei as GrpcWei,
+    rln_prover_client::RlnProverClient,
 };
 
 /*
@@ -213,7 +213,7 @@ async fn test_grpc_gen_proof() {
         MockUser {
             address: Address::from_str("0xb20a608c624Ca5003905aA834De7156C68b2E1d0").unwrap(),
             tx_count: 0,
-        }
+        },
     ];
     let addresses: Vec<Address> = mock_users.iter().map(|u| u.address.clone()).collect();
 
@@ -223,7 +223,10 @@ async fn test_grpc_gen_proof() {
     let temp_file_path = temp_file.path().to_path_buf();
     temp_file.write_all(mock_users_as_str.as_bytes()).unwrap();
     temp_file.flush().unwrap();
-    debug!("Mock user temp file path: {}", temp_file_path.to_str().unwrap());
+    debug!(
+        "Mock user temp file path: {}",
+        temp_file_path.to_str().unwrap()
+    );
     //
 
     let temp_folder = tempfile::tempdir().unwrap();

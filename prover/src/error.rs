@@ -85,5 +85,4 @@ pub enum HandleTransferError {
     ScRegister(#[from] RegisterSCError),
     #[error("Unable to query balance: {0}")]
     FetchBalanceOf(#[from] alloy::contract::Error),
-
 }

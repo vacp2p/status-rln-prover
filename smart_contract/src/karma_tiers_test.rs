@@ -1,16 +1,16 @@
+use alloy::network::EthereumWallet;
+use alloy::providers::{ProviderBuilder, WsConnect};
+use alloy::signers::local::PrivateKeySigner;
 use alloy::{
     hex,
     primitives::{Address, U256},
 };
 use clap::Parser;
 use rustls::crypto::aws_lc_rs;
+use smart_contract::KarmaTiers::KarmaTiersInstance;
 use smart_contract::{KarmaTiers, KarmaTiersError};
 use std::str::FromStr;
-use alloy::network::EthereumWallet;
-use alloy::providers::{ProviderBuilder, WsConnect};
-use alloy::signers::local::PrivateKeySigner;
 use url::Url;
-use smart_contract::KarmaTiers::KarmaTiersInstance;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -30,7 +30,6 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), KarmaTiersError> {
-
     // install crypto provider for rustls - required for WebSocket TLS connections
     rustls::crypto::CryptoProvider::install_default(aws_lc_rs::default_provider())
         .expect("Failed to install default CryptoProvider");
@@ -105,7 +104,8 @@ async fn main() -> Result<(), KarmaTiersError> {
 
         // Use the get_tiers function from karma_tiers.rs instead of duplicating code
         let current_tiers =
-            KarmaTiersInstance::get_tiers_from_provider(&provider_with_signer, &contract_addr).await?;
+            KarmaTiersInstance::get_tiers_from_provider(&provider_with_signer, &contract_addr)
+                .await?;
 
         for (i, tier) in current_tiers.iter().enumerate() {
             println!(
@@ -201,8 +201,11 @@ async fn main() -> Result<(), KarmaTiersError> {
                 println!("============================");
 
                 // Use the get_tiers function from karma_tiers.rs instead of duplicating code
-                let updated_tiers =
-                    KarmaTiersInstance::get_tiers_from_provider(&provider_with_signer, &contract_addr).await?;
+                let updated_tiers = KarmaTiersInstance::get_tiers_from_provider(
+                    &provider_with_signer,
+                    &contract_addr,
+                )
+                .await?;
 
                 for (i, tier) in updated_tiers.iter().enumerate() {
                     println!(

@@ -1,17 +1,13 @@
 // third-party
-use alloy::{
-    primitives::Address,
-    providers::{Provider},
-    sol_types::SolEvent,
-};
+use alloy::{primitives::Address, providers::Provider, sol_types::SolEvent};
 use futures::StreamExt;
 use tracing::error;
 // internal
 use crate::error::AppError;
 use crate::tier::TierLimits;
 use crate::user_db::UserDb;
+use smart_contract::KarmaTiers;
 use smart_contract::KarmaTiers::KarmaTiersInstance;
-use smart_contract::{KarmaTiers};
 
 pub(crate) struct TiersListener {
     sc_address: Address,

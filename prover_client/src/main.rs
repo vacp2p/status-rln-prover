@@ -11,12 +11,8 @@ pub mod prover_proto {
 
 use crate::prover_proto::{GetUserTierInfoReply, GetUserTierInfoRequest};
 use prover_proto::{
-    Address as GrpcAddress,
-    SendTransactionReply,
-    SendTransactionRequest,
-    U256 as GrpcU256,
-    Wei as GrpcWei,
-    rln_prover_client::RlnProverClient,
+    Address as GrpcAddress, SendTransactionReply, SendTransactionRequest, U256 as GrpcU256,
+    Wei as GrpcWei, rln_prover_client::RlnProverClient,
 };
 
 #[derive(Debug, Clone, Parser)]

@@ -1,9 +1,9 @@
 use alloy::primitives::Address;
+use alloy::providers::Provider;
 use clap::Parser;
 use rustls::crypto::aws_lc_rs;
-use smart_contract::{ws_provider, KarmaSC, KarmaScError};
+use smart_contract::{KarmaSC, KarmaScError, ws_provider};
 use std::str::FromStr;
-use alloy::providers::Provider;
 use url::Url;
 
 #[derive(Parser, Debug)]

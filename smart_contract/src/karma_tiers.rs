@@ -1,4 +1,4 @@
-use std::{fmt::Formatter};
+use std::fmt::Formatter;
 // third-party
 use alloy::providers::Provider;
 use alloy::{
@@ -134,7 +134,6 @@ sol!(
 );
 
 impl<P: Provider> KarmaTiers::KarmaTiersInstance<P> {
-
     /*
     /// Try to create a new instance with a signer
     pub async fn try_new_with_signer(
@@ -161,7 +160,7 @@ impl<P: Provider> KarmaTiers::KarmaTiersInstance<P> {
         Ok(KarmaTiers::new(address, provider))
     }
     */
-    
+
     /*
     /// Read smart contract `tiers` mapping
     pub async fn get_tiers(
@@ -173,7 +172,7 @@ impl<P: Provider> KarmaTiers::KarmaTiersInstance<P> {
             .connect_ws(ws)
             .await
             .map_err(KarmaTiersError::RpcTransportError)?;
-        
+
         Self::get_tiers_from_provider(&provider, &sc_address).await
     }
     */
@@ -281,8 +280,8 @@ impl std::fmt::Debug for KarmaTiers::Tier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::providers::ProviderBuilder;
     use crate::KarmaTiers::KarmaTiersInstance;
+    use alloy::providers::ProviderBuilder;
 
     impl PartialEq<KarmaTiers::Tier> for Tier {
         fn eq(&self, other: &KarmaTiers::Tier) -> bool {

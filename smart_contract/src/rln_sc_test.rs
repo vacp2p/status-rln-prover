@@ -1,21 +1,18 @@
 // std
 use std::str::FromStr;
 // third-party
+use alloy::network::EthereumWallet;
+use alloy::providers::{ProviderBuilder, WsConnect};
+use alloy::signers::local::PrivateKeySigner;
 use alloy::{
     hex,
     primitives::{Address, U256},
 };
-use alloy::network::EthereumWallet;
-use alloy::providers::{ProviderBuilder, WsConnect};
-use alloy::signers::local::PrivateKeySigner;
 use clap::Parser;
 use rustls::crypto::aws_lc_rs;
 use url::Url;
 // internal
-use smart_contract::{
-    KarmaRLNSC::KarmaRLNSCInstance,
-    RlnScError,
-};
+use smart_contract::{KarmaRLNSC::KarmaRLNSCInstance, RlnScError};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

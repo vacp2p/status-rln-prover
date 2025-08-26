@@ -83,9 +83,9 @@ pub(crate) mod tests {
     use super::*;
     // third-party
     use alloy::{
-        primitives::{address, U256},
+        primitives::{U256, address},
         providers::ProviderBuilder,
-        sol_types::SolCall
+        sol_types::SolCall,
     };
     use claims::assert_gt;
 

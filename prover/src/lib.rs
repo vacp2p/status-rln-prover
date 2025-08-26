@@ -22,10 +22,10 @@ mod proof_service_tests;
 mod user_db_tests;
 
 // std
+use alloy::network::EthereumWallet;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
-use alloy::network::EthereumWallet;
 // third-party
 use alloy::primitives::U256;
 use alloy::providers::{ProviderBuilder, WsConnect};
@@ -42,6 +42,7 @@ use zeroize::Zeroizing;
 pub use crate::args::{AppArgs, AppArgsConfig};
 use crate::epoch_service::EpochService;
 use crate::grpc_service::GrpcProverService;
+pub use crate::mock::MockUser;
 use crate::mock::read_mock_user;
 use crate::proof_service::ProofService;
 use crate::registry_listener::RegistryListener;
@@ -53,7 +54,6 @@ use crate::user_db_types::RateLimit;
 use rln_proof::RlnIdentifier;
 use smart_contract::KarmaTiers::KarmaTiersInstance;
 use smart_contract::{KarmaTiersError, TIER_LIMITS};
-pub use crate::mock::MockUser;
 
 const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
 const PROVER_SPAM_LIMIT: RateLimit = RateLimit::new(10_000u64);
@@ -64,7 +64,6 @@ const PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION: U256 =
 pub async fn run_prover(
     app_args: AppArgs,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-
     // Epoch
     let epoch_service = EpochService::try_from((Duration::from_secs(60 * 2), GENESIS))
         .expect("Failed to create epoch service");
@@ -83,7 +82,8 @@ pub async fn run_prover(
 
     // Alloy provider + signer
     let provider_with_signer = if app_args.ws_rpc_url.is_some() {
-        let pk: Zeroizing<String> = Zeroizing::new(std::env::var("PRIVATE_KEY").expect("Please provide a private key"));
+        let pk: Zeroizing<String> =
+            Zeroizing::new(std::env::var("PRIVATE_KEY").expect("Please provide a private key"));
         let pk_signer = PrivateKeySigner::from_str(pk.as_str())?;
         let wallet = EthereumWallet::from(pk_signer);
 
@@ -227,7 +227,11 @@ pub async fn run_prover(
 
     if let Some(registry_listener) = registry_listener {
         let p = provider.clone().unwrap();
-        set.spawn(async move { registry_listener.listen(p, provider_with_signer.unwrap()).await });
+        set.spawn(async move {
+            registry_listener
+                .listen(p, provider_with_signer.unwrap())
+                .await
+        });
     }
     if let Some(tiers_listener) = tiers_listener {
         let p = provider.clone().unwrap();

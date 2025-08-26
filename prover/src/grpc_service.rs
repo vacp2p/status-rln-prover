@@ -5,10 +5,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 // third-party
-use alloy::{
-    primitives::{Address},
-    providers::Provider,
-};
+use alloy::{primitives::Address, providers::Provider};
 use async_channel::Sender;
 use bytesize::ByteSize;
 use futures::TryFutureExt;
@@ -34,11 +31,7 @@ use crate::metrics::{
 use crate::proof_generation::{ProofGenerationData, ProofSendingData};
 use crate::user_db::{UserDb, UserTierInfo};
 use rln_proof::RlnIdentifier;
-use smart_contract::{
-    KarmaAmountExt,
-    KarmaSC::KarmaSCInstance,
-    MockKarmaSc,
-};
+use smart_contract::{KarmaAmountExt, KarmaSC::KarmaSCInstance, MockKarmaSc};
 
 pub mod prover_proto {
 
@@ -307,8 +300,9 @@ pub(crate) struct GrpcProverService<P: Provider> {
 
 impl<P: Provider + Clone + Send + Sync + 'static> GrpcProverService<P> {
     pub(crate) async fn serve(&self) -> Result<(), AppError> {
-
-        let karma_sc = if let Some(karma_sc_info) = self.karma_sc_info.as_ref() && let Some(provider) = self.provider.as_ref() {
+        let karma_sc = if let Some(karma_sc_info) = self.karma_sc_info.as_ref()
+            && let Some(provider) = self.provider.as_ref()
+        {
             KarmaSCInstance::new(karma_sc_info.1, provider.clone())
         } else {
             panic!("Please provide karma_sc_info or use serve_with_mock");

@@ -2,17 +2,17 @@
 use alloy::{
     contract::Error as AlloyContractError,
     primitives::{Address, U256},
-    providers::{Provider},
+    providers::Provider,
     sol_types::SolEvent,
 };
-use tonic::codegen::tokio_stream::StreamExt;
 use num_bigint::BigUint;
+use tonic::codegen::tokio_stream::StreamExt;
 use tracing::{debug, error, info};
 // internal
 use crate::error::{AppError, HandleTransferError, RegisterSCError};
 use crate::user_db::UserDb;
 use crate::user_db_error::RegisterError;
-use smart_contract::{KarmaAmountExt, KarmaSC, KarmaRLNSC, RLNRegister, };
+use smart_contract::{KarmaAmountExt, KarmaRLNSC, KarmaSC, RLNRegister};
 
 pub(crate) struct RegistryListener {
     karma_sc_address: Address,
@@ -37,7 +37,11 @@ impl RegistryListener {
     }
 
     /// Listen to Smart Contract specified events
-    pub(crate) async fn listen<P: Provider + Clone, PS: Provider>(&self, provider: P, provider_with_signer: PS) -> Result<(), AppError> {
+    pub(crate) async fn listen<P: Provider + Clone, PS: Provider>(
+        &self,
+        provider: P,
+        provider_with_signer: PS,
+    ) -> Result<(), AppError> {
         // let provider = self.setup_provider_ws().await.map_err(AppError::from)?;
         let karma_sc = KarmaSC::new(self.karma_sc_address, provider.clone());
 
@@ -58,7 +62,10 @@ impl RegistryListener {
         while let Some(log) = stream.next().await {
             match KarmaSC::Transfer::decode_log_data(log.data()) {
                 Ok(transfer_event) => {
-                    match self.handle_transfer_event(&karma_sc, &rln_sc, transfer_event).await {
+                    match self
+                        .handle_transfer_event(&karma_sc, &rln_sc, transfer_event)
+                        .await
+                    {
                         Ok(addr) => {
                             info!("Registered new user: {}", addr);
                         }
@@ -92,7 +99,11 @@ impl RegistryListener {
     }
 
     // async fn handle_transfer_event(&self, karma_sc: &KarmaSCInstance<AlloyWsProvider>, transfer_event: KarmaSC::Transfer) -> Result<(), HandleTransferError> {
-    async fn handle_transfer_event<E: Into<AlloyContractError>, KSC: KarmaAmountExt<Error = E>, RLNSC: RLNRegister<Error = E> >(
+    async fn handle_transfer_event<
+        E: Into<AlloyContractError>,
+        KSC: KarmaAmountExt<Error = E>,
+        RLNSC: RLNRegister<Error = E>,
+    >(
         &self,
         karma_sc: &KSC,
         rln_sc: &RLNSC,
@@ -118,8 +129,8 @@ impl RegistryListener {
             };
 
             if should_register {
-
-                let id_commitment = self.user_db
+                let id_commitment = self
+                    .user_db
                     .on_new_user(&to_address)
                     .map_err(HandleTransferError::Register)?;
 
@@ -135,9 +146,8 @@ impl RegistryListener {
                     }
 
                     let e_ = RegisterSCError::from(e.into());
-                    return Err(HandleTransferError::ScRegister(e_))
+                    return Err(HandleTransferError::ScRegister(e_));
                 }
-
             }
         }
 
@@ -181,7 +191,11 @@ mod tests {
     impl RLNRegister for MockRLNSc {
         type Error = AlloyContractError;
 
-        async fn register_user(&self, _address: &Address, _identity_commitment: U256) -> Result<(), Self::Error> {
+        async fn register_user(
+            &self,
+            _address: &Address,
+            _identity_commitment: U256,
+        ) -> Result<(), Self::Error> {
             // println!("Registering user: {} with identity commitment: {}...", address, identity_commitment);
             Ok(())
         }
