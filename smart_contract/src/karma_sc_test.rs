@@ -5,8 +5,6 @@ use smart_contract::{ws_provider, KarmaSC, KarmaScError};
 use std::str::FromStr;
 use alloy::providers::Provider;
 use url::Url;
-use smart_contract::KarmaSC::KarmaSCInstance;
-// use crate::ws_provider;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

@@ -19,8 +19,8 @@ pub mod prover_proto {
     tonic::include_proto!("prover");
 }
 use crate::prover_proto::{
-    Address as GrpcAddress, GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply,
-    RegisterUserRequest, RegistrationStatus, RlnProofFilter, RlnProofReply, SendTransactionReply,
+    Address as GrpcAddress, GetUserTierInfoReply, GetUserTierInfoRequest,
+    RlnProofFilter, RlnProofReply, SendTransactionReply,
     SendTransactionRequest, U256 as GrpcU256, Wei as GrpcWei, rln_prover_client::RlnProverClient,
 };
 
@@ -271,6 +271,9 @@ async fn test_grpc_gen_proof() {
     tokio::time::sleep(Duration::from_secs(5)).await;
     // info!("Registering some users...");
     // register_users(port, addresses.clone()).await;
+    info!("Query info for these new users...");
+    let res = query_user_info(port, addresses.clone()).await;
+    assert_eq!(res.len(), addresses.len());
 
     info!("Sending tx and collecting proofs...");
     let proof_count = 10;

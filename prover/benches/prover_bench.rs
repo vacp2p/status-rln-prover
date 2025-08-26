@@ -1,3 +1,4 @@
+use std::io::Write;
 use criterion::Criterion;
 use criterion::{BenchmarkId, Throughput};
 use criterion::{criterion_group, criterion_main};
@@ -11,11 +12,12 @@ use std::time::Duration;
 use alloy::primitives::{Address, U256};
 use futures::FutureExt;
 use parking_lot::RwLock;
+use tempfile::NamedTempFile;
 use tokio::sync::Notify;
 use tokio::task::JoinSet;
 use tonic::Response;
 // internal
-use prover::{AppArgs, run_prover};
+use prover::{AppArgs, run_prover, MockUser};
 
 // grpc
 pub mod prover_proto {
@@ -23,30 +25,10 @@ pub mod prover_proto {
     tonic::include_proto!("prover");
 }
 use prover_proto::{
-    Address as GrpcAddress, RegisterUserReply, RegisterUserRequest, RegistrationStatus,
+    Address as GrpcAddress,
     RlnProofFilter, RlnProofReply, SendTransactionReply, SendTransactionRequest, U256 as GrpcU256,
     Wei as GrpcWei, rln_prover_client::RlnProverClient,
 };
-
-async fn register_users(port: u16, addresses: Vec<Address>) {
-    let url = format!("http://127.0.0.1:{}", port);
-    let mut client = RlnProverClient::connect(url).await.unwrap();
-
-    for address in addresses {
-        let addr = GrpcAddress {
-            value: address.to_vec(),
-        };
-
-        let request_0 = RegisterUserRequest { user: Some(addr) };
-        let request = tonic::Request::new(request_0);
-        let response: Response<RegisterUserReply> = client.register_user(request).await.unwrap();
-
-        assert_eq!(
-            RegistrationStatus::try_from(response.into_inner().status).unwrap(),
-            RegistrationStatus::Success
-        );
-    }
-}
 
 async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
     let chain_id = GrpcU256 {
@@ -123,6 +105,24 @@ fn proof_generation_bench(c: &mut Criterion) {
         .build()
         .unwrap();
 
+    // Write mock users to tempfile
+    let mock_users = vec![
+        MockUser {
+            address: Address::from_str("0xd8da6bf26964af9d7eed9e03e53415d37aa96045").unwrap(),
+            tx_count: 0,
+        },
+        MockUser {
+            address: Address::from_str("0xb20a608c624Ca5003905aA834De7156C68b2E1d0").unwrap(),
+            tx_count: 0,
+        }
+    ];
+    let addresses: Vec<Address> = mock_users.iter().map(|u| u.address.clone()).collect();
+    let mock_users_as_str = serde_json::to_string(&addresses).unwrap();
+    let mut temp_file = NamedTempFile::new().unwrap();
+    let temp_file_path = temp_file.path().to_path_buf();
+    temp_file.write_all(mock_users_as_str.as_bytes()).unwrap();
+    temp_file.flush().unwrap();
+
     let port = 50051;
     let temp_folder = tempfile::tempdir().unwrap();
     let temp_folder_tree = tempfile::tempdir().unwrap();
@@ -137,7 +137,7 @@ fn proof_generation_bench(c: &mut Criterion) {
         rlnsc_address: None,
         tsc_address: None,
         mock_sc: Some(true),
-        mock_user: None,
+        mock_user: Some(temp_file_path),
         config_path: Default::default(),
         no_config: Some(true),
         metrics_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
@@ -148,10 +148,6 @@ fn proof_generation_bench(c: &mut Criterion) {
         proof_sender_channel_size: 100,
     };
 
-    let addresses = vec![
-        Address::from_str("0xd8da6bf26964af9d7eed9e03e53415d37aa96045").unwrap(),
-        Address::from_str("0xb20a608c624Ca5003905aA834De7156C68b2E1d0").unwrap(),
-    ];
     // Tokio notify - wait for some time after spawning run_prover then notify it's ready to accept
     // connections
     let notify_start = Arc::new(Notify::new());
@@ -166,13 +162,12 @@ fn proof_generation_bench(c: &mut Criterion) {
     });
 
     let notify_start_2 = notify_start.clone();
-    let addresses_0 = addresses.clone();
 
     // Wait for proof_collector to be connected and waiting for some proofs
     rt.block_on(async move {
         notify_start_2.notified().await;
-        println!("Prover is ready, registering users...");
-        register_users(port, addresses_0).await;
+        println!("Prover is ready...");
+        // register_users(port, addresses_0).await;
     });
 
     println!("Starting benchmark...");
