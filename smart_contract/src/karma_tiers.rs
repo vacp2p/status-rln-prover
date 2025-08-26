@@ -7,7 +7,7 @@ use alloy::{
     transports::{RpcError, TransportErrorKind},
 };
 // internal
-use crate::common::AlloyWsProvider;
+// use crate::common::AlloyWsProvider;
 
 #[derive(thiserror::Error, Debug)]
 pub enum KarmaTiersError {
@@ -133,7 +133,7 @@ sol!(
     }
 );
 
-impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
+impl<P: Provider> KarmaTiers::KarmaTiersInstance<P> {
 
     /*
     /// Try to create a new instance with a signer
@@ -178,7 +178,7 @@ impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
     }
     */
 
-    pub async fn get_tiers_from_provider<P: Provider>(
+    pub async fn get_tiers_from_provider(
         provider: &P,
         sc_address: &Address,
     ) -> Result<Vec<Tier>, KarmaTiersError> {

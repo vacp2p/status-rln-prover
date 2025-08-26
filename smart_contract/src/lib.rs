@@ -5,8 +5,8 @@ mod mock;
 mod rln_sc;
 
 pub use common::{
-    AlloyWsProvider,
-    AlloyWsProviderWithSigner,
+    // AlloyWsProvider,
+    // AlloyWsProviderWithSigner,
     ws_provider
 };
 pub use karma_sc::{KarmaAmountExt, KarmaSC, KarmaScError};

@@ -139,7 +139,7 @@ fn proof_generation_bench(c: &mut Criterion) {
         mock_sc: Some(true),
         mock_user: Some(temp_file_path),
         config_path: Default::default(),
-        no_config: Some(true),
+        no_config: true,
         metrics_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         metrics_port: 30051,
         broadcast_channel_size: 100,

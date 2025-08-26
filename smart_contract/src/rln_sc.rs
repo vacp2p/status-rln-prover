@@ -2,19 +2,13 @@
 use alloy::primitives::U256;
 use alloy::providers::Provider;
 use alloy::{
-    network::Ethereum,
     primitives::Address,
-    providers::{ProviderBuilder, WsConnect},
-    signers::local::PrivateKeySigner,
     sol,
     transports::{RpcError, TransportErrorKind},
 };
 use async_trait::async_trait;
-use std::str::FromStr;
-use url::Url;
-use zeroize::Zeroizing;
 // internal
-use crate::common::AlloyWsProvider;
+// use crate::common::AlloyWsProvider;
 
 #[derive(thiserror::Error, Debug)]
 pub enum RlnScError {
@@ -70,6 +64,7 @@ sol! {
     }
 }
 
+/*
 impl KarmaRLNSC::KarmaRLNSCInstance<AlloyWsProvider> {
     pub async fn try_new_with_signer(
         rpc_url: Url,
@@ -94,6 +89,7 @@ impl KarmaRLNSC::KarmaRLNSCInstance<AlloyWsProvider> {
         Ok(KarmaRLNSC::new(address, provider))
     }
 }
+*/
 
 #[async_trait]
 impl<T: Provider> RLNRegister for KarmaRLNSC::KarmaRLNSCInstance<T> {

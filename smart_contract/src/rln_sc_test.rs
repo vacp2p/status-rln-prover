@@ -5,12 +5,17 @@ use alloy::{
     hex,
     primitives::{Address, U256},
 };
+use alloy::network::EthereumWallet;
+use alloy::providers::{ProviderBuilder, WsConnect};
+use alloy::signers::local::PrivateKeySigner;
 use clap::Parser;
 use rustls::crypto::aws_lc_rs;
 use url::Url;
-use zeroize::Zeroizing;
 // internal
-use smart_contract::{KarmaRLNSC, RlnScError};
+use smart_contract::{
+    KarmaRLNSC::KarmaRLNSCInstance,
+    RlnScError,
+};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -65,12 +70,19 @@ async fn main() -> Result<(), RlnScError> {
     }
 
     // Connect to KarmaRLN contract with signer
-    let rln_contract = KarmaRLNSC::KarmaRLNSCInstance::try_new_with_signer(
-        url,
-        contract_addr,
-        Zeroizing::new(args.private_key),
-    )
-    .await?;
+    let provider_with_signer = {
+        let pk_signer = PrivateKeySigner::from_str(args.private_key.as_str()).unwrap();
+        let wallet = EthereumWallet::from(pk_signer);
+
+        let ws = WsConnect::new(url.clone().as_str());
+        let provider = ProviderBuilder::new()
+            .wallet(wallet)
+            .connect_ws(ws)
+            .await
+            .map_err(RlnScError::RpcTransportError)?;
+        provider
+    };
+    let rln_contract = KarmaRLNSCInstance::new(contract_addr, provider_with_signer);
 
     println!("Successfully connected to RLN contract with signer at {contract_addr}",);
 
