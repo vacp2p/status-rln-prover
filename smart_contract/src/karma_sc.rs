@@ -2,16 +2,10 @@
 use alloy::providers::Provider;
 use alloy::{
     primitives::{Address, U256},
-    providers::{ProviderBuilder, WsConnect},
     sol,
     transports::{RpcError, TransportErrorKind},
 };
 use async_trait::async_trait;
-use url::Url;
-// internal
-use crate::AlloyWsProvider;
-use crate::common::ws_provider;
-use crate::KarmaSC::KarmaSCInstance;
 
 #[derive(thiserror::Error, Debug)]
 pub enum KarmaScError {

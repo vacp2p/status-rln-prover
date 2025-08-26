@@ -1,9 +1,8 @@
 // third-party
 use alloy::{
     primitives::Address,
-    providers::{Provider, ProviderBuilder, WsConnect},
+    providers::{Provider},
     sol_types::SolEvent,
-    transports::{RpcError, TransportError},
 };
 use futures::StreamExt;
 use tracing::error;
@@ -12,33 +11,24 @@ use crate::error::AppError;
 use crate::tier::TierLimits;
 use crate::user_db::UserDb;
 use smart_contract::KarmaTiers::KarmaTiersInstance;
-use smart_contract::{AlloyWsProvider, KarmaTiers};
+use smart_contract::{KarmaTiers};
 
 pub(crate) struct TiersListener {
-    rpc_url: String,
     sc_address: Address,
     user_db: UserDb,
 }
 
 impl TiersListener {
-    pub(crate) fn new(rpc_url: &str, sc_address: Address, user_db: UserDb) -> Self {
+    pub(crate) fn new(sc_address: Address, user_db: UserDb) -> Self {
         Self {
-            rpc_url: rpc_url.to_string(),
             sc_address,
             user_db,
         }
     }
 
-    /// Create a provider (aka connect to websocket url)
-    async fn setup_provider_ws(&self) -> Result<AlloyWsProvider, RpcError<TransportError>> {
-        let ws = WsConnect::new(self.rpc_url.as_str());
-        let provider = ProviderBuilder::new().connect_ws(ws).await?;
-        Ok(provider)
-    }
-
     /// Listen to Smart Contract specified events
-    pub(crate) async fn listen(&self) -> Result<(), AppError> {
-        let provider = self.setup_provider_ws().await.map_err(AppError::from)?;
+    pub(crate) async fn listen<P: Provider + Clone>(&self, provider: P) -> Result<(), AppError> {
+        // let provider = self.setup_provider_ws().await.map_err(AppError::from)?;
 
         let filter = alloy::rpc::types::Filter::new()
             .address(self.sc_address)

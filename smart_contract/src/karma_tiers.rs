@@ -186,6 +186,8 @@ impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
 
         Ok(KarmaTiers::new(address, provider))
     }
+    
+    /*
     /// Read smart contract `tiers` mapping
     pub async fn get_tiers(
         ws_rpc_url: Url,
@@ -196,9 +198,10 @@ impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
             .connect_ws(ws)
             .await
             .map_err(KarmaTiersError::RpcTransportError)?;
-
+        
         Self::get_tiers_from_provider(&provider, &sc_address).await
     }
+    */
 
     pub async fn get_tiers_from_provider<T: Provider>(
         provider: &T,

@@ -1,11 +1,13 @@
+use std::io::Write;
 use alloy::primitives::{Address, U256};
 use futures::FutureExt;
 use parking_lot::RwLock;
-use prover::{AppArgs, run_prover};
+use prover::{AppArgs, run_prover, MockUser};
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+use tempfile::NamedTempFile;
 use tokio::task;
 use tokio::task::JoinSet;
 use tonic::Response;
@@ -22,6 +24,7 @@ use crate::prover_proto::{
     SendTransactionRequest, U256 as GrpcU256, Wei as GrpcWei, rln_prover_client::RlnProverClient,
 };
 
+/*
 async fn register_users(port: u16, addresses: Vec<Address>) {
     let url = format!("http://127.0.0.1:{}", port);
     let mut client = RlnProverClient::connect(url).await.unwrap();
@@ -41,6 +44,7 @@ async fn register_users(port: u16, addresses: Vec<Address>) {
         );
     }
 }
+*/
 
 async fn query_user_info(port: u16, addresses: Vec<Address>) -> Vec<GetUserTierInfoReply> {
     let url = format!("http://127.0.0.1:{}", port);
@@ -62,6 +66,7 @@ async fn query_user_info(port: u16, addresses: Vec<Address>) -> Vec<GetUserTierI
     result
 }
 
+/*
 #[tokio::test]
 #[traced_test]
 async fn test_grpc_register_users() {
@@ -109,6 +114,7 @@ async fn test_grpc_register_users() {
     prover_handle.abort();
     tokio::time::sleep(Duration::from_secs(1)).await;
 }
+*/
 
 async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
     let start = std::time::Instant::now();
@@ -213,10 +219,25 @@ async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
 #[tokio::test]
 #[traced_test]
 async fn test_grpc_gen_proof() {
-    let addresses = vec![
-        Address::from_str("0xd8da6bf26964af9d7eed9e03e53415d37aa96045").unwrap(),
-        Address::from_str("0xb20a608c624Ca5003905aA834De7156C68b2E1d0").unwrap(),
+    let mock_users = vec![
+        MockUser {
+            address: Address::from_str("0xd8da6bf26964af9d7eed9e03e53415d37aa96045").unwrap(),
+            tx_count: 0,
+        },
+        MockUser {
+            address: Address::from_str("0xb20a608c624Ca5003905aA834De7156C68b2E1d0").unwrap(),
+            tx_count: 0,
+        }
     ];
+    let addresses: Vec<Address> = mock_users.iter().map(|u| u.address.clone()).collect();
+
+    // Write mock users to tempfile
+    let mock_users_as_str = serde_json::to_string(&addresses).unwrap();
+    let mut temp_file = NamedTempFile::new().unwrap();
+    let temp_file_path = temp_file.path().to_path_buf();
+    temp_file.write_all(mock_users_as_str.as_bytes()).unwrap();
+    temp_file.flush().unwrap();
+    //
 
     let temp_folder = tempfile::tempdir().unwrap();
     let temp_folder_tree = tempfile::tempdir().unwrap();
@@ -232,7 +253,7 @@ async fn test_grpc_gen_proof() {
         rlnsc_address: None,
         tsc_address: None,
         mock_sc: Some(true),
-        mock_user: None,
+        mock_user: Some(temp_file_path),
         config_path: Default::default(),
         no_config: Some(true),
         metrics_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
@@ -248,8 +269,8 @@ async fn test_grpc_gen_proof() {
     // Wait for the prover to be ready
     // Note: if unit test is failing - maybe add an optional notification when service is ready
     tokio::time::sleep(Duration::from_secs(5)).await;
-    info!("Registering some users...");
-    register_users(port, addresses.clone()).await;
+    // info!("Registering some users...");
+    // register_users(port, addresses.clone()).await;
 
     info!("Sending tx and collecting proofs...");
     let proof_count = 10;

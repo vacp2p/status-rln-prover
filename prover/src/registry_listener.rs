@@ -1,80 +1,49 @@
-use std::str::FromStr;
 // third-party
 use alloy::{
     contract::Error as AlloyContractError,
     primitives::{Address, U256},
-    providers::{Provider, ProviderBuilder, WsConnect},
+    providers::{Provider},
     sol_types::SolEvent,
-    transports::{RpcError, TransportError},
 };
-use alloy::signers::local::PrivateKeySigner;
 use tonic::codegen::tokio_stream::StreamExt;
 use num_bigint::BigUint;
 use tracing::{debug, error, info};
-use zeroize::Zeroizing;
 // internal
 use crate::error::{AppError, HandleTransferError, RegisterSCError};
 use crate::user_db::UserDb;
 use crate::user_db_error::RegisterError;
-use smart_contract::{AlloyWsProvider, KarmaAmountExt, KarmaSC, KarmaRLNSC, RLNRegister, AlloyWsProviderWithSigner};
+use smart_contract::{KarmaAmountExt, KarmaSC, KarmaRLNSC, RLNRegister, };
 
 pub(crate) struct RegistryListener {
-    rpc_url: String,
     karma_sc_address: Address,
     rln_sc_address: Address,
     user_db: UserDb,
     minimal_amount: U256,
-    private_key: Zeroizing<String>,
 }
 
 impl RegistryListener {
     pub(crate) fn new(
-        rpc_url: &str,
         karma_sc_address: Address,
         rln_sc_address: Address,
         user_db: UserDb,
         minimal_amount: U256,
-        private_key: Zeroizing<String>,
     ) -> Self {
         Self {
-            rpc_url: rpc_url.to_string(),
             karma_sc_address,
             rln_sc_address,
             user_db,
             minimal_amount,
-            private_key,
         }
     }
 
-    /// Create a provider (aka connect to websocket url)
-    async fn setup_provider_ws(&self) -> Result<AlloyWsProvider, RpcError<TransportError>> {
-        let ws = WsConnect::new(self.rpc_url.as_str());
-        let provider = ProviderBuilder::new().connect_ws(ws).await?;
-        Ok(provider)
-    }
-
-    /// Create a provider with signer (aka connect to websocket url)
-    async fn setup_provider_with_signer(&self, private_key: Zeroizing<String>) -> Result<AlloyWsProviderWithSigner, RpcError<TransportError>> {
-
-        // no unwrap
-        let signer = PrivateKeySigner::from_str(&private_key).unwrap();
-
-        let ws = WsConnect::new(self.rpc_url.as_str());
-        let provider = ProviderBuilder::new()
-            .wallet(signer)
-            .connect_ws(ws)
-            .await?;
-        Ok(provider)
-    }
-
     /// Listen to Smart Contract specified events
-    pub(crate) async fn listen(&self) -> Result<(), AppError> {
-        let provider = self.setup_provider_ws().await.map_err(AppError::from)?;
+    pub(crate) async fn listen<P: Provider + Clone, PS: Provider>(&self, provider: P, provider_with_signer: PS) -> Result<(), AppError> {
+        // let provider = self.setup_provider_ws().await.map_err(AppError::from)?;
         let karma_sc = KarmaSC::new(self.karma_sc_address, provider.clone());
 
-        let provider_with_signer = self.setup_provider_with_signer(self.private_key.clone())
-            .await
-            .map_err(AppError::from)?;
+        // let provider_with_signer = self.setup_provider_with_signer(self.private_key.clone())
+        //     .await
+        //     .map_err(AppError::from)?;
         let rln_sc = KarmaRLNSC::new(self.rln_sc_address, provider_with_signer);
 
         let filter = alloy::rpc::types::Filter::new()
@@ -192,6 +161,9 @@ mod tests {
 
     // const ADDR_1: Address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
     const ADDR_2: Address = address!("0xb20a608c624Ca5003905aA834De7156C68b2E1d0");
+
+    // Mock Karma Sc
+
     struct MockKarmaSc {}
 
     #[async_trait]
@@ -199,6 +171,19 @@ mod tests {
         type Error = AlloyContractError;
         async fn karma_amount(&self, _address: &Address) -> Result<U256, Self::Error> {
             Ok(U256::from(10))
+        }
+    }
+
+    // Mock RLN Sc
+    struct MockRLNSc {}
+
+    #[async_trait]
+    impl RLNRegister for MockRLNSc {
+        type Error = AlloyContractError;
+
+        async fn register_user(&self, _address: &Address, _identity_commitment: U256) -> Result<(), Self::Error> {
+            // println!("Registering user: {} with identity commitment: {}...", address, identity_commitment);
+            Ok(())
         }
     }
 
@@ -224,7 +209,7 @@ mod tests {
 
         let minimal_amount = U256::from(25);
         let registry = RegistryListener {
-            rpc_url: "".to_string(),
+            rln_sc_address: Default::default(),
             karma_sc_address: Default::default(),
             user_db,
             minimal_amount: U256::from(25),
@@ -237,8 +222,9 @@ mod tests {
         };
 
         let karma_sc = MockKarmaSc {};
+        let rln_sc = MockRLNSc {};
         registry
-            .handle_transfer_event(&karma_sc, transfer)
+            .handle_transfer_event(&karma_sc, &rln_sc, transfer)
             .await
             .unwrap();
 

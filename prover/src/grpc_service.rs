@@ -5,7 +5,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 // third-party
-use alloy::primitives::{Address};
+use alloy::{
+    primitives::{Address},
+    providers::Provider,
+};
 use async_channel::Sender;
 use bytesize::ByteSize;
 use futures::TryFutureExt;
@@ -17,7 +20,10 @@ use tonic::{
 };
 use tonic_web::GrpcWebLayer;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{debug, error};
+use tracing::{
+    debug,
+    // error
+};
 use url::Url;
 // internal
 use crate::error::{AppError, ProofGenerationStringError};
@@ -31,9 +37,7 @@ use rln_proof::RlnIdentifier;
 use smart_contract::{
     KarmaAmountExt,
     KarmaSC::KarmaSCInstance,
-    MockKarmaRLNSc,
     MockKarmaSc,
-    RLNRegister, // traits
 };
 
 pub mod prover_proto {
@@ -79,7 +83,7 @@ const PROVER_SERVICE_MESSAGE_ENCODING_MAX_SIZE: ByteSize = ByteSize::mib(5);
 const PROVER_TX_HASH_BYTESIZE: usize = 32;
 
 #[derive(Debug)]
-pub struct ProverService<KSC: KarmaAmountExt, RLNSC: RLNRegister> {
+pub struct ProverService<KSC: KarmaAmountExt> {
     proof_sender: Sender<ProofGenerationData>,
     user_db: UserDb,
     rln_identifier: Arc<RlnIdentifier>,
@@ -88,17 +92,15 @@ pub struct ProverService<KSC: KarmaAmountExt, RLNSC: RLNRegister> {
         broadcast::Receiver<Result<ProofSendingData, ProofGenerationStringError>>,
     ),
     karma_sc: KSC,
-    karma_rln_sc: RLNSC,
+    // karma_rln_sc: RLNSC,
     proof_sender_channel_size: usize,
 }
 
 #[tonic::async_trait]
-impl<KSC, RLNSC> RlnProver for ProverService<KSC, RLNSC>
+impl<KSC> RlnProver for ProverService<KSC>
 where
     KSC: KarmaAmountExt + Send + Sync + 'static,
     KSC::Error: std::error::Error + Send + Sync + 'static,
-    RLNSC: RLNRegister + Send + Sync + 'static,
-    RLNSC::Error: std::error::Error + Send + Sync + 'static,
 {
     #[tracing::instrument(skip(self), err, ret)]
     async fn send_transaction(
@@ -288,7 +290,7 @@ where
     }
 }
 
-pub(crate) struct GrpcProverService {
+pub(crate) struct GrpcProverService<P: Provider> {
     pub proof_sender: Sender<ProofGenerationData>,
     pub broadcast_channel: (
         broadcast::Sender<Result<ProofSendingData, ProofGenerationStringError>>,
@@ -298,19 +300,30 @@ pub(crate) struct GrpcProverService {
     pub rln_identifier: RlnIdentifier,
     pub user_db: UserDb,
     pub karma_sc_info: Option<(Url, Address)>,
-    pub rln_sc_info: Option<(Url, Address)>,
+    // pub rln_sc_info: Option<(Url, Address)>,
+    pub provider: P,
     pub proof_sender_channel_size: usize,
 }
 
-impl GrpcProverService {
+impl<P: Provider + Clone + Send + Sync + 'static> GrpcProverService<P> {
     pub(crate) async fn serve(&self) -> Result<(), AppError> {
+
+        let karma_sc = if let Some(karma_sc_info) = self.karma_sc_info.as_ref() {
+            KarmaSCInstance::new(karma_sc_info.1, self.provider.clone())
+        } else {
+            panic!("Please provide karma_sc_info or use serve_with_mock");
+        };
+
+        /*
         let karma_sc = if let Some(karma_sc_info) = self.karma_sc_info.as_ref() {
             KarmaSCInstance::try_new(karma_sc_info.0.clone(), karma_sc_info.1).await?
         } else {
             panic!("Please provide karma_sc_info or use serve_with_mock");
         };
+        */
 
         // FIXME: remove this
+        /*
         let karma_rln_sc = if let Some(rln_sc_info) = self.rln_sc_info.as_ref() {
             let private_key = Zeroizing::new(std::env::var("PRIVATE_KEY").map_err(|_| {
                 error!("PRIVATE_KEY environment variable is not set");
@@ -325,6 +338,7 @@ impl GrpcProverService {
         } else {
             panic!("Please provide rln_sc_info or use serve_with_mock");
         };
+        */
 
         let prover_service = ProverService {
             proof_sender: self.proof_sender.clone(),
@@ -335,7 +349,7 @@ impl GrpcProverService {
                 self.broadcast_channel.0.subscribe(),
             ),
             karma_sc,
-            karma_rln_sc,
+            // karma_rln_sc,
             proof_sender_channel_size: self.proof_sender_channel_size,
         };
 
@@ -397,7 +411,7 @@ impl GrpcProverService {
                 self.broadcast_channel.0.subscribe(),
             ),
             karma_sc: MockKarmaSc {},
-            karma_rln_sc: MockKarmaRLNSc {},
+            // karma_rln_sc: MockKarmaRLNSc {},
             proof_sender_channel_size: self.proof_sender_channel_size,
         };
 
