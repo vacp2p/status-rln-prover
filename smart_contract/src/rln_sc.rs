@@ -116,6 +116,7 @@ mod tests {
     // third-party
     use crate::KarmaSC;
     use alloy::primitives::address;
+    use alloy::providers::ProviderBuilder;
     use alloy::sol_types::SolCall;
 
     #[tokio::test]
