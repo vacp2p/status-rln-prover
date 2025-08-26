@@ -281,6 +281,7 @@ impl std::fmt::Debug for KarmaTiers::Tier {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy::providers::ProviderBuilder;
     use crate::KarmaTiers::KarmaTiersInstance;
 
     impl PartialEq<KarmaTiers::Tier> for Tier {

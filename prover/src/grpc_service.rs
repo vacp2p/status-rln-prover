@@ -301,44 +301,18 @@ pub(crate) struct GrpcProverService<P: Provider> {
     pub user_db: UserDb,
     pub karma_sc_info: Option<(Url, Address)>,
     // pub rln_sc_info: Option<(Url, Address)>,
-    pub provider: P,
+    pub provider: Option<P>,
     pub proof_sender_channel_size: usize,
 }
 
 impl<P: Provider + Clone + Send + Sync + 'static> GrpcProverService<P> {
     pub(crate) async fn serve(&self) -> Result<(), AppError> {
 
-        let karma_sc = if let Some(karma_sc_info) = self.karma_sc_info.as_ref() {
-            KarmaSCInstance::new(karma_sc_info.1, self.provider.clone())
+        let karma_sc = if let Some(karma_sc_info) = self.karma_sc_info.as_ref() && let Some(provider) = self.provider.as_ref() {
+            KarmaSCInstance::new(karma_sc_info.1, provider.clone())
         } else {
             panic!("Please provide karma_sc_info or use serve_with_mock");
         };
-
-        /*
-        let karma_sc = if let Some(karma_sc_info) = self.karma_sc_info.as_ref() {
-            KarmaSCInstance::try_new(karma_sc_info.0.clone(), karma_sc_info.1).await?
-        } else {
-            panic!("Please provide karma_sc_info or use serve_with_mock");
-        };
-        */
-
-        // FIXME: remove this
-        /*
-        let karma_rln_sc = if let Some(rln_sc_info) = self.rln_sc_info.as_ref() {
-            let private_key = Zeroizing::new(std::env::var("PRIVATE_KEY").map_err(|_| {
-                error!("PRIVATE_KEY environment variable is not set");
-                AppError::RlnScError(RlnScError::EmptyPrivateKey)
-            })?);
-            KarmaRLNSCInstance::try_new_with_signer(
-                rln_sc_info.0.clone(),
-                rln_sc_info.1,
-                private_key,
-            )
-            .await?
-        } else {
-            panic!("Please provide rln_sc_info or use serve_with_mock");
-        };
-        */
 
         let prover_service = ProverService {
             proof_sender: self.proof_sender.clone(),
@@ -349,7 +323,6 @@ impl<P: Provider + Clone + Send + Sync + 'static> GrpcProverService<P> {
                 self.broadcast_channel.0.subscribe(),
             ),
             karma_sc,
-            // karma_rln_sc,
             proof_sender_channel_size: self.proof_sender_channel_size,
         };
 

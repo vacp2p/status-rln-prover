@@ -64,24 +64,26 @@ const PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION: U256 =
 pub async fn run_prover(
     app_args: AppArgs,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+
     // Epoch
     let epoch_service = EpochService::try_from((Duration::from_secs(60 * 2), GENESIS))
         .expect("Failed to create epoch service");
 
     // Alloy provider (Smart contract provider)
-    let provider = {
+    let provider = if app_args.ws_rpc_url.is_some() {
         let ws = WsConnect::new(app_args.ws_rpc_url.clone().unwrap().as_str());
         let provider = ProviderBuilder::new()
             .connect_ws(ws)
             .await
             .map_err(KarmaTiersError::RpcTransportError)?;
-        provider
+        Some(provider)
+    } else {
+        None
     };
 
     // Alloy provider + signer
-
-    let provider_with_signer = {
-        let pk: Zeroizing<String> = Zeroizing::new(std::env::var("PRIVATE_KEY").unwrap());
+    let provider_with_signer = if app_args.ws_rpc_url.is_some() {
+        let pk: Zeroizing<String> = Zeroizing::new(std::env::var("PRIVATE_KEY").expect("Please provide a private key"));
         let pk_signer = PrivateKeySigner::from_str(pk.as_str())?;
         let wallet = EthereumWallet::from(pk_signer);
 
@@ -91,7 +93,9 @@ pub async fn run_prover(
             .connect_ws(ws)
             .await
             .map_err(KarmaTiersError::RpcTransportError)?;
-        provider
+        Some(provider)
+    } else {
+        None
     };
 
     //
@@ -99,7 +103,7 @@ pub async fn run_prover(
     let tier_limits = if app_args.ws_rpc_url.is_some() {
         TierLimits::from(
             KarmaTiersInstance::get_tiers_from_provider(
-                &provider.clone(),
+                &provider.clone().unwrap(),
                 &app_args.tsc_address.unwrap(),
             )
             .await?,
@@ -126,7 +130,8 @@ pub async fn run_prover(
     if app_args.mock_sc.is_some()
         && let Some(user_filepath) = app_args.mock_user.as_ref()
     {
-        let mock_users = read_mock_user(user_filepath)?;
+        let mock_users = read_mock_user(user_filepath);
+        let mock_users = mock_users.unwrap();
         debug!("Mock - will register {} users", mock_users.len());
         for mock_user in mock_users {
             debug!(
@@ -152,6 +157,7 @@ pub async fn run_prover(
     // Smart contract
     // FIXME: use provider
     let registry_listener = if app_args.mock_sc.is_some() {
+        // debug!("No registry listener when mock is enabled");
         None
     } else {
         Some(RegistryListener::new(
@@ -159,8 +165,6 @@ pub async fn run_prover(
             app_args.rlnsc_address.unwrap(),
             user_db_service.get_user_db(),
             PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION,
-            // FIXME
-            // Zeroizing::new(String::new())
         ))
     };
 
@@ -190,7 +194,6 @@ pub async fn run_prover(
             rln_identifier,
             user_db: user_db_service.get_user_db(),
             karma_sc_info: None,
-            // rln_sc_info: None,
             provider: provider.clone(),
             proof_sender_channel_size: app_args.proof_sender_channel_size,
         };
@@ -198,7 +201,6 @@ pub async fn run_prover(
         if app_args.ws_rpc_url.is_some() {
             let ws_rpc_url = app_args.ws_rpc_url.clone().unwrap();
             service.karma_sc_info = Some((ws_rpc_url.clone(), app_args.ksc_address.unwrap()));
-            // service.rln_sc_info = Some((ws_rpc_url, app_args.rlnsc_address.unwrap()));
         }
         service
     };
@@ -224,11 +226,11 @@ pub async fn run_prover(
     }
 
     if let Some(registry_listener) = registry_listener {
-        let p = provider.clone();
-        set.spawn(async move { registry_listener.listen(p, provider_with_signer).await });
+        let p = provider.clone().unwrap();
+        set.spawn(async move { registry_listener.listen(p, provider_with_signer.unwrap()).await });
     }
     if let Some(tiers_listener) = tiers_listener {
-        let p = provider.clone();
+        let p = provider.clone().unwrap();
         set.spawn(async move { tiers_listener.listen(p).await });
     }
     set.spawn(async move { epoch_service.listen_for_new_epoch().await });

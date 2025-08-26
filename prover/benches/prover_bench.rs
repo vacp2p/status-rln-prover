@@ -117,7 +117,7 @@ fn proof_generation_bench(c: &mut Criterion) {
         }
     ];
     let addresses: Vec<Address> = mock_users.iter().map(|u| u.address.clone()).collect();
-    let mock_users_as_str = serde_json::to_string(&addresses).unwrap();
+    let mock_users_as_str = serde_json::to_string(&mock_users).unwrap();
     let mut temp_file = NamedTempFile::new().unwrap();
     let temp_file_path = temp_file.path().to_path_buf();
     temp_file.write_all(mock_users_as_str.as_bytes()).unwrap();

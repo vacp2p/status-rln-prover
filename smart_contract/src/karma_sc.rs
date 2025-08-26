@@ -1,7 +1,7 @@
 // third-party
-use alloy::providers::Provider;
 use alloy::{
     primitives::{Address, U256},
+    providers::Provider,
     sol,
     transports::{RpcError, TransportErrorKind},
 };
@@ -69,21 +69,6 @@ sol! {
     }
 }
 
-/*
-impl<P: Provider> KarmaSC::KarmaSCInstance<P> {
-    pub async fn try_new(rpc_url: Url, address: Address) -> Result<KarmaSCInstance<impl Provider>, KarmaScError> {
-        // let ws = WsConnect::new(rpc_url.as_str());
-        // let provider = ProviderBuilder::new()
-        //     .connect_ws(ws)
-        //     .await
-        //     .map_err(KarmaScError::RpcTransportError)?;
-        let provider = ws_provider(rpc_url.to_string()).await
-            .map_err(KarmaScError::RpcTransportError)?;
-        Ok(KarmaSC::new(address, provider))
-    }
-}
-*/
-
 #[async_trait]
 impl<P: Provider> KarmaAmountExt for KarmaSC::KarmaSCInstance<P> {
     type Error = alloy::contract::Error;
@@ -97,9 +82,11 @@ impl<P: Provider> KarmaAmountExt for KarmaSC::KarmaSCInstance<P> {
 pub(crate) mod tests {
     use super::*;
     // third-party
-    use alloy::primitives::U256;
-    use alloy::primitives::address;
-    use alloy::sol_types::SolCall;
+    use alloy::{
+        primitives::{address, U256},
+        providers::ProviderBuilder,
+        sol_types::SolCall
+    };
     use claims::assert_gt;
 
     sol! {
@@ -143,52 +130,6 @@ pub(crate) mod tests {
             }
 
     }
-
-    /*
-    #[tokio::test]
-    async fn test_balance_of() {
-
-        let provider = ProviderBuilder::new()
-            .connect_anvil_with_wallet()
-            ;
-
-        let contract_distributor = KarmaDistributorMock::deploy(&provider).await.unwrap();
-
-        // Deploy the KarmaTiers contract.
-        let contract = KarmaSC::deploy(&provider).await.unwrap();
-        // getTierCount call
-        let addr = address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
-        let call_1 = contract.balanceOf(addr);
-        let result_1 = call_1.call().await.unwrap();
-        println!("result_1: {:?}", result_1);
-        assert_eq!(result_1, U256::from(0));
-
-        // let call_2_0 = contract.initialize(addr);
-        // let tx_hash_2_0 = call_2_0.send().await.unwrap().watch().await.unwrap();
-        // println!("tx_hash_2_0: {:?}", tx_hash_2_0);
-
-        // let call_2 = contract.mint(addr, U256::from(100));
-        // let tx_hash_2 = call_2.send().await.unwrap().watch().await.unwrap();
-        // println!("tx_hash_2: {:?}", tx_hash_2);
-
-        let call_2 = contract.totalSupply();
-        let result_2 = call_2.call().await.unwrap();
-        println!("result_2: {:?}", result_2);
-        // assert_eq!(result_2, U256::from(0));
-
-        let call_2_2 = contract.name();
-        let result_2_2 = call_2_2.call().await.unwrap();
-        println!("result_2_2: {:?}", result_2_2);
-
-        let call_3_0 = contract.mint(addr, U256::from(1));
-        let tx_hash_3 = call_3_0.send().await.unwrap().watch().await.unwrap();
-        println!("tx_hash_3: {:?}", tx_hash_3);
-
-        let call_3 = contract.balanceOf(addr);
-        let result_3 = call_3.call().await.unwrap();
-        println!("result_3: {:?}", result_3);
-    }
-    */
 
     #[tokio::test]
     async fn test_karma_amount() {

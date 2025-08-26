@@ -11,7 +11,7 @@ use tempfile::NamedTempFile;
 use tokio::task;
 use tokio::task::JoinSet;
 use tonic::Response;
-use tracing::info;
+use tracing::{debug, info};
 use tracing_test::traced_test;
 
 pub mod prover_proto {
@@ -158,20 +158,6 @@ async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
         count,
         start.elapsed().as_secs_f64()
     );
-
-    /*
-    let tx_hash = U256::from(42).to_le_bytes::<32>().to_vec();
-    let request_0 = SendTransactionRequest {
-        gas_price: Some(wei),
-        sender: Some(addr),
-        chain_id: Some(chain_id),
-        transaction_hash: tx_hash,
-    };
-
-    let request = tonic::Request::new(request_0);
-    let response: Response<SendTransactionReply> = client.send_transaction(request).await.unwrap();
-    assert_eq!(response.into_inner().result, true);
-    */
 }
 
 async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
@@ -232,11 +218,12 @@ async fn test_grpc_gen_proof() {
     let addresses: Vec<Address> = mock_users.iter().map(|u| u.address.clone()).collect();
 
     // Write mock users to tempfile
-    let mock_users_as_str = serde_json::to_string(&addresses).unwrap();
+    let mock_users_as_str = serde_json::to_string(&mock_users).unwrap();
     let mut temp_file = NamedTempFile::new().unwrap();
     let temp_file_path = temp_file.path().to_path_buf();
     temp_file.write_all(mock_users_as_str.as_bytes()).unwrap();
     temp_file.flush().unwrap();
+    debug!("Mock user temp file path: {}", temp_file_path.to_str().unwrap());
     //
 
     let temp_folder = tempfile::tempdir().unwrap();
@@ -255,7 +242,7 @@ async fn test_grpc_gen_proof() {
         mock_sc: Some(true),
         mock_user: Some(temp_file_path),
         config_path: Default::default(),
-        no_config: Some(true),
+        no_config: true,
         metrics_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         metrics_port: 30031,
         broadcast_channel_size: 500,
@@ -264,7 +251,7 @@ async fn test_grpc_gen_proof() {
         proof_sender_channel_size: 500,
     };
 
-    info!("Starting prover...");
+    info!("Starting prover with args: {:?}", app_args);
     let prover_handle = task::spawn(run_prover(app_args));
     // Wait for the prover to be ready
     // Note: if unit test is failing - maybe add an optional notification when service is ready

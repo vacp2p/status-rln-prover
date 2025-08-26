@@ -2,7 +2,6 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 // third-party
 use alloy::primitives::Address;
-use clap::ArgAction::SetTrue;
 use clap::Parser;
 use clap_config::ClapConfig;
 use url::Url;
@@ -44,7 +43,6 @@ pub struct AppArgs {
     #[arg(
         short = 'u',
         long = "ws-rpc-url",
-        default_value = "wss://public.sepolia.rpc.status.network/ws",
         help = "Websocket rpc url (e.g. wss://eth-mainnet.g.alchemy.com/v2/your-api-key)"
     )]
     pub ws_rpc_url: Option<Url>,
@@ -102,11 +100,11 @@ pub struct AppArgs {
     #[arg(
         long = "no-config",
         help = "Dont read a config file",
-        default_missing_value = "true",
-        action = SetTrue,
-        help_heading = "config"
+        required = false,
+        action,
+        help_heading = "Do not try to read config file"
     )]
-    pub no_config: Option<bool>,
+    pub no_config: bool,
     #[arg(
         long = "metrics-ip",
         default_value = "::1",
