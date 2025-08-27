@@ -107,6 +107,7 @@ async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
 }
 
 fn proof_generation_bench(c: &mut Criterion) {
+    let start = std::time::Instant::now();
     let rayon_num_threads = std::env::var("RAYON_NUM_THREADS").unwrap_or("".to_string());
     let proof_service_count_default = 4;
     let proof_service_count = std::env::var("PROOF_SERVICE_COUNT")
@@ -207,13 +208,14 @@ fn proof_generation_bench(c: &mut Criterion) {
     );
 
     group.finish();
+    println!("Benchmark finished in {:?}", start.elapsed());
 }
 
 criterion_group!(
     name = benches;
     config = Criterion::default()
-        .sample_size(20)
-        // .measurement_time(Duration::from_secs(150))
+        .sample_size(10)
+        .measurement_time(Duration::from_secs(150))
     ;
     targets = proof_generation_bench
 );
