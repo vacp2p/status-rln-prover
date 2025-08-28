@@ -17,9 +17,9 @@ ark-ff = { version = "0.5.0", features = ["parallel"] }
 ark-groth16 = { version = "0.5.0", features = ["parallel"] }
 ark-serialize = { version = "0.5.0", features = ["parallel"] }
 tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread"] }
-clap = { version = "4.5.45", features = ["derive", "wrap_help"] }
-url = { version = "2.5.4", features = ["serde"] }
-alloy = { version = "1.0.24", features = [
+clap = { version = "4.5.46", features = ["derive", "wrap_help"] }
+url = { version = "2.5.7", features = ["serde"] }
+alloy = { version = "1.0.27", features = [
     "getrandom",
     "sol-types",
     "contract",
@@ -28,7 +28,7 @@ alloy = { version = "1.0.24", features = [
 ] }
 async-trait = "0.1.89"
 derive_more = "2.0.1"
-thiserror = "2.0.14"
+thiserror = "2.0.16"
 rustls = "0.23.31"
 zeroize = "1.8"
 tonic = "0.14.1"
