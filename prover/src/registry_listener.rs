@@ -98,7 +98,14 @@ impl RegistryListener {
         Ok(())
     }
 
-    // async fn handle_transfer_event(&self, karma_sc: &KarmaSCInstance<AlloyWsProvider>, transfer_event: KarmaSC::Transfer) -> Result<(), HandleTransferError> {
+    /// Handle transfer event from Karma smart contract
+    ///
+    /// Handle 'Transfer' event but filter on Transfer event from a _mint call.
+    /// As we can see here: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/53bb34057ed97ea9b36d550f1c2c413ef5b6c6bb/contracts/token/ERC20/ERC20.sol#L214
+    /// _mint function emits a Transfer event (with from_adress set to 0x0). UserDb (on disk) is updated
+    /// as well as RLN Smart contract.
+    /// Can panic if RLN Smart contract registration fails, and UserDb remove fails too (but this should
+    /// never happen)
     async fn handle_transfer_event<
         E: Into<AlloyContractError>,
         KSC: KarmaAmountExt<Error = E>,
