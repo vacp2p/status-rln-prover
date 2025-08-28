@@ -65,9 +65,12 @@ async fn main() -> Result<(), RlnScError> {
     }
 
     // Connect to KarmaRLN contract with signer
-    let rln_contract =
-        KarmaRLNSC::KarmaRLNSCInstance::try_new_with_signer(url, contract_addr, Zeroizing::new(args.private_key))
-            .await?;
+    let rln_contract = KarmaRLNSC::KarmaRLNSCInstance::try_new_with_signer(
+        url,
+        contract_addr,
+        Zeroizing::new(args.private_key),
+    )
+    .await?;
 
     println!("Successfully connected to RLN contract with signer at {contract_addr}",);
 

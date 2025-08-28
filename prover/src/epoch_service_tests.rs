@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod epoch_service_tests {
+mod tests {
 
     // std
     use std::sync::Arc;
@@ -38,7 +38,7 @@ mod epoch_service_tests {
         let res = tokio::try_join!(
             epoch_service
                 .listen_for_new_epoch()
-                .map_err(|e| AppErrorExt::AppError(e)),
+                .map_err(AppErrorExt::AppError),
             // Wait for 3 epoch slices
             // + WAIT_UNTIL_MIN_DURATION * 2 (expect a maximum of 2 retry)
             // + 500 ms (to wait to receive notif + counter incr)

@@ -424,7 +424,7 @@ mod tests {
     #[test]
     fn test_compute_current_epoch_slice() {
         let day = NaiveDate::from_ymd_opt(2025, 5, 14).unwrap();
-        let now_date = day.clone();
+        let now_date = day;
 
         let now_f = move || {
             let now_0: NaiveDateTime = day.and_hms_opt(0, 4, 0).unwrap();

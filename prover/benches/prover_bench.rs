@@ -78,7 +78,7 @@ async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
         let request = tonic::Request::new(request_0);
         let response: Response<SendTransactionReply> =
             client.send_transaction(request).await.unwrap();
-        assert_eq!(response.into_inner().result, true);
+        assert!(response.into_inner().result);
     }
 }
 
@@ -103,18 +103,12 @@ async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
         }
     }
 
-    let res = std::mem::take(&mut *result.write());
-
-    // println!("[Proof collector] Received {} proofs", res.len());
-    res
+    std::mem::take(&mut *result.write())
 }
 
 fn proof_generation_bench(c: &mut Criterion) {
-
     let start = std::time::Instant::now();
-
-    let rayon_num_threads = std::env::var("RAYON_NUM_THREADS")
-        .unwrap_or("".to_string());
+    let rayon_num_threads = std::env::var("RAYON_NUM_THREADS").unwrap_or("".to_string());
     let proof_service_count_default = 4;
     let proof_service_count = std::env::var("PROOF_SERVICE_COUNT")
         .map(|c| u16::from_str(c.as_str()).unwrap_or(proof_service_count_default))
@@ -175,7 +169,7 @@ fn proof_generation_bench(c: &mut Criterion) {
     let addresses_0 = addresses.clone();
 
     // Wait for proof_collector to be connected and waiting for some proofs
-    let _res = rt.block_on(async move {
+    rt.block_on(async move {
         notify_start_2.notified().await;
         println!("Prover is ready, registering users...");
         register_users(port, addresses_0).await;
@@ -191,7 +185,10 @@ fn proof_generation_bench(c: &mut Criterion) {
     let proof_count = proof_count as usize;
 
     group.throughput(Throughput::Elements(proof_count as u64));
-    let benchmark_name = format!("prover_proof_{}_proof_service_{}_rt_{}", proof_count, proof_service_count, rayon_num_threads);
+    let benchmark_name = format!(
+        "prover_proof_{}_proof_service_{}_rt_{}",
+        proof_count, proof_service_count, rayon_num_threads
+    );
     group.bench_with_input(
         BenchmarkId::new(benchmark_name, proof_count),
         &proof_count,
@@ -212,7 +209,6 @@ fn proof_generation_bench(c: &mut Criterion) {
 
     group.finish();
     println!("Benchmark finished in {:?}", start.elapsed());
-
 }
 
 criterion_group!(

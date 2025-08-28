@@ -287,11 +287,11 @@ mod tests {
         let buffer = index.to_le_bytes();
 
         let mut db_batch = WriteBatch::default();
-        db_batch.merge(key_1, &buffer);
-        db_batch.merge(key_1, &buffer);
+        db_batch.merge(key_1, buffer);
+        db_batch.merge(key_1, buffer);
         db.write(db_batch).unwrap();
 
-        let get_key_1 = db.get(&key_1).unwrap().unwrap();
+        let get_key_1 = db.get(key_1).unwrap().unwrap();
         let value = u64::from_le_bytes(get_key_1.try_into().unwrap());
 
         assert_eq!(value, index * 2); // 2x merge
@@ -325,14 +325,14 @@ mod tests {
         db_batch.merge(key_1, &buffer);
         db.write(db_batch).unwrap();
 
-        let get_key_1 = db.get(&key_1).unwrap().unwrap();
+        let get_key_1 = db.get(key_1).unwrap().unwrap();
         let (_, get_value_k1) = epoch_counter_deser.deserialize(&get_key_1).unwrap();
 
         // Applied EpochIncr 2x
         assert_eq!(get_value_k1.epoch_counter, 4);
         assert_eq!(get_value_k1.epoch_slice_counter, 4);
 
-        let get_key_2 = db.get(&key_2).unwrap();
+        let get_key_2 = db.get(key_2).unwrap();
         assert!(get_key_2.is_none());
 
         // new epoch slice
@@ -347,7 +347,7 @@ mod tests {
             epoch_incr_ser.serialize(&value_2, &mut buffer);
             db.merge(key_1, buffer).unwrap();
 
-            let get_key_1 = db.get(&key_1).unwrap().unwrap();
+            let get_key_1 = db.get(key_1).unwrap().unwrap();
             let (_, get_value_2) = epoch_counter_deser.deserialize(&get_key_1).unwrap();
 
             assert_eq!(
@@ -373,7 +373,7 @@ mod tests {
             epoch_incr_ser.serialize(&value_3, &mut buffer);
             db.merge(key_1, buffer).unwrap();
 
-            let get_key_1 = db.get(&key_1).unwrap().unwrap();
+            let get_key_1 = db.get(key_1).unwrap().unwrap();
             let (_, get_value_3) = epoch_counter_deser.deserialize(&get_key_1).unwrap();
 
             assert_eq!(
