@@ -35,7 +35,7 @@ async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
         value: U256::from(1).to_le_bytes::<32>().to_vec(),
     };
 
-    let url = format!("http://127.0.0.1:{}", port);
+    let url = format!("http://127.0.0.1:{port}");
     let mut client = RlnProverClient::connect(url).await.unwrap();
 
     let addr = GrpcAddress {
@@ -66,7 +66,7 @@ async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
 async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
     let result = Arc::new(RwLock::new(vec![]));
 
-    let url = format!("http://127.0.0.1:{}", port);
+    let url = format!("http://127.0.0.1:{port}");
     let mut client = RlnProverClient::connect(url).await.unwrap();
 
     let request_0 = RlnProofFilter { address: None };
@@ -114,7 +114,7 @@ fn proof_generation_bench(c: &mut Criterion) {
             tx_count: 0,
         },
     ];
-    let addresses: Vec<Address> = mock_users.iter().map(|u| u.address.clone()).collect();
+    let addresses: Vec<Address> = mock_users.iter().map(|u| u.address).collect();
     let mock_users_as_str = serde_json::to_string(&mock_users).unwrap();
     let mut temp_file = NamedTempFile::new().unwrap();
     let temp_file_path = temp_file.path().to_path_buf();
@@ -178,6 +178,7 @@ fn proof_generation_bench(c: &mut Criterion) {
     let proof_count = proof_count as usize;
 
     group.throughput(Throughput::Elements(proof_count as u64));
+    #[allow(clippy::uninlined_format_args)]
     let benchmark_name = format!(
         "prover_proof_{}_proof_service_{}_rt_{}",
         proof_count, proof_service_count, rayon_num_threads

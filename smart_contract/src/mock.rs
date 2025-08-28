@@ -27,10 +27,7 @@ impl RLNRegister for MockKarmaRLNSc {
         address: &Address,
         identity_commitment: U256,
     ) -> Result<(), Self::Error> {
-        debug!(
-            "Register user ({}) with identity_commitment: {:?}",
-            address, identity_commitment
-        );
+        debug!("Register user ({address}) with identity_commitment: {identity_commitment:?}");
         Ok(())
     }
 }

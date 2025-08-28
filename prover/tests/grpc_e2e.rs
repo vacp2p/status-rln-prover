@@ -47,7 +47,7 @@ async fn register_users(port: u16, addresses: Vec<Address>) {
 */
 
 async fn query_user_info(port: u16, addresses: Vec<Address>) -> Vec<GetUserTierInfoReply> {
-    let url = format!("http://127.0.0.1:{}", port);
+    let url = format!("http://127.0.0.1:{port}");
     let mut client = RlnProverClient::connect(url).await.unwrap();
 
     let mut result = vec![];
@@ -124,7 +124,7 @@ async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
         value: U256::from(1).to_le_bytes::<32>().to_vec(),
     };
 
-    let url = format!("http://127.0.0.1:{}", port);
+    let url = format!("http://127.0.0.1:{port}");
     let mut client = RlnProverClient::connect(url).await.unwrap();
 
     let addr = GrpcAddress {
@@ -164,7 +164,7 @@ async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
     let start = std::time::Instant::now();
     let result = Arc::new(RwLock::new(vec![]));
 
-    let url = format!("http://127.0.0.1:{}", port);
+    let url = format!("http://127.0.0.1:{port}");
     let mut client = RlnProverClient::connect(url).await.unwrap();
 
     let request_0 = RlnProofFilter { address: None };
@@ -193,7 +193,7 @@ async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
     };
 
     let _res = tokio::time::timeout(Duration::from_secs(500), receiver).await;
-    println!("_res: {:?}", _res);
+    println!("_res: {_res:?}");
     let res = std::mem::take(&mut *result.write());
     println!(
         "[proof_collector] elapsed: {} secs",
@@ -215,7 +215,7 @@ async fn test_grpc_gen_proof() {
             tx_count: 0,
         },
     ];
-    let addresses: Vec<Address> = mock_users.iter().map(|u| u.address.clone()).collect();
+    let addresses: Vec<Address> = mock_users.iter().map(|u| u.address).collect();
 
     // Write mock users to tempfile
     let mock_users_as_str = serde_json::to_string(&mock_users).unwrap();

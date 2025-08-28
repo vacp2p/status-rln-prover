@@ -218,8 +218,8 @@ mod tests {
         debug!("Now recovering secret hash...");
         let proof_values_0 = proof_values_store.first().unwrap();
         let proof_values_1 = proof_values_store.get(1).unwrap();
-        println!("proof_values_0: {:?}", proof_values_0);
-        println!("proof_values_1: {:?}", proof_values_1);
+        println!("proof_values_0: {proof_values_0:?}");
+        println!("proof_values_1: {proof_values_1:?}");
         let share1 = (proof_values_0.x, proof_values_0.y);
         let share2 = (proof_values_1.x, proof_values_1.y);
 

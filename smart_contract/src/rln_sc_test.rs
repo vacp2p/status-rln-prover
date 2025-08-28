@@ -51,9 +51,8 @@ async fn main() -> Result<(), RlnScError> {
 
     println!("Connecting to RPC: {}", args.ws_rpc_url);
 
-    let contract_addr = Address::from_str(&args.contract_address).map_err(|e| {
-        RlnScError::SignerConnectionError(format!("Invalid contract address: {}", e))
-    })?;
+    let contract_addr = Address::from_str(&args.contract_address)
+        .map_err(|e| RlnScError::SignerConnectionError(format!("Invalid contract address: {e}")))?;
 
     let test_identity_commitment = U256::from(args.test_identity_commitment);
     let test_user_address = Address::from_str(&args.test_user_address)
@@ -72,12 +71,11 @@ async fn main() -> Result<(), RlnScError> {
         let wallet = EthereumWallet::from(pk_signer);
 
         let ws = WsConnect::new(url.clone().as_str());
-        let provider = ProviderBuilder::new()
+        ProviderBuilder::new()
             .wallet(wallet)
             .connect_ws(ws)
             .await
-            .map_err(RlnScError::RpcTransportError)?;
-        provider
+            .map_err(RlnScError::RpcTransportError)?
     };
     let rln_contract = KarmaRLNSCInstance::new(contract_addr, provider_with_signer);
 
@@ -101,11 +99,11 @@ async fn main() -> Result<(), RlnScError> {
             };
 
             println!("Registry Info:");
-            println!("   Set size: {}", set_size);
-            println!("   Current index: {}", current_index);
-            println!("   Karma address: {}", karma_address);
-            println!("   Is full: {}", is_full);
-            println!("   Available slots: {}", available_slots);
+            println!("   Set size: {set_size}");
+            println!("   Current index: {current_index}");
+            println!("   Karma address: {karma_address}");
+            println!("   Is full: {is_full}");
+            println!("   Available slots: {available_slots}");
         }
         _ => {
             eprintln!("Failed to get registry info");
@@ -116,7 +114,7 @@ async fn main() -> Result<(), RlnScError> {
     match rln_contract.members(test_identity_commitment).call().await {
         Ok(member) => {
             if member.userAddress != Address::ZERO {
-                println!("Member {} is registered:", test_identity_commitment);
+                println!("Member {test_identity_commitment} is registered:");
                 println!("   User address: {}", member.userAddress);
                 println!("   Index: {}", member.index);
             } else {

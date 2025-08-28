@@ -58,12 +58,11 @@ async fn main() -> Result<(), KarmaTiersError> {
         let wallet = EthereumWallet::from(pk_signer);
 
         let ws = WsConnect::new(url.clone().as_str());
-        let provider = ProviderBuilder::new()
+        ProviderBuilder::new()
             .wallet(wallet)
             .connect_ws(ws)
             .await
-            .map_err(KarmaTiersError::RpcTransportError)?;
-        provider
+            .map_err(KarmaTiersError::RpcTransportError)?
     };
 
     // Connect to KarmaTiers contract
