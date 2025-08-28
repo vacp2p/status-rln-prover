@@ -171,6 +171,7 @@ message RlnProofError {
   string error = 2;
 }
 
+/*
 message RegisterUserRequest {
   Address user = 14;
 }
@@ -184,6 +185,7 @@ enum RegistrationStatus {
 message RegisterUserReply {
   RegistrationStatus status = 1;
 }
+*/
 
 message GetUserTierInfoRequest {
   Address user = 1;
