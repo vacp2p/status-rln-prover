@@ -21,6 +21,7 @@ const APP_NAME: &str = "prover-cli";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+
     // install crypto provider for rustls - required for WebSocket TLS connections
     rustls::crypto::CryptoProvider::install_default(aws_lc_rs::default_provider())
         .expect("Failed to install default CryptoProvider");

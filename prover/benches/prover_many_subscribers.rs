@@ -63,10 +63,11 @@ async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
     }
 }
 
-async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
+async fn proof_collector(ip: IpAddr, port: u16, proof_count: usize) -> Vec<RlnProofReply> {
+
     let result = Arc::new(RwLock::new(Vec::with_capacity(proof_count)));
 
-    let url = format!("http://127.0.0.1:{port}");
+    let url = format!("http://{ip}:{port}");
     let mut client = RlnProverClient::connect(url).await.unwrap();
 
     let request_0 = RlnProofFilter { address: None };
@@ -97,6 +98,13 @@ fn proof_generation_bench(c: &mut Criterion) {
     let proof_count = std::env::var("PROOF_COUNT")
         .map(|c| u32::from_str(c.as_str()).unwrap_or(proof_count_default))
         .unwrap_or(proof_count_default);
+    let subscriber_count_default = 4;
+    let subscriber_count = std::env::var("SUBSCRIBER_COUNT")
+        .map(|c| u32::from_str(c.as_str()).unwrap_or(subscriber_count_default))
+        .unwrap_or(subscriber_count_default);
+    let subscriber_ip = std::env::var("SUBSCRIBER_IP")
+        .map(|c| IpAddr::from_str(c.as_str()).expect("Invalid SUBSCRIBER_IP"))
+        .expect("Please provide an IP for subscriber to connect to");
 
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -126,7 +134,7 @@ fn proof_generation_bench(c: &mut Criterion) {
     let temp_folder_tree = tempfile::tempdir().unwrap();
     // let proof_service_count = 4;
     let app_args = AppArgs {
-        ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+        ip: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
         port,
         ws_rpc_url: None,
         db_path: temp_folder.path().to_path_buf(),
@@ -180,7 +188,7 @@ fn proof_generation_bench(c: &mut Criterion) {
     group.throughput(Throughput::Elements(proof_count as u64));
     #[allow(clippy::uninlined_format_args)]
     let benchmark_name = format!(
-        "prover_proof_{}_proof_service_{}_rt_{}",
+        "prover_many_subscribers_{}_proof_service_{}_rt_{}",
         proof_count, proof_service_count, rayon_num_threads
     );
     group.bench_with_input(
@@ -190,14 +198,18 @@ fn proof_generation_bench(c: &mut Criterion) {
             b.to_async(&rt).iter(|| {
                 async {
                     let mut set = JoinSet::new();
-                    set.spawn(proof_collector(port, proof_count));
+
+                    for _i in 0..subscriber_count {
+                        set.spawn(proof_collector(subscriber_ip, port, proof_count));
+                    }
+
                     set.spawn(proof_sender(port, addresses.clone(), proof_count).map(|_r| vec![]));
                     // Wait for proof_sender + proof_collector to complete
                     let res = set.join_all().await;
-                    // Check proof_sender return an empty vec
+
+                    assert_eq!(res.len(), subscriber_count as usize + 1);
                     assert_eq!(res.iter().filter(|r| r.len() == 0).count(), 1);
-                    // Check we receive enough proofs
-                    assert_eq!(res.iter().filter(|r| r.len() == proof_count).count(), 1);
+                    assert_eq!(res.iter().filter(|r| r.len() == proof_count).count(), subscriber_count as usize);
                 }
             });
         },
