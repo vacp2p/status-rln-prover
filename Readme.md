@@ -31,3 +31,7 @@ RUST_LOG=debug cargo run -p prover_cli -- --ip 127.0.0.1 --metrics-ip 127.0.0.1 
 
 * grpcurl -plaintext -d '{"sender": "Alice", "tx_id": "42"}' '[::1]:50051' prover.RlnProver/SendTransaction
 * grpcurl -plaintext '[::1]:50051' prover.RlnProver/GetProofs
+
+## Bench
+
+* SUBSCRIBER_COUNT=2 SUBSCRIBER_IP=10.235.185.198 RAYON_NUM_THREADS=4 PROOF_SERVICE_COUNT=4 PROOF_COUNT=6 cargo bench -p prover --bench prover_many_subscribers

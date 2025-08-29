@@ -58,3 +58,7 @@ tracing-test = "0.2.5"
 [[bench]]
 name = "prover_bench"
 harness = false
+
+[[bench]]
+name = "prover_many_subscribers"
+harness = false
