@@ -9,17 +9,10 @@ pub mod prover_proto {
     tonic::include_proto!("prover");
 }
 
-use crate::prover_proto::{GetUserTierInfoReply, GetUserTierInfoRequest, RegistrationStatus};
+use crate::prover_proto::{GetUserTierInfoReply, GetUserTierInfoRequest};
 use prover_proto::{
-    Address as GrpcAddress,
-    RegisterUserReply,
-    RegisterUserRequest,
-    SendTransactionReply,
-    SendTransactionRequest,
-    U256 as GrpcU256,
-    Wei as GrpcWei,
-    // RegistrationStatus,
-    rln_prover_client::RlnProverClient,
+    Address as GrpcAddress, SendTransactionReply, SendTransactionRequest, U256 as GrpcU256,
+    Wei as GrpcWei, rln_prover_client::RlnProverClient,
 };
 
 #[derive(Debug, Clone, Parser)]
@@ -47,8 +40,6 @@ pub struct AppArgs {
 
 #[derive(Debug, Clone, PartialEq, Subcommand)]
 pub(crate) enum Commands {
-    #[command(about = "Register a new user")]
-    RegisterUser, // (RegisterUserArgs),
     #[command(about = "Send a transaction")]
     SendTransaction(SendTransactionArgs),
     #[command(about = "Get user tier info")]
@@ -83,19 +74,6 @@ async fn main() {
     };
 
     match app_args.command {
-        Commands::RegisterUser => {
-            let request_0 = RegisterUserRequest {
-                user: Some(grpc_addr),
-            };
-            let request = tonic::Request::new(request_0);
-            let response: Response<RegisterUserReply> =
-                client.register_user(request).await.unwrap();
-
-            println!(
-                "RegisterUSerReply status: {:?}",
-                RegistrationStatus::try_from(response.into_inner().status)
-            );
-        }
         Commands::SendTransaction(send_transaction_args) => {
             let chain_id = GrpcU256 {
                 // FIXME: LE or BE?

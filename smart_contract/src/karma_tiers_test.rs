@@ -1,9 +1,13 @@
+use alloy::network::EthereumWallet;
+use alloy::providers::{ProviderBuilder, WsConnect};
+use alloy::signers::local::PrivateKeySigner;
 use alloy::{
     hex,
     primitives::{Address, U256},
 };
 use clap::Parser;
 use rustls::crypto::aws_lc_rs;
+use smart_contract::KarmaTiers::KarmaTiersInstance;
 use smart_contract::{KarmaTiers, KarmaTiersError};
 use std::str::FromStr;
 use url::Url;
@@ -47,13 +51,22 @@ async fn main() -> Result<(), KarmaTiersError> {
         return Err(KarmaTiersError::EmptyPrivateKey);
     }
 
+    // Alloy provider + signer
+
+    let provider_with_signer = {
+        let pk_signer = PrivateKeySigner::from_str(args.private_key.as_str()).unwrap();
+        let wallet = EthereumWallet::from(pk_signer);
+
+        let ws = WsConnect::new(url.clone().as_str());
+        ProviderBuilder::new()
+            .wallet(wallet)
+            .connect_ws(ws)
+            .await
+            .map_err(KarmaTiersError::RpcTransportError)?
+    };
+
     // Connect to KarmaTiers contract
-    let karma_tiers_contract = KarmaTiers::KarmaTiersInstance::try_new_with_signer(
-        url.clone(),
-        contract_addr,
-        args.private_key,
-    )
-    .await?;
+    let karma_tiers_contract = KarmaTiersInstance::new(contract_addr, provider_with_signer.clone());
 
     println!("Successfully connected to KarmaTiers contract for reading at {contract_addr}",);
 
@@ -90,7 +103,8 @@ async fn main() -> Result<(), KarmaTiersError> {
 
         // Use the get_tiers function from karma_tiers.rs instead of duplicating code
         let current_tiers =
-            KarmaTiers::KarmaTiersInstance::get_tiers(url.clone(), contract_addr).await?;
+            KarmaTiersInstance::get_tiers_from_provider(&provider_with_signer, &contract_addr)
+                .await?;
 
         for (i, tier) in current_tiers.iter().enumerate() {
             println!(
@@ -186,8 +200,11 @@ async fn main() -> Result<(), KarmaTiersError> {
                 println!("============================");
 
                 // Use the get_tiers function from karma_tiers.rs instead of duplicating code
-                let updated_tiers =
-                    KarmaTiers::KarmaTiersInstance::get_tiers(url.clone(), contract_addr).await?;
+                let updated_tiers = KarmaTiersInstance::get_tiers_from_provider(
+                    &provider_with_signer,
+                    &contract_addr,
+                )
+                .await?;
 
                 for (i, tier) in updated_tiers.iter().enumerate() {
                     println!(

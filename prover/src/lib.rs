@@ -22,10 +22,14 @@ mod proof_service_tests;
 mod user_db_tests;
 
 // std
+use alloy::network::EthereumWallet;
 use std::net::SocketAddr;
+use std::str::FromStr;
 use std::time::Duration;
 // third-party
 use alloy::primitives::U256;
+use alloy::providers::{ProviderBuilder, WsConnect};
+use alloy::signers::local::PrivateKeySigner;
 use chrono::{DateTime, Utc};
 use tokio::task::JoinSet;
 use tracing::{
@@ -33,10 +37,12 @@ use tracing::{
     // error,
     // info
 };
+use zeroize::Zeroizing;
 // internal
 pub use crate::args::{AppArgs, AppArgsConfig};
 use crate::epoch_service::EpochService;
 use crate::grpc_service::GrpcProverService;
+pub use crate::mock::MockUser;
 use crate::mock::read_mock_user;
 use crate::proof_service::ProofService;
 use crate::registry_listener::RegistryListener;
@@ -47,7 +53,7 @@ use crate::user_db_service::UserDbService;
 use crate::user_db_types::RateLimit;
 use rln_proof::RlnIdentifier;
 use smart_contract::KarmaTiers::KarmaTiersInstance;
-use smart_contract::TIER_LIMITS;
+use smart_contract::{KarmaTiersError, TIER_LIMITS};
 
 const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
 const PROVER_SPAM_LIMIT: RateLimit = RateLimit::new(10_000u64);
@@ -62,11 +68,43 @@ pub async fn run_prover(
     let epoch_service = EpochService::try_from((Duration::from_secs(60 * 2), GENESIS))
         .expect("Failed to create epoch service");
 
+    // Alloy provider (Smart contract provider)
+    let provider = if app_args.ws_rpc_url.is_some() {
+        let ws = WsConnect::new(app_args.ws_rpc_url.clone().unwrap().as_str());
+        let provider = ProviderBuilder::new()
+            .connect_ws(ws)
+            .await
+            .map_err(KarmaTiersError::RpcTransportError)?;
+        Some(provider)
+    } else {
+        None
+    };
+
+    // Alloy provider + signer
+    let provider_with_signer = if app_args.ws_rpc_url.is_some() {
+        let pk: Zeroizing<String> =
+            Zeroizing::new(std::env::var("PRIVATE_KEY").expect("Please provide a private key"));
+        let pk_signer = PrivateKeySigner::from_str(pk.as_str())?;
+        let wallet = EthereumWallet::from(pk_signer);
+
+        let ws = WsConnect::new(app_args.ws_rpc_url.clone().unwrap().as_str());
+        let provider = ProviderBuilder::new()
+            .wallet(wallet)
+            .connect_ws(ws)
+            .await
+            .map_err(KarmaTiersError::RpcTransportError)?;
+        Some(provider)
+    } else {
+        None
+    };
+
+    //
+
     let tier_limits = if app_args.ws_rpc_url.is_some() {
         TierLimits::from(
-            KarmaTiersInstance::get_tiers(
-                app_args.ws_rpc_url.clone().unwrap(),
-                app_args.tsc_address.unwrap(),
+            KarmaTiersInstance::get_tiers_from_provider(
+                &provider.clone().unwrap(),
+                &app_args.tsc_address.unwrap(),
             )
             .await?,
         )
@@ -92,7 +130,8 @@ pub async fn run_prover(
     if app_args.mock_sc.is_some()
         && let Some(user_filepath) = app_args.mock_user.as_ref()
     {
-        let mock_users = read_mock_user(user_filepath)?;
+        let mock_users = read_mock_user(user_filepath);
+        let mock_users = mock_users.unwrap();
         debug!("Mock - will register {} users", mock_users.len());
         for mock_user in mock_users {
             debug!(
@@ -116,12 +155,14 @@ pub async fn run_prover(
     }
 
     // Smart contract
+    // FIXME: use provider
     let registry_listener = if app_args.mock_sc.is_some() {
+        // debug!("No registry listener when mock is enabled");
         None
     } else {
         Some(RegistryListener::new(
-            app_args.ws_rpc_url.clone().unwrap().as_str(),
             app_args.ksc_address.unwrap(),
+            app_args.rlnsc_address.unwrap(),
             user_db_service.get_user_db(),
             PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION,
         ))
@@ -131,7 +172,6 @@ pub async fn run_prover(
         None
     } else {
         Some(TiersListener::new(
-            app_args.ws_rpc_url.clone().unwrap().as_str(),
             app_args.tsc_address.unwrap(),
             user_db_service.get_user_db(),
         ))
@@ -154,14 +194,13 @@ pub async fn run_prover(
             rln_identifier,
             user_db: user_db_service.get_user_db(),
             karma_sc_info: None,
-            rln_sc_info: None,
+            provider: provider.clone(),
             proof_sender_channel_size: app_args.proof_sender_channel_size,
         };
 
         if app_args.ws_rpc_url.is_some() {
             let ws_rpc_url = app_args.ws_rpc_url.clone().unwrap();
             service.karma_sc_info = Some((ws_rpc_url.clone(), app_args.ksc_address.unwrap()));
-            service.rln_sc_info = Some((ws_rpc_url, app_args.rlnsc_address.unwrap()));
         }
         service
     };
@@ -187,10 +226,16 @@ pub async fn run_prover(
     }
 
     if let Some(registry_listener) = registry_listener {
-        set.spawn(async move { registry_listener.listen().await });
+        let p = provider.clone().unwrap();
+        set.spawn(async move {
+            registry_listener
+                .listen(p, provider_with_signer.unwrap())
+                .await
+        });
     }
     if let Some(tiers_listener) = tiers_listener {
-        set.spawn(async move { tiers_listener.listen().await });
+        let p = provider.clone().unwrap();
+        set.spawn(async move { tiers_listener.listen(p).await });
     }
     set.spawn(async move { epoch_service.listen_for_new_epoch().await });
     set.spawn(async move { user_db_service.listen_for_epoch_changes().await });

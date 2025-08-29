@@ -1,17 +1,13 @@
-use std::{fmt::Formatter, str::FromStr};
+use std::fmt::Formatter;
 // third-party
 use alloy::providers::Provider;
 use alloy::{
-    network::Ethereum,
     primitives::{Address, U256},
-    providers::{ProviderBuilder, WsConnect},
-    signers::local::PrivateKeySigner,
     sol,
     transports::{RpcError, TransportErrorKind},
 };
-use url::Url;
 // internal
-use crate::common::AlloyWsProvider;
+// use crate::common::AlloyWsProvider;
 
 #[derive(thiserror::Error, Debug)]
 pub enum KarmaTiersError {
@@ -28,30 +24,6 @@ pub enum KarmaTiersError {
     #[error("Tier count too high (exceeds u8)")]
     TierCountTooHigh,
 }
-
-/*
-sol! {
-    // https://github.com/vacp2p/staking-reward-streamer/pull/224
-    #[sol(rpc)]
-    contract KarmaTiersSC {
-
-        event TiersUpdated();
-
-        struct Tier {
-            uint256 minKarma;
-            uint256 maxKarma;
-            string name;
-            uint32 txPerEpoch;
-        }
-
-        // mapping(uint8 id => Tier tier) public tiers;
-        // uint8 public currentTierId;
-        Tier[] public tiers;
-
-        function getTierCount() external view returns (uint256 count);
-    }
-}
-*/
 
 sol!(
     // https://github.com/vacp2p/staking-reward-streamer/pull/224
@@ -161,7 +133,8 @@ sol!(
     }
 );
 
-impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
+impl<P: Provider> KarmaTiers::KarmaTiersInstance<P> {
+    /*
     /// Try to create a new instance with a signer
     pub async fn try_new_with_signer(
         rpc_url: Url,
@@ -186,6 +159,9 @@ impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
 
         Ok(KarmaTiers::new(address, provider))
     }
+    */
+
+    /*
     /// Read smart contract `tiers` mapping
     pub async fn get_tiers(
         ws_rpc_url: Url,
@@ -199,9 +175,10 @@ impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
 
         Self::get_tiers_from_provider(&provider, &sc_address).await
     }
+    */
 
-    pub async fn get_tiers_from_provider<T: Provider>(
-        provider: &T,
+    pub async fn get_tiers_from_provider(
+        provider: &P,
         sc_address: &Address,
     ) -> Result<Vec<Tier>, KarmaTiersError> {
         let karma_tiers_sc = KarmaTiers::new(*sc_address, provider);
@@ -258,32 +235,12 @@ impl KarmaTiers::KarmaTiersInstance<AlloyWsProvider> {
     }
 }
 
-/*
-#[derive(Debug, Clone, Default, Copy, From, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TierIndex(u8);
-
-impl From<&TierIndex> for u8 {
-    fn from(value: &TierIndex) -> u8 {
-        value.0
-    }
-}
-
-impl Add<u8> for TierIndex {
-    type Output = TierIndex;
-
-    fn add(self, rhs: u8) -> Self::Output {
-        Self(self.0 + rhs)
-    }
-}
-*/
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tier {
     pub min_karma: U256,
     pub max_karma: U256,
     pub name: String,
     pub tx_per_epoch: u32,
-    // pub active: bool,
 }
 
 impl From<KarmaTiers::Tier> for Tier {
@@ -296,34 +253,6 @@ impl From<KarmaTiers::Tier> for Tier {
         }
     }
 }
-
-/*
-impl From<KarmaTiersSC::TierAdded> for Tier {
-    fn from(tier_added: KarmaTiersSC::TierAdded) -> Self {
-        Self {
-            min_karma: tier_added.minKarma,
-            max_karma: tier_added.maxKarma,
-            name: tier_added.name,
-            tx_per_epoch: tier_added.txPerEpoch,
-            // active: true,
-        }
-    }
-}
-*/
-
-/*
-impl From<KarmaTiersSC::TierUpdated> for Tier {
-    fn from(tier_updated: KarmaTiersSC::TierUpdated) -> Self {
-        Self {
-            min_karma: tier_updated.minKarma,
-            max_karma: tier_updated.maxKarma,
-            name: tier_updated.name,
-            tx_per_epoch: tier_updated.txPerEpoch,
-            // active: true,
-        }
-    }
-}
-*/
 
 impl From<KarmaTiers::tiersReturn> for Tier {
     fn from(tiers_return: KarmaTiers::tiersReturn) -> Self {
@@ -352,6 +281,7 @@ impl std::fmt::Debug for KarmaTiers::Tier {
 mod tests {
     use super::*;
     use crate::KarmaTiers::KarmaTiersInstance;
+    use alloy::providers::ProviderBuilder;
 
     impl PartialEq<KarmaTiers::Tier> for Tier {
         fn eq(&self, other: &KarmaTiers::Tier) -> bool {

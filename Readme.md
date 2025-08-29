@@ -11,7 +11,7 @@ PRIVATE_KEY=__MY_PRIVATE_KEY__ RUST_LOG=debug cargo run -p prover_cli -- --no-co
 
 ### Run prover + Mock
 
-RUST_LOG=debug cargo run -p prover_cli -- --ip 127.0.0.1 --metrics-ip 127.0.0.1 --mock-sc true --mock-user mock/mock_user_1.json
+RUST_LOG=debug cargo run -p prover_cli -- --ip 127.0.0.1 --metrics-ip 127.0.0.1 --mock-sc true --mock-user mock/mock_user_1.json --no-config
 
 ### Run prover + opentelemetry
 
@@ -23,9 +23,9 @@ RUST_LOG=debug cargo run -p prover_cli -- --ip 127.0.0.1 --metrics-ip 127.0.0.1 
 ### Run prover client (for tests)
 
 * RUST_LOG=debug cargo run -p prover_client -- --help
-* RUST_LOG=debug cargo run -p prover_client -- -i 127.0.0.1 -p 42942 register-user
-* RUST_LOG=debug cargo run -p prover_client -- -i 127.0.0.1 -p 42942 send-transaction --tx-hash aa
-* RUST_LOG=debug cargo run -p prover_client -- -i 127.0.0.1 -p 42942 -a 0xd8da6bf26964af9d7eed9e03e53415d37aa96045 get-user-tier-info
+* RUST_LOG=debug cargo run -p prover_client -- -i 127.0.0.1 -p 50051 register-user
+* RUST_LOG=debug cargo run -p prover_client -- -i 127.0.0.1 -p 50051 send-transaction --tx-hash aa
+* RUST_LOG=debug cargo run -p prover_client -- -i 127.0.0.1 -p 50051 -a 0xd8da6bf26964af9d7eed9e03e53415d37aa96045 get-user-tier-info
 
 ## Debug
 

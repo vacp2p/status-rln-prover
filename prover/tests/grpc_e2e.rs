@@ -1,15 +1,17 @@
 use alloy::primitives::{Address, U256};
 use futures::FutureExt;
 use parking_lot::RwLock;
-use prover::{AppArgs, run_prover};
+use prover::{AppArgs, MockUser, run_prover};
+use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+use tempfile::NamedTempFile;
 use tokio::task;
 use tokio::task::JoinSet;
 use tonic::Response;
-use tracing::info;
+use tracing::{debug, info};
 use tracing_test::traced_test;
 
 pub mod prover_proto {
@@ -17,11 +19,12 @@ pub mod prover_proto {
     tonic::include_proto!("prover");
 }
 use crate::prover_proto::{
-    Address as GrpcAddress, GetUserTierInfoReply, GetUserTierInfoRequest, RegisterUserReply,
-    RegisterUserRequest, RegistrationStatus, RlnProofFilter, RlnProofReply, SendTransactionReply,
-    SendTransactionRequest, U256 as GrpcU256, Wei as GrpcWei, rln_prover_client::RlnProverClient,
+    Address as GrpcAddress, GetUserTierInfoReply, GetUserTierInfoRequest, RlnProofFilter,
+    RlnProofReply, SendTransactionReply, SendTransactionRequest, U256 as GrpcU256, Wei as GrpcWei,
+    rln_prover_client::RlnProverClient,
 };
 
+/*
 async fn register_users(port: u16, addresses: Vec<Address>) {
     let url = format!("http://127.0.0.1:{}", port);
     let mut client = RlnProverClient::connect(url).await.unwrap();
@@ -41,9 +44,10 @@ async fn register_users(port: u16, addresses: Vec<Address>) {
         );
     }
 }
+*/
 
 async fn query_user_info(port: u16, addresses: Vec<Address>) -> Vec<GetUserTierInfoReply> {
-    let url = format!("http://127.0.0.1:{}", port);
+    let url = format!("http://127.0.0.1:{port}");
     let mut client = RlnProverClient::connect(url).await.unwrap();
 
     let mut result = vec![];
@@ -62,6 +66,7 @@ async fn query_user_info(port: u16, addresses: Vec<Address>) -> Vec<GetUserTierI
     result
 }
 
+/*
 #[tokio::test]
 #[traced_test]
 async fn test_grpc_register_users() {
@@ -109,6 +114,7 @@ async fn test_grpc_register_users() {
     prover_handle.abort();
     tokio::time::sleep(Duration::from_secs(1)).await;
 }
+*/
 
 async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
     let start = std::time::Instant::now();
@@ -118,7 +124,7 @@ async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
         value: U256::from(1).to_le_bytes::<32>().to_vec(),
     };
 
-    let url = format!("http://127.0.0.1:{}", port);
+    let url = format!("http://127.0.0.1:{port}");
     let mut client = RlnProverClient::connect(url).await.unwrap();
 
     let addr = GrpcAddress {
@@ -152,27 +158,13 @@ async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
         count,
         start.elapsed().as_secs_f64()
     );
-
-    /*
-    let tx_hash = U256::from(42).to_le_bytes::<32>().to_vec();
-    let request_0 = SendTransactionRequest {
-        gas_price: Some(wei),
-        sender: Some(addr),
-        chain_id: Some(chain_id),
-        transaction_hash: tx_hash,
-    };
-
-    let request = tonic::Request::new(request_0);
-    let response: Response<SendTransactionReply> = client.send_transaction(request).await.unwrap();
-    assert_eq!(response.into_inner().result, true);
-    */
 }
 
 async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
     let start = std::time::Instant::now();
     let result = Arc::new(RwLock::new(vec![]));
 
-    let url = format!("http://127.0.0.1:{}", port);
+    let url = format!("http://127.0.0.1:{port}");
     let mut client = RlnProverClient::connect(url).await.unwrap();
 
     let request_0 = RlnProofFilter { address: None };
@@ -201,7 +193,7 @@ async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
     };
 
     let _res = tokio::time::timeout(Duration::from_secs(500), receiver).await;
-    println!("_res: {:?}", _res);
+    println!("_res: {_res:?}");
     let res = std::mem::take(&mut *result.write());
     println!(
         "[proof_collector] elapsed: {} secs",
@@ -213,10 +205,29 @@ async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
 #[tokio::test]
 #[traced_test]
 async fn test_grpc_gen_proof() {
-    let addresses = vec![
-        Address::from_str("0xd8da6bf26964af9d7eed9e03e53415d37aa96045").unwrap(),
-        Address::from_str("0xb20a608c624Ca5003905aA834De7156C68b2E1d0").unwrap(),
+    let mock_users = vec![
+        MockUser {
+            address: Address::from_str("0xd8da6bf26964af9d7eed9e03e53415d37aa96045").unwrap(),
+            tx_count: 0,
+        },
+        MockUser {
+            address: Address::from_str("0xb20a608c624Ca5003905aA834De7156C68b2E1d0").unwrap(),
+            tx_count: 0,
+        },
     ];
+    let addresses: Vec<Address> = mock_users.iter().map(|u| u.address).collect();
+
+    // Write mock users to tempfile
+    let mock_users_as_str = serde_json::to_string(&mock_users).unwrap();
+    let mut temp_file = NamedTempFile::new().unwrap();
+    let temp_file_path = temp_file.path().to_path_buf();
+    temp_file.write_all(mock_users_as_str.as_bytes()).unwrap();
+    temp_file.flush().unwrap();
+    debug!(
+        "Mock user temp file path: {}",
+        temp_file_path.to_str().unwrap()
+    );
+    //
 
     let temp_folder = tempfile::tempdir().unwrap();
     let temp_folder_tree = tempfile::tempdir().unwrap();
@@ -232,9 +243,9 @@ async fn test_grpc_gen_proof() {
         rlnsc_address: None,
         tsc_address: None,
         mock_sc: Some(true),
-        mock_user: None,
+        mock_user: Some(temp_file_path),
         config_path: Default::default(),
-        no_config: Some(true),
+        no_config: true,
         metrics_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         metrics_port: 30031,
         broadcast_channel_size: 500,
@@ -243,13 +254,16 @@ async fn test_grpc_gen_proof() {
         proof_sender_channel_size: 500,
     };
 
-    info!("Starting prover...");
+    info!("Starting prover with args: {:?}", app_args);
     let prover_handle = task::spawn(run_prover(app_args));
     // Wait for the prover to be ready
     // Note: if unit test is failing - maybe add an optional notification when service is ready
     tokio::time::sleep(Duration::from_secs(5)).await;
-    info!("Registering some users...");
-    register_users(port, addresses.clone()).await;
+    // info!("Registering some users...");
+    // register_users(port, addresses.clone()).await;
+    info!("Query info for these new users...");
+    let res = query_user_info(port, addresses.clone()).await;
+    assert_eq!(res.len(), addresses.len());
 
     info!("Sending tx and collecting proofs...");
     let proof_count = 10;

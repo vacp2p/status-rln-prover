@@ -10,7 +10,7 @@ option java_multiple_files = true;
 service RlnProver {
 
   rpc SendTransaction (SendTransactionRequest) returns (SendTransactionReply);
-  rpc RegisterUser (RegisterUserRequest) returns (RegisterUserReply);
+  // rpc RegisterUser (RegisterUserRequest) returns (RegisterUserReply);
   // Server side streaming RPC: 1 request -> X responses (stream)
   rpc GetProofs(RlnProofFilter) returns (stream RlnProofReply);
 
@@ -171,6 +171,7 @@ message RlnProofError {
   string error = 2;
 }
 
+/*
 message RegisterUserRequest {
   Address user = 14;
 }
@@ -184,6 +185,7 @@ enum RegistrationStatus {
 message RegisterUserReply {
   RegistrationStatus status = 1;
 }
+*/
 
 message GetUserTierInfoRequest {
   Address user = 1;

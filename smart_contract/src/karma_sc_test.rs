@@ -1,7 +1,8 @@
 use alloy::primitives::Address;
+use alloy::providers::Provider;
 use clap::Parser;
 use rustls::crypto::aws_lc_rs;
-use smart_contract::{KarmaSC, KarmaScError};
+use smart_contract::{KarmaSC, KarmaScError, ws_provider};
 use std::str::FromStr;
 use url::Url;
 
@@ -45,7 +46,8 @@ async fn main() -> Result<(), KarmaScError> {
         .map_err(|e| KarmaScError::SignerConnectionError(format!("Invalid URL: {e}")))?;
 
     // Connect to Karma contract
-    let karma_contract = KarmaSC::KarmaSCInstance::try_new(url, karma_contract_addr).await?;
+    let provider = ws_provider(url.to_string()).await?.erased();
+    let karma_contract = KarmaSC::KarmaSCInstance::new(karma_contract_addr, provider);
 
     println!("Successfully connected to Karma contract at {karma_contract_addr}",);
 

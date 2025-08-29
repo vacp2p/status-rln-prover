@@ -355,7 +355,7 @@ mod tests {
         if let TierMatch::Matched(tier) = result {
             assert_eq!(tier.name, "Basic");
         } else {
-            panic!("Expected TierMatch::Matched, got {:?}", result);
+            panic!("Expected TierMatch::Matched, got {result:?}");
         }
 
         // Case 4: Exact match on a tier boundary (start of second tier)
@@ -363,7 +363,7 @@ mod tests {
         if let TierMatch::Matched(tier) = result {
             assert_eq!(tier.name, "Active");
         } else {
-            panic!("Expected TierMatch::Matched, got {:?}", result);
+            panic!("Expected TierMatch::Matched, got {result:?}");
         }
 
         // Case 5: Karma within a tier range (between third tier)
@@ -371,7 +371,7 @@ mod tests {
         if let TierMatch::Matched(tier) = result {
             assert_eq!(tier.name, "Regular");
         } else {
-            panic!("Expected TierMatch, got {:?}", result);
+            panic!("Expected TierMatch, got {result:?}");
         }
 
         // Case 6: Exact match on max_karma (end of the third tier)
@@ -379,7 +379,7 @@ mod tests {
         if let TierMatch::Matched(tier) = result {
             assert_eq!(tier.name, "Regular");
         } else {
-            panic!("Expected TierMatch, got {:?}", result);
+            panic!("Expected TierMatch, got {result:?}");
         }
 
         // Case 7: Karma above all tiers
