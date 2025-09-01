@@ -1,9 +1,13 @@
-use criterion::Criterion;
-use criterion::{BenchmarkId, Throughput};
-use criterion::{criterion_group, criterion_main};
-use std::io::Write;
+use criterion::{
+    Criterion,
+    BenchmarkId, Throughput,
+    criterion_group,
+    criterion_main
+};
 
 // std
+use std::io::Write;
+use std::hint::black_box;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -29,13 +33,13 @@ use prover_proto::{
     SendTransactionRequest, U256 as GrpcU256, Wei as GrpcWei, rln_prover_client::RlnProverClient,
 };
 
-async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
+async fn proof_sender(ip: IpAddr, port: u16, addresses: Vec<Address>, proof_count: usize) {
     let chain_id = GrpcU256 {
         // FIXME: LE or BE?
         value: U256::from(1).to_le_bytes::<32>().to_vec(),
     };
 
-    let url = format!("http://127.0.0.1:{port}");
+    let url = format!("http://{ip}:{port}");
     let mut client = RlnProverClient::connect(url).await.unwrap();
 
     let addr = GrpcAddress {
@@ -200,14 +204,21 @@ fn proof_generation_bench(c: &mut Criterion) {
                     let mut set = JoinSet::new();
 
                     for _i in 0..subscriber_count {
-                        set.spawn(proof_collector(subscriber_ip, port, proof_count));
+                        set.spawn(proof_collector(
+                            black_box(subscriber_ip), black_box(port), black_box(proof_count)));
                     }
 
-                    set.spawn(proof_sender(port, addresses.clone(), proof_count).map(|_r| vec![]));
+                    set.spawn(proof_sender(
+                        black_box(subscriber_ip),
+                        black_box(port),
+                        black_box(addresses.clone()),
+                        black_box(proof_count))
+                        .map(|_r| vec![]));
                     // Wait for proof_sender + proof_collector to complete
                     let res = set.join_all().await;
 
                     assert_eq!(res.len(), subscriber_count as usize + 1);
+                    // println!("res: {:?}", res);
                     assert_eq!(res.iter().filter(|r| r.len() == 0).count(), 1);
                     assert_eq!(res.iter().filter(|r| r.len() == proof_count).count(), subscriber_count as usize);
                 }
