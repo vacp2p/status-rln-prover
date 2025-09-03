@@ -219,7 +219,7 @@ fn proof_generation_bench(c: &mut Criterion) {
 
                     assert_eq!(res.len(), subscriber_count as usize + 1);
                     // println!("res: {:?}", res);
-                    assert_eq!(res.iter().filter(|r| r.len() == 0).count(), 1);
+                    assert_eq!(res.iter().filter(|r| r.is_empty()).count(), 1);
                     assert_eq!(res.iter().filter(|r| r.len() == proof_count).count(), subscriber_count as usize);
                 }
             });

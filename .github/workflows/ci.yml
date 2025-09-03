@@ -60,7 +60,7 @@ jobs:
       - name: Install foundry
         uses: foundry-rs/foundry-toolchain@v1
       - name: Test
-        run: cargo test --all-targets --all-features --release
+        run: cargo test --all-features --release
 
   unused-deps:
     needs: [lint, test]

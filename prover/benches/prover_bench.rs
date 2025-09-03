@@ -195,7 +195,7 @@ fn proof_generation_bench(c: &mut Criterion) {
                     // Wait for proof_sender + proof_collector to complete
                     let res = set.join_all().await;
                     // Check proof_sender return an empty vec
-                    assert_eq!(res.iter().filter(|r| r.len() == 0).count(), 1);
+                    assert_eq!(res.iter().filter(|r| r.is_empty()).count(), 1);
                     // Check we receive enough proofs
                     assert_eq!(res.iter().filter(|r| r.len() == proof_count).count(), 1);
                 }
