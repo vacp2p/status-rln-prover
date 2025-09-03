@@ -1,13 +1,8 @@
-use criterion::{
-    Criterion,
-    BenchmarkId, Throughput,
-    criterion_group,
-    criterion_main
-};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 
 // std
-use std::io::Write;
 use std::hint::black_box;
+use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -68,7 +63,6 @@ async fn proof_sender(ip: IpAddr, port: u16, addresses: Vec<Address>, proof_coun
 }
 
 async fn proof_collector(ip: IpAddr, port: u16, proof_count: usize) -> Vec<RlnProofReply> {
-
     let result = Arc::new(RwLock::new(Vec::with_capacity(proof_count)));
 
     let url = format!("http://{ip}:{port}");
@@ -205,22 +199,31 @@ fn proof_generation_bench(c: &mut Criterion) {
 
                     for _i in 0..subscriber_count {
                         set.spawn(proof_collector(
-                            black_box(subscriber_ip), black_box(port), black_box(proof_count)));
+                            black_box(subscriber_ip),
+                            black_box(port),
+                            black_box(proof_count),
+                        ));
                     }
 
-                    set.spawn(proof_sender(
-                        black_box(subscriber_ip),
-                        black_box(port),
-                        black_box(addresses.clone()),
-                        black_box(proof_count))
-                        .map(|_r| vec![]));
+                    set.spawn(
+                        proof_sender(
+                            black_box(subscriber_ip),
+                            black_box(port),
+                            black_box(addresses.clone()),
+                            black_box(proof_count),
+                        )
+                        .map(|_r| vec![]),
+                    );
                     // Wait for proof_sender + proof_collector to complete
                     let res = set.join_all().await;
 
                     assert_eq!(res.len(), subscriber_count as usize + 1);
                     // println!("res: {:?}", res);
                     assert_eq!(res.iter().filter(|r| r.is_empty()).count(), 1);
-                    assert_eq!(res.iter().filter(|r| r.len() == proof_count).count(), subscriber_count as usize);
+                    assert_eq!(
+                        res.iter().filter(|r| r.len() == proof_count).count(),
+                        subscriber_count as usize
+                    );
                 }
             });
         },
