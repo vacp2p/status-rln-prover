@@ -220,6 +220,7 @@ pub async fn run_prover(
                 user_db,
                 PROVER_SPAM_LIMIT,
                 u64::from(i),
+                app_args.thread_per_proof_service,
             );
             proof_service.serve().await
         });

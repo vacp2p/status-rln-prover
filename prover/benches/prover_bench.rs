@@ -88,12 +88,15 @@ async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
 }
 
 fn proof_generation_bench(c: &mut Criterion) {
-    let rayon_num_threads = std::env::var("RAYON_NUM_THREADS").unwrap_or("".to_string());
-    let proof_service_count_default = 4;
+    let proof_service_count_default = 8;
     let proof_service_count = std::env::var("PROOF_SERVICE_COUNT")
         .map(|c| u16::from_str(c.as_str()).unwrap_or(proof_service_count_default))
         .unwrap_or(proof_service_count_default);
-    let proof_count_default = 5;
+    let thread_per_proof_service_default = 4;
+    let thread_per_proof_service = std::env::var("THREAD_PER_PROOF_SERVICE")
+        .map(|c| u16::from_str(c.as_str()).unwrap_or(thread_per_proof_service_default))
+        .unwrap_or(thread_per_proof_service_default);
+    let proof_count_default = 32;
     let proof_count = std::env::var("PROOF_COUNT")
         .map(|c| u32::from_str(c.as_str()).unwrap_or(proof_count_default))
         .unwrap_or(proof_count_default);
@@ -142,6 +145,7 @@ fn proof_generation_bench(c: &mut Criterion) {
         metrics_port: 30051,
         broadcast_channel_size: 100,
         proof_service_count,
+        thread_per_proof_service,
         transaction_channel_size: 100,
         proof_sender_channel_size: 100,
     };
@@ -180,8 +184,8 @@ fn proof_generation_bench(c: &mut Criterion) {
     group.throughput(Throughput::Elements(proof_count as u64));
     #[allow(clippy::uninlined_format_args)]
     let benchmark_name = format!(
-        "prover_proof_{}_proof_service_{}_rt_{}",
-        proof_count, proof_service_count, rayon_num_threads
+        "prover_proof_{}_proof_service_{}_thread_per_prover_{}",
+        proof_count, proof_service_count, thread_per_proof_service
     );
     group.bench_with_input(
         BenchmarkId::new(benchmark_name, proof_count),
@@ -209,9 +213,7 @@ fn proof_generation_bench(c: &mut Criterion) {
 criterion_group!(
     name = benches;
     config = Criterion::default()
-        .sample_size(10)
-        .measurement_time(Duration::from_secs(500))
-    ;
+        .sample_size(10);
     targets = proof_generation_bench
 );
 criterion_main!(benches);

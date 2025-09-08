@@ -6,6 +6,7 @@ use ark_serialize::CanonicalSerialize;
 use async_channel::Receiver;
 use metrics::{counter, histogram};
 use parking_lot::RwLock;
+use rayon::ThreadPool;
 use rln::hashers::hash_to_field;
 use rln::protocol::serialize_proof_values;
 use tracing::{
@@ -35,6 +36,7 @@ pub struct ProofService {
     user_db: UserDb,
     rate_limit: RateLimit,
     id: u64,
+    thread_pool: Arc<ThreadPool>,
 }
 
 impl ProofService {
@@ -47,8 +49,18 @@ impl ProofService {
         user_db: UserDb,
         rate_limit: RateLimit,
         id: u64,
+        thread_per_proof_service: u16,
     ) -> Self {
         debug_assert!(rate_limit > RateLimit::ZERO);
+
+        let thread_pool = Arc::new(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(thread_per_proof_service as usize)
+                .thread_name(move |i| format!("proof-service-{}-thread-{}", id, i))
+                .build()
+                .expect("Failed to build proof service thread pool"),
+        );
+
         Self {
             receiver,
             broadcast_sender,
@@ -56,6 +68,7 @@ impl ProofService {
             user_db,
             rate_limit,
             id,
+            thread_pool,
         }
     }
 
@@ -85,7 +98,10 @@ impl ProofService {
             // Note: avoid tokio spawn_blocking as it does not perform great for CPU bounds tasks
             //       see https://ryhl.io/blog/async-what-is-blocking/
 
-            rayon::spawn(move || {
+            // This ensures each instance uses its own isolated thread pool
+            let thread_pool = self.thread_pool.clone();
+
+            thread_pool.spawn(move || {
                 let proof_generation_start = std::time::Instant::now();
 
                 let message_id = {
@@ -161,13 +177,13 @@ impl ProofService {
                 ));
             });
 
-            // Wait for the rayon task.
+            // Wait for the thread pool task.
             // Result 1st is from send channel (no errors expected)
             // Result 2nd can be a ProofGenerationError
             let result = recv
                 .instrument(debug_span!("compute proof"))
                 .await
-                .expect("Panic in rayon::spawn"); // Should never happen (but panic if it does)
+                .expect("Panic in thread_pool.spawn"); // Should never happen (but panic if it does)
 
             let proof_sending_data = result
                 .map(|r| ProofSendingData {
@@ -335,6 +351,7 @@ mod tests {
             user_db.clone(),
             RateLimit::from(10),
             0,
+            4,
         );
 
         // Verification

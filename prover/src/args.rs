@@ -17,6 +17,11 @@ const ARGS_DEFAULT_BROADCAST_CHANNEL_SIZE: &str = "100";
 /// This service is waiting for new tx to generate the RLN proof. Increase this value
 /// if you need to process more Transactions in //.
 const ARGS_DEFAULT_PROOF_SERVICE_COUNT: &str = "8";
+/// Number of threads per proof service
+///
+/// Each proof service will use a rayon thread pool to generate the proof.
+/// Adjust this value to find the best compromise between number of proof services and number of threads.
+const ARGS_DEFAULT_THREAD_PER_PROOF_SERVICE: &str = "4";
 /// Transaction channel size
 ///
 /// Used by grpc service to send the transaction to one of the proof services. A too low value could stall
@@ -128,6 +133,13 @@ pub struct AppArgs {
         hide = true,
     )] // see const doc for more info
     pub proof_service_count: u16,
+    #[arg(
+        long = "thread-per-proof-service",
+        help = "Number of threads per proof service",
+        default_value = ARGS_DEFAULT_THREAD_PER_PROOF_SERVICE,
+        hide = true,
+    )] // see const doc for more info
+    pub thread_per_proof_service: u16,
     #[arg(
         long = "transaction-channel-size",
         help = "Proof bounded channel size",

@@ -159,6 +159,7 @@ mod tests {
             user_db.clone(),
             RateLimit::from(10),
             0,
+            4,
         );
 
         // Verification
@@ -324,6 +325,7 @@ mod tests {
             user_db.clone(),
             rate_limit,
             0,
+            4,
         );
 
         info!("Starting...");
@@ -395,6 +397,7 @@ mod tests {
             user_db.clone(),
             rate_limit,
             0,
+            4,
         );
 
         info!("Starting...");

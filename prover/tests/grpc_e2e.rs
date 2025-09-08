@@ -250,6 +250,7 @@ async fn test_grpc_gen_proof() {
         metrics_port: 30031,
         broadcast_channel_size: 500,
         proof_service_count: 8,
+        thread_per_proof_service: 4,
         transaction_channel_size: 500,
         proof_sender_channel_size: 500,
     };
