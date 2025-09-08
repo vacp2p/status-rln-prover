@@ -233,7 +233,7 @@ mod tests {
         );
 
         // Exit after receiving one proof
-        Err::<(), AppErrorExt>(AppErrorExt::RecoveredSecret(recovered_identity_secret_hash))
+        Err::<(), AppErrorExt>(AppErrorExt::RecoveredSecret(*recovered_identity_secret_hash))
     }
 
     async fn proof_sender_2(
