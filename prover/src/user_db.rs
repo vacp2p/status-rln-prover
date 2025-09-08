@@ -202,7 +202,7 @@ impl UserDb {
         let (identity_secret_hash, id_commitment) = keygen();
 
         let rln_identity = RlnUserIdentity::from((
-            identity_secret_hash,
+            *identity_secret_hash,
             id_commitment,
             Fr::from(self.rate_limit),
         ));

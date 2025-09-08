@@ -6,7 +6,7 @@ use ark_serialize::CanonicalSerialize;
 use async_channel::Receiver;
 use metrics::{counter, histogram};
 use parking_lot::RwLock;
-use rln::hashers::hash_to_field;
+use rln::hashers::hash_to_field_le;
 use rln::protocol::serialize_proof_values;
 use tracing::{
     Instrument, // debug,
@@ -86,6 +86,7 @@ impl ProofService {
             //       see https://ryhl.io/blog/async-what-is-blocking/
 
             rayon::spawn(move || {
+
                 let proof_generation_start = std::time::Instant::now();
 
                 let message_id = {
@@ -101,7 +102,7 @@ impl ProofService {
 
                 let rln_data = RlnData {
                     message_id: Fr::from(message_id),
-                    data: hash_to_field(proof_generation_data.tx_hash.as_slice()),
+                    data: hash_to_field_le(proof_generation_data.tx_hash.as_slice()),
                 };
 
                 let epoch_bytes = {
@@ -109,7 +110,7 @@ impl ProofService {
                     v.extend(current_epoch_slice.to_le_bytes());
                     v
                 };
-                let epoch = hash_to_field(epoch_bytes.as_slice());
+                let epoch = hash_to_field_le(epoch_bytes.as_slice());
 
                 let merkle_proof = match user_db.get_merkle_proof(&proof_generation_data.tx_sender)
                 {
@@ -159,6 +160,15 @@ impl ProofService {
                 let _ = send.send(Ok::<Vec<u8>, ProofGenerationError>(
                     output_buffer.into_inner(),
                 ));
+
+                /*
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                let mut output_buffer = Cursor::new(Vec::with_capacity(PROOF_SIZE));
+                // Send the result back to Tokio.
+                let _ = send.send(Ok::<Vec<u8>, ProofGenerationError>(
+                    output_buffer.into_inner(),
+                ));
+                */
             });
 
             // Wait for the rayon task.

@@ -850,7 +850,6 @@ dependencies = [
  "digest 0.10.7",
  "fnv",
  "merlin",
- "rayon",
  "sha2",
 ]
 
@@ -883,7 +882,6 @@ dependencies = [
  "num-bigint",
  "num-integer",
  "num-traits",
- "rayon",
  "zeroize",
 ]
 
@@ -942,7 +940,6 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "paste",
- "rayon",
  "zeroize",
 ]
 
@@ -1027,7 +1024,6 @@ dependencies = [
  "ark-relations",
  "ark-serialize 0.5.0",
  "ark-std 0.5.0",
- "rayon",
 ]
 
 [[package]]
@@ -1043,7 +1039,6 @@ dependencies = [
  "educe",
  "fnv",
  "hashbrown 0.15.5",
- "rayon",
 ]
 
 [[package]]
@@ -1107,7 +1102,6 @@ dependencies = [
  "arrayvec",
  "digest 0.10.7",
  "num-bigint",
- "rayon",
 ]
 
 [[package]]
@@ -1161,7 +1155,6 @@ checksum = "246a225cc6131e9ee4f24619af0f19d67761fff15d7ccc22e42b80846e69449a"
 dependencies = [
  "num-traits",
  "rand 0.8.5",
- "rayon",
 ]
 
 [[package]]
@@ -4388,8 +4381,7 @@ dependencies = [
 [[package]]
 name = "rln"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a03834bc168adfee6f49c885fabb0ad6897be11d97258e9375d98f30d2c9878"
+source = "git+https://github.com/vacp2p/zerokit/#0b00c639a059a2cfde74bcf68fdf75db3b6898a4"
 dependencies = [
  "ark-bn254",
  "ark-ec",
@@ -4405,14 +4397,16 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "once_cell",
- "prost 0.13.5",
+ "prost 0.14.1",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "ruint",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
  "tiny-keccak",
+ "zeroize",
  "zerokit_utils",
 ]
 
@@ -5125,15 +5119,15 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "tempfile"
-version = "3.20.0"
+version = "3.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8a64e3985349f2441a1a9ef0b853f869006c3855f2cda6862a94d26ebb9d6a1"
+checksum = "15b61f8f20e3a6f7e0649d825294eaf317edce30f82cf6026e7e4cb9222a7d1e"
 dependencies = [
  "fastrand",
  "getrandom 0.3.3",
  "once_cell",
  "rustix 1.0.8",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6388,8 +6382,7 @@ dependencies = [
 [[package]]
 name = "zerokit_utils"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a21d5ee8dd5cba6c9e39c7391e3fe968d479b6f1eb51c82556b2bb9b2924f572"
+source = "git+https://github.com/vacp2p/zerokit/#0b00c639a059a2cfde74bcf68fdf75db3b6898a4"
 dependencies = [
  "ark-ff 0.5.0",
  "hex",
