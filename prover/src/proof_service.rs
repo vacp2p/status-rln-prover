@@ -5,6 +5,11 @@ use ark_bn254::Fr;
 use ark_serialize::CanonicalSerialize;
 use async_channel::Receiver;
 use metrics::{counter, histogram};
+#[cfg(target_os = "linux")]
+use nix::{
+    sched::{CpuSet, sched_setaffinity},
+    unistd::Pid,
+};
 use parking_lot::RwLock;
 use rayon::ThreadPool;
 use rln::hashers::hash_to_field;
@@ -53,10 +58,16 @@ impl ProofService {
     ) -> Self {
         debug_assert!(rate_limit > RateLimit::ZERO);
 
+        let service_id = id;
+        let threads_per_service = thread_per_proof_service as usize;
+
         let thread_pool = Arc::new(
             rayon::ThreadPoolBuilder::new()
-                .num_threads(thread_per_proof_service as usize)
+                .num_threads(threads_per_service)
                 .thread_name(move |i| format!("proof-service-{}-thread-{}", id, i))
+                .start_handler(move |thread_index| {
+                    Self::pin_thread_to_core(service_id, thread_index, threads_per_service);
+                })
                 .build()
                 .expect("Failed to build proof service thread pool"),
         );
@@ -69,6 +80,25 @@ impl ProofService {
             rate_limit,
             id,
             thread_pool,
+        }
+    }
+
+    fn pin_thread_to_core(service_id: u64, thread_index: usize, threads_per_service: usize) {
+        #[cfg(target_os = "linux")]
+        {
+            let available_cores = num_cpus::get_physical();
+            let base_core = 1 + (service_id as usize * threads_per_service);
+            let core_id = (base_core + thread_index) % available_cores;
+
+            let mut cpu_set = CpuSet::new();
+            if cpu_set.set(core_id).is_ok() {
+                let _ = sched_setaffinity(Pid::from_raw(0), &cpu_set);
+            }
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = (service_id, thread_index, threads_per_service);
         }
     }
 
