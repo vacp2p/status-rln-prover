@@ -241,8 +241,7 @@ criterion_group!(
     name = benches;
     config = Criterion::default()
         .sample_size(10)
-        .measurement_time(Duration::from_secs(500))
-    ;
+        .measurement_time(Duration::from_secs(500));
     targets = proof_generation_bench
 );
 criterion_main!(benches);
