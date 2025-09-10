@@ -87,7 +87,6 @@ async fn proof_collector(ip: IpAddr, port: u16, proof_count: usize) -> Vec<RlnPr
 }
 
 fn proof_generation_bench(c: &mut Criterion) {
-    let rayon_num_threads = std::env::var("RAYON_NUM_THREADS").unwrap_or("".to_string());
     let proof_service_count_default = 8;
     let proof_service_count = std::env::var("PROOF_SERVICE_COUNT")
         .map(|c| u16::from_str(c.as_str()).unwrap_or(proof_service_count_default))
@@ -191,8 +190,8 @@ fn proof_generation_bench(c: &mut Criterion) {
     group.throughput(Throughput::Elements(proof_count as u64));
     #[allow(clippy::uninlined_format_args)]
     let benchmark_name = format!(
-        "prover_many_subscribers_{}_proof_service_{}_rt_{}",
-        proof_count, proof_service_count, rayon_num_threads
+        "prover_proof_{}_proof_service_{}_thread_per_prover_{}",
+        proof_count, proof_service_count, thread_per_proof_service
     );
     group.bench_with_input(
         BenchmarkId::new(benchmark_name, proof_count),
