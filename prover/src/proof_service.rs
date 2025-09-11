@@ -1,4 +1,6 @@
+use std::env;
 use std::io::{Cursor, Write};
+use std::str::FromStr;
 use std::sync::Arc;
 // third-party
 use ark_bn254::Fr;
@@ -32,6 +34,37 @@ use rln_proof::{RlnData, compute_rln_proof_and_values};
 
 const PROOF_SIZE: usize = 512;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PinningStrategy {
+    None,
+    Numa,
+    Even,
+    Physical,
+}
+
+impl FromStr for PinningStrategy {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "none" => Ok(PinningStrategy::None),
+            "numa" => Ok(PinningStrategy::Numa),
+            "even" => Ok(PinningStrategy::Even),
+            "physical" => Ok(PinningStrategy::Physical),
+            _ => Err(format!(
+                "Unknown pinning strategy: '{}'. Valid options: none, numa, even, physical",
+                s
+            )),
+        }
+    }
+}
+
+impl Default for PinningStrategy {
+    fn default() -> Self {
+        PinningStrategy::None
+    }
+}
+
 /// A service to generate a RLN proof (and then to broadcast it)
 pub struct ProofService {
     receiver: Receiver<ProofGenerationData>,
@@ -61,12 +94,22 @@ impl ProofService {
         let service_id = id;
         let threads_per_service = thread_per_proof_service as usize;
 
+        let pinning_strategy = env::var("CPU_PINNING_STRATEGY")
+            .unwrap_or_else(|_| "none".to_string())
+            .parse::<PinningStrategy>()
+            .unwrap_or(PinningStrategy::None);
+
         let thread_pool = Arc::new(
             rayon::ThreadPoolBuilder::new()
                 .num_threads(threads_per_service)
-                .thread_name(move |i| format!("proof-service-{}-thread-{}", id, i))
-                .start_handler(move |_| {
-                    Self::pin_thread_to_core(service_id);
+                .thread_name(move |i| format!("proof-service-{}-thread-{}", service_id, i))
+                .start_handler(move |thread_index| {
+                    Self::apply_cpu_pinning(
+                        service_id,
+                        thread_index,
+                        threads_per_service,
+                        pinning_strategy,
+                    );
                 })
                 .build()
                 .expect("Failed to build proof service thread pool"),
@@ -83,21 +126,84 @@ impl ProofService {
         }
     }
 
-    fn pin_thread_to_core(service_id: u64) {
+    fn apply_cpu_pinning(
+        service_id: u64,
+        thread_index: usize,
+        threads_per_service: usize,
+        strategy: PinningStrategy,
+    ) {
         #[cfg(target_os = "linux")]
         {
-            let physical_cores = num_cpus::get_physical();
-            let assigned_core = (service_id as usize) % physical_cores;
-
-            let mut cpu_set = CpuSet::new();
-            if cpu_set.set(assigned_core).is_ok() {
-                let _ = sched_setaffinity(Pid::from_raw(0), &cpu_set);
+            match strategy {
+                PinningStrategy::None => {}
+                PinningStrategy::Numa => {
+                    Self::pin_numa(service_id, thread_index, threads_per_service);
+                }
+                PinningStrategy::Even => {
+                    Self::pin_even(service_id, thread_index, threads_per_service);
+                }
+                PinningStrategy::Physical => {
+                    Self::pin_physical(service_id, thread_index, threads_per_service);
+                }
             }
         }
 
         #[cfg(not(target_os = "linux"))]
         {
-            let _ = service_id;
+            let _ = (service_id, thread_index, threads_per_service, strategy);
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn pin_numa(service_id: u64, thread_index: usize, threads_per_service: usize) {
+        let physical_cores = num_cpus::get_physical();
+        let logical_cores = num_cpus::get();
+
+        // Assume 2 NUMA nodes for most 32-core systems
+        let numa_nodes = if physical_cores >= 16 { 2 } else { 1 };
+        let cores_per_numa = physical_cores / numa_nodes;
+
+        // Assign service to NUMA node (round-robin)
+        let numa_node = (service_id as usize) % numa_nodes;
+        let numa_start_core = numa_node * cores_per_numa;
+
+        // Distribute threads within the NUMA node
+        let core_in_numa = thread_index % cores_per_numa;
+        let assigned_core = numa_start_core + core_in_numa;
+
+        let mut cpu_set = CpuSet::new();
+        // Pin to both physical and logical core (hyperthreading)
+        if cpu_set.set(assigned_core).is_ok() && cpu_set.set(assigned_core + physical_cores).is_ok()
+        {
+            let _ = sched_setaffinity(Pid::from_raw(0), &cpu_set);
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn pin_even(service_id: u64, thread_index: usize, threads_per_service: usize) {
+        let logical_cores = num_cpus::get();
+
+        // Distribute threads evenly across all logical cores
+        let service_start_core = (service_id as usize * threads_per_service) % logical_cores;
+        let assigned_core = (service_start_core + thread_index) % logical_cores;
+
+        let mut cpu_set = CpuSet::new();
+        if cpu_set.set(assigned_core).is_ok() {
+            let _ = sched_setaffinity(Pid::from_raw(0), &cpu_set);
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn pin_physical(service_id: u64, thread_index: usize, threads_per_service: usize) {
+        let physical_cores = num_cpus::get_physical();
+
+        // Use only physical cores, no hyperthreading
+        let service_start_core = (service_id as usize * threads_per_service) % physical_cores;
+        let assigned_core = (service_start_core + thread_index) % physical_cores;
+
+        let mut cpu_set = CpuSet::new();
+        if cpu_set.set(assigned_core).is_ok() {
+            let _ = sched_setaffinity(Pid::from_raw(0), &cpu_set);
         }
     }
 
