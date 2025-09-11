@@ -103,52 +103,156 @@ fn apply_cpu_pinning(thread_index: usize, strategy: PinningStrategy) {
 }
 
 #[cfg(target_os = "linux")]
+fn detect_numa_topology() -> (usize, Vec<usize>) {
+    // Try to read actual NUMA topology
+    let numa_nodes = std::fs::read_dir("/sys/devices/system/node/")
+        .map(|entries| {
+            entries
+                .filter_map(|entry| {
+                    entry.ok().and_then(|e| {
+                        e.file_name().to_str().and_then(|name| {
+                            if name.starts_with("node") {
+                                name[4..].parse::<usize>().ok()
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                })
+                .max()
+                .map(|max_node| max_node + 1)
+                .unwrap_or(1)
+        })
+        .unwrap_or(1);
+
+    // Try to get cores per NUMA node from /proc/cpuinfo or sysfs
+    // For now, assume even distribution as fallback
+    let physical_cores = num_cpus::get_physical();
+    let cores_per_numa = physical_cores / numa_nodes;
+    let mut numa_core_counts = vec![cores_per_numa; numa_nodes];
+
+    // Handle remainder cores
+    let remainder = physical_cores % numa_nodes;
+    for i in 0..remainder {
+        numa_core_counts[i] += 1;
+    }
+
+    (numa_nodes, numa_core_counts)
+}
+
+#[cfg(target_os = "linux")]
 fn pin_numa(thread_index: usize) {
+    let (numa_nodes, numa_core_counts) = detect_numa_topology();
     let physical_cores = num_cpus::get_physical();
     let logical_cores = num_cpus::get();
 
-    // Assume 2 NUMA nodes for most 32-core systems
-    let numa_nodes = if physical_cores >= 16 { 2 } else { 1 };
-    let cores_per_numa = physical_cores / numa_nodes;
+    // Find which NUMA node this thread should be on
+    let mut cumulative_cores = 0;
+    let mut target_numa = 0;
+    let mut core_in_numa = thread_index;
 
-    // Distribute threads across NUMA nodes
-    let numa_node = (thread_index / cores_per_numa) % numa_nodes;
-    let numa_start_core = numa_node * cores_per_numa;
-    let core_in_numa = thread_index % cores_per_numa;
+    for (numa_id, &cores_in_this_numa) in numa_core_counts.iter().enumerate() {
+        if thread_index < cumulative_cores + cores_in_this_numa {
+            target_numa = numa_id;
+            core_in_numa = thread_index - cumulative_cores;
+            break;
+        }
+        cumulative_cores += cores_in_this_numa;
+    }
+
+    // Calculate actual core assignment
+    let numa_start_core: usize = numa_core_counts[..target_numa].iter().sum();
     let assigned_core = numa_start_core + core_in_numa;
 
     if assigned_core >= physical_cores {
-        println!("Invalid core assignment: {}", assigned_core);
-        return;
+        return; // Invalid core assignment
     }
 
     let mut cpu_set = CpuSet::new();
 
     // Always pin to physical core
     if cpu_set.set(assigned_core).is_err() {
-        println!("Failed to set CPU affinity for core: {}", assigned_core);
         return;
     }
 
     // Try to add hyperthreaded sibling if it exists
     let ht_sibling = assigned_core + physical_cores;
     if ht_sibling < logical_cores {
-        let _ = cpu_set.set(ht_sibling); // Ignore if this fails
+        let _ = cpu_set.set(ht_sibling);
     }
 
-    // Apply the pinning
     let _ = sched_setaffinity(Pid::from_raw(0), &cpu_set);
 }
 
 #[cfg(target_os = "linux")]
 fn pin_even(thread_index: usize) {
+    let physical_cores = num_cpus::get_physical();
     let logical_cores = num_cpus::get();
-    let assigned_core = thread_index % logical_cores;
+
+    // Get strategy variant from environment
+    let even_strategy =
+        std::env::var("CPU_PINNING_EVEN_STRATEGY").unwrap_or_else(|_| "round_robin".to_string());
+
+    println!(
+        "Using even CPU pinning strategy variant: '{}'",
+        even_strategy
+    );
+
+    let assigned_core = match even_strategy.as_str() {
+        "physical_first" => pin_even_physical_first(thread_index, physical_cores, logical_cores),
+        "interleaved" => pin_even_interleaved(thread_index, physical_cores, logical_cores),
+        "numa_even" => pin_even_numa_aware(thread_index, physical_cores, logical_cores),
+        _ => thread_index % logical_cores, // Default round-robin
+    };
 
     let mut cpu_set = CpuSet::new();
     if cpu_set.set(assigned_core).is_ok() {
         let _ = sched_setaffinity(Pid::from_raw(0), &cpu_set);
     }
+}
+
+#[cfg(target_os = "linux")]
+fn pin_even_physical_first(
+    thread_index: usize,
+    physical_cores: usize,
+    logical_cores: usize,
+) -> usize {
+    // Use physical cores first (0-31), then hyperthreaded siblings (32-63)
+    if thread_index < physical_cores {
+        thread_index // Physical cores first
+    } else {
+        physical_cores + (thread_index - physical_cores) // Then logical cores
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn pin_even_interleaved(
+    thread_index: usize,
+    physical_cores: usize,
+    _logical_cores: usize,
+) -> usize {
+    // Interleave: 0,32,1,33,2,34... to spread heat and execution units
+    let physical_core = thread_index / 2;
+    let is_hyperthreaded = thread_index % 2;
+
+    if is_hyperthreaded == 0 {
+        physical_core % physical_cores // Physical core
+    } else {
+        (physical_core % physical_cores) + physical_cores // HT sibling
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn pin_even_numa_aware(thread_index: usize, physical_cores: usize, logical_cores: usize) -> usize {
+    // Even distribution but respect NUMA boundaries
+    let (numa_nodes, _) = detect_numa_topology();
+    let cores_per_numa = logical_cores / numa_nodes;
+
+    let numa_node = (thread_index / cores_per_numa) % numa_nodes;
+    let core_in_numa = thread_index % cores_per_numa;
+    let numa_start = numa_node * cores_per_numa;
+
+    numa_start + core_in_numa
 }
 
 #[cfg(target_os = "linux")]
