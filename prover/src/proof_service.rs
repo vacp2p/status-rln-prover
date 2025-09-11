@@ -71,6 +71,10 @@ pub fn setup_pinned_rayon_pool() {
         .parse::<PinningStrategy>()
         .unwrap_or(PinningStrategy::None);
 
+    println!(
+        "Setting up global Rayon thread pool with {num_threads} threads and '{pinning_strategy:?}' CPU pinning strategy"
+    );
+
     rayon::ThreadPoolBuilder::new()
         .num_threads(num_threads)
         .thread_name(|index| format!("rayon-pinned-{}", index))
@@ -114,14 +118,16 @@ fn pin_numa(thread_index: usize) {
     let assigned_core = numa_start_core + core_in_numa;
 
     if assigned_core >= physical_cores {
-        return; // Invalid core assignment
+        println!("Invalid core assignment: {}", assigned_core);
+        return;
     }
 
     let mut cpu_set = CpuSet::new();
 
     // Always pin to physical core
     if cpu_set.set(assigned_core).is_err() {
-        return; // Can't set physical core
+        println!("Failed to set CPU affinity for core: {}", assigned_core);
+        return;
     }
 
     // Try to add hyperthreaded sibling if it exists
