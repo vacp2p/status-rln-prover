@@ -5,6 +5,11 @@ use ark_bn254::Fr;
 use ark_serialize::CanonicalSerialize;
 use async_channel::Receiver;
 use metrics::{counter, histogram};
+#[cfg(target_os = "linux")]
+use nix::{
+    sched::{CpuSet, sched_setaffinity},
+    unistd::Pid,
+};
 use parking_lot::RwLock;
 use rln::hashers::hash_to_field;
 use rln::protocol::serialize_proof_values;
