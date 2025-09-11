@@ -152,23 +152,28 @@ impl ProofService {
     #[cfg(target_os = "linux")]
     fn pin_numa(service_id: u64, thread_index: usize, threads_per_service: usize) {
         let physical_cores = num_cpus::get_physical();
-        let logical_cores = num_cpus::get();
 
         // Assume 2 NUMA nodes for most 32-core systems
         let numa_nodes = if physical_cores >= 16 { 2 } else { 1 };
         let cores_per_numa = physical_cores / numa_nodes;
 
-        // Assign service to NUMA node (round-robin)
-        let numa_node = (service_id as usize) % numa_nodes;
+        // Calculate how many services can fit per NUMA node
+        let services_per_numa = cores_per_numa / threads_per_service;
+
+        // Assign service to NUMA node based on service groups
+        let numa_node = (service_id as usize / services_per_numa) % numa_nodes;
         let numa_start_core = numa_node * cores_per_numa;
 
-        // Distribute threads within the NUMA node
-        let core_in_numa = thread_index % cores_per_numa;
-        let assigned_core = numa_start_core + core_in_numa;
+        // Position within NUMA node: allocate contiguous cores per service
+        let service_in_numa = (service_id as usize) % services_per_numa;
+        let service_start_core = service_in_numa * threads_per_service;
+        let assigned_core = numa_start_core + service_start_core + thread_index;
 
         let mut cpu_set = CpuSet::new();
         // Pin to both physical and logical core (hyperthreading)
-        if cpu_set.set(assigned_core).is_ok() && cpu_set.set(assigned_core + physical_cores).is_ok()
+        if assigned_core < physical_cores
+            && cpu_set.set(assigned_core).is_ok()
+            && cpu_set.set(assigned_core + physical_cores).is_ok()
         {
             let _ = sched_setaffinity(Pid::from_raw(0), &cpu_set);
         }
