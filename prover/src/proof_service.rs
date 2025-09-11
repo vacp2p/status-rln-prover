@@ -34,8 +34,9 @@ use rln_proof::{RlnData, compute_rln_proof_and_values};
 
 const PROOF_SIZE: usize = 512;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PinningStrategy {
+    #[default]
     None,
     Numa,
     Even,
@@ -56,12 +57,6 @@ impl FromStr for PinningStrategy {
                 s
             )),
         }
-    }
-}
-
-impl Default for PinningStrategy {
-    fn default() -> Self {
-        PinningStrategy::None
     }
 }
 
