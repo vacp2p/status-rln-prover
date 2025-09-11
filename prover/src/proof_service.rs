@@ -65,8 +65,8 @@ impl ProofService {
             rayon::ThreadPoolBuilder::new()
                 .num_threads(threads_per_service)
                 .thread_name(move |i| format!("proof-service-{}-thread-{}", id, i))
-                .start_handler(move |thread_index| {
-                    Self::pin_thread_to_core(service_id, thread_index, threads_per_service);
+                .start_handler(move |_| {
+                    Self::pin_thread_to_core(service_id);
                 })
                 .build()
                 .expect("Failed to build proof service thread pool"),
@@ -83,22 +83,21 @@ impl ProofService {
         }
     }
 
-    fn pin_thread_to_core(service_id: u64, thread_index: usize, threads_per_service: usize) {
+    fn pin_thread_to_core(service_id: u64) {
         #[cfg(target_os = "linux")]
         {
-            let available_cores = num_cpus::get_physical();
-            let base_core = 1 + (service_id as usize * threads_per_service);
-            let core_id = (base_core + thread_index) % available_cores;
+            let physical_cores = num_cpus::get_physical();
+            let assigned_core = (service_id as usize) % physical_cores;
 
             let mut cpu_set = CpuSet::new();
-            if cpu_set.set(core_id).is_ok() {
+            if cpu_set.set(assigned_core).is_ok() {
                 let _ = sched_setaffinity(Pid::from_raw(0), &cpu_set);
             }
         }
 
         #[cfg(not(target_os = "linux"))]
         {
-            let _ = (service_id, thread_index, threads_per_service);
+            let _ = service_id;
         }
     }
 
