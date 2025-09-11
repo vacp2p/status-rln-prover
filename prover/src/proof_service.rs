@@ -26,6 +26,42 @@ use rln_proof::{RlnData, compute_rln_proof_and_values};
 
 const PROOF_SIZE: usize = 512;
 
+/// Setup pinned global Rayon thread pool - call this before creating any ProofService
+pub fn setup_pinned_rayon_pool() {
+    let default_threads = num_cpus::get();
+    let num_threads = std::env::var("RAYON_NUM_THREADS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(default_threads);
+
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .thread_name(|index| format!("rayon-pinned-{}", index))
+        .start_handler(|thread_index| {
+            pin_rayon_thread_to_core(thread_index);
+        })
+        .build_global()
+        .expect("Failed to build global rayon thread pool");
+}
+
+fn pin_rayon_thread_to_core(thread_index: usize) {
+    #[cfg(target_os = "linux")]
+    {
+        let physical_cores = num_cpus::get_physical();
+        let assigned_core = thread_index % physical_cores;
+
+        let mut cpu_set = CpuSet::new();
+        if cpu_set.set(assigned_core).is_ok() {
+            let _ = sched_setaffinity(Pid::from_raw(0), &cpu_set);
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = thread_index;
+    }
+}
+
 /// A service to generate a RLN proof (and then to broadcast it)
 pub struct ProofService {
     receiver: Receiver<ProofGenerationData>,

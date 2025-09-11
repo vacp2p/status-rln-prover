@@ -45,6 +45,7 @@ metrics = "0.24"
 metrics-exporter-prometheus = "0.17"
 metrics-util = "0.20"
 rayon = "1.7"
+num_cpus = "1.17.0"
 
 [build-dependencies]
 tonic-prost-build.workspace = true

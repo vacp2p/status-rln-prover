@@ -205,6 +205,7 @@ pub async fn run_prover(
         service
     };
 
+    proof_service::setup_pinned_rayon_pool();
     let mut set = JoinSet::new();
     for i in 0..app_args.proof_service_count {
         let proof_recv = proof_receiver.clone();
