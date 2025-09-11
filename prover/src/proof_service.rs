@@ -1,4 +1,6 @@
+use std::env;
 use std::io::{Cursor, Write};
+use std::str::FromStr;
 use std::sync::Arc;
 // third-party
 use ark_bn254::Fr;
@@ -31,6 +33,31 @@ use rln_proof::{RlnData, compute_rln_proof_and_values};
 
 const PROOF_SIZE: usize = 512;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PinningStrategy {
+    None,
+    Numa,
+    Even,
+    Physical,
+}
+
+impl FromStr for PinningStrategy {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "none" => Ok(PinningStrategy::None),
+            "numa" => Ok(PinningStrategy::Numa),
+            "even" => Ok(PinningStrategy::Even),
+            "physical" => Ok(PinningStrategy::Physical),
+            _ => Err(format!(
+                "Unknown pinning strategy: '{}'. Valid options: none, numa, even, physical",
+                s
+            )),
+        }
+    }
+}
+
 /// Setup pinned global Rayon thread pool - call this before creating any ProofService
 pub fn setup_pinned_rayon_pool() {
     let default_threads = num_cpus::get();
@@ -39,31 +66,93 @@ pub fn setup_pinned_rayon_pool() {
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(default_threads);
 
+    let pinning_strategy = env::var("CPU_PINNING_STRATEGY")
+        .unwrap_or_else(|_| "none".to_string())
+        .parse::<PinningStrategy>()
+        .unwrap_or(PinningStrategy::None);
+
     rayon::ThreadPoolBuilder::new()
         .num_threads(num_threads)
         .thread_name(|index| format!("rayon-pinned-{}", index))
-        .start_handler(|thread_index| {
-            pin_rayon_thread_to_core(thread_index);
+        .start_handler(move |thread_index| {
+            apply_cpu_pinning(thread_index, pinning_strategy);
         })
         .build_global()
         .expect("Failed to build global rayon thread pool");
 }
 
-fn pin_rayon_thread_to_core(thread_index: usize) {
+fn apply_cpu_pinning(thread_index: usize, strategy: PinningStrategy) {
     #[cfg(target_os = "linux")]
     {
-        let physical_cores = num_cpus::get_physical();
-        let assigned_core = thread_index % physical_cores;
-
-        let mut cpu_set = CpuSet::new();
-        if cpu_set.set(assigned_core).is_ok() {
-            let _ = sched_setaffinity(Pid::from_raw(0), &cpu_set);
+        match strategy {
+            PinningStrategy::None => {}
+            PinningStrategy::Numa => pin_numa(thread_index),
+            PinningStrategy::Even => pin_even(thread_index),
+            PinningStrategy::Physical => pin_physical(thread_index),
         }
     }
 
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = thread_index;
+        let _ = (thread_index, strategy);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn pin_numa(thread_index: usize) {
+    let physical_cores = num_cpus::get_physical();
+    let logical_cores = num_cpus::get();
+
+    // Assume 2 NUMA nodes for most 32-core systems
+    let numa_nodes = if physical_cores >= 16 { 2 } else { 1 };
+    let cores_per_numa = physical_cores / numa_nodes;
+
+    // Distribute threads across NUMA nodes
+    let numa_node = (thread_index / cores_per_numa) % numa_nodes;
+    let numa_start_core = numa_node * cores_per_numa;
+    let core_in_numa = thread_index % cores_per_numa;
+    let assigned_core = numa_start_core + core_in_numa;
+
+    if assigned_core >= physical_cores {
+        return; // Invalid core assignment
+    }
+
+    let mut cpu_set = CpuSet::new();
+
+    // Always pin to physical core
+    if cpu_set.set(assigned_core).is_err() {
+        return; // Can't set physical core
+    }
+
+    // Try to add hyperthreaded sibling if it exists
+    let ht_sibling = assigned_core + physical_cores;
+    if ht_sibling < logical_cores {
+        let _ = cpu_set.set(ht_sibling); // Ignore if this fails
+    }
+
+    // Apply the pinning
+    let _ = sched_setaffinity(Pid::from_raw(0), &cpu_set);
+}
+
+#[cfg(target_os = "linux")]
+fn pin_even(thread_index: usize) {
+    let logical_cores = num_cpus::get();
+    let assigned_core = thread_index % logical_cores;
+
+    let mut cpu_set = CpuSet::new();
+    if cpu_set.set(assigned_core).is_ok() {
+        let _ = sched_setaffinity(Pid::from_raw(0), &cpu_set);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn pin_physical(thread_index: usize) {
+    let physical_cores = num_cpus::get_physical();
+    let assigned_core = thread_index % physical_cores;
+
+    let mut cpu_set = CpuSet::new();
+    if cpu_set.set(assigned_core).is_ok() {
+        let _ = sched_setaffinity(Pid::from_raw(0), &cpu_set);
     }
 }
 
@@ -127,7 +216,6 @@ impl ProofService {
             //       see https://ryhl.io/blog/async-what-is-blocking/
 
             rayon::spawn(move || {
-
                 let proof_generation_start = std::time::Instant::now();
 
                 let message_id = {
