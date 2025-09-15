@@ -96,13 +96,11 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             },
             |(proof, proof_values)| {
                 let mut output_buffer = Cursor::new(Vec::with_capacity(320));
-                proof.serialize_compressed(black_box(&mut output_buffer)).unwrap();
+                proof
+                    .serialize_compressed(black_box(&mut output_buffer))
+                    .unwrap();
                 output_buffer
-                    .write_all(
-                        black_box(&serialize_proof_values(
-                            black_box(&proof_values)
-                        ))
-                    )
+                    .write_all(black_box(&serialize_proof_values(black_box(&proof_values))))
                     .unwrap();
             },
             criterion::BatchSize::SmallInput,
