@@ -19,7 +19,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let user_limit = 100;
     let rln_identity = RlnUserIdentity {
         commitment: id_commitment,
-        secret_hash: *identity_secret_hash,
+        secret_hash: identity_secret_hash,
         user_limit: Fr::from(user_limit),
     };
     let rln_identifier = RlnIdentifier::new(b"test-test");
