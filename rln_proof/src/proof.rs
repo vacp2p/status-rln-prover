@@ -4,6 +4,7 @@
 use ark_bn254::{Bn254, Fr};
 use ark_groth16::{Proof, ProvingKey};
 use ark_relations::r1cs::ConstraintMatrices;
+use rln::utils::IdSecret;
 use rln::{
     circuit::{ARKZKEY_BYTES, read_arkzkey_from_bytes_uncompressed as read_zkey},
     error::ProofError,
@@ -13,19 +14,18 @@ use rln::{
         RLNProofValues, generate_proof, proof_values_from_witness, rln_witness_from_values,
     },
 };
-use rln::utils::IdSecret;
 use zerokit_utils::ZerokitMerkleProof;
 
 /// A RLN user identity & limit
 #[derive(Debug, Clone, PartialEq)]
 pub struct RlnUserIdentity {
     pub commitment: Fr,
-    pub secret_hash: Fr,
+    pub secret_hash: IdSecret,
     pub user_limit: Fr,
 }
 
-impl From<(Fr, Fr, Fr)> for RlnUserIdentity {
-    fn from((commitment, secret_hash, user_limit): (Fr, Fr, Fr)) -> Self {
+impl From<(Fr, IdSecret, Fr)> for RlnUserIdentity {
+    fn from((commitment, secret_hash, user_limit): (Fr, IdSecret, Fr)) -> Self {
         Self {
             commitment,
             secret_hash,
@@ -76,13 +76,13 @@ pub fn compute_rln_proof_and_values(
 ) -> Result<(Proof<Bn254>, RLNProofValues), ProofError> {
     let external_nullifier = poseidon_hash(&[rln_identifier.identifier, epoch]);
 
-    let path_elements = merkle_proof.get_path_elements(); // .get_path_elements();
+    let path_elements = merkle_proof.get_path_elements();
     let identity_path_index = merkle_proof.get_path_index();
 
-    let mut id_s = user_identity.secret_hash.clone();
+    // let mut id_s = user_identity.secret_hash;
 
     let witness = rln_witness_from_values(
-        IdSecret::from(&mut id_s),
+        user_identity.secret_hash.clone(),
         path_elements,
         identity_path_index,
         rln_data.data,
@@ -109,7 +109,8 @@ mod tests {
 
     #[test]
     fn test_recover_secret_hash() {
-        let (user_co, user_sh) = keygen();
+        let (user_co, mut user_sh_) = keygen();
+        let user_sh = IdSecret::from(&mut user_sh_);
         let epoch = hash_to_field_le(b"foo");
         let spam_limit = Fr::from(10);
 
@@ -125,7 +126,7 @@ mod tests {
         let (_proof_0, proof_values_0) = compute_rln_proof_and_values(
             &RlnUserIdentity {
                 commitment: *user_co,
-                secret_hash: user_sh,
+                secret_hash: user_sh.clone(),
                 user_limit: spam_limit,
             },
             &rln_identifier,
@@ -141,7 +142,7 @@ mod tests {
         let (_proof_1, proof_values_1) = compute_rln_proof_and_values(
             &RlnUserIdentity {
                 commitment: *user_co,
-                secret_hash: user_sh,
+                secret_hash: user_sh.clone(),
                 user_limit: spam_limit,
             },
             &rln_identifier,
@@ -157,6 +158,6 @@ mod tests {
         let share1 = (proof_values_0.x, proof_values_0.y);
         let share2 = (proof_values_1.x, proof_values_1.y);
         let recovered_identity_secret_hash = compute_id_secret(share1, share2).unwrap();
-        assert_eq!(user_sh, *recovered_identity_secret_hash);
+        assert_eq!(user_sh, recovered_identity_secret_hash);
     }
 }

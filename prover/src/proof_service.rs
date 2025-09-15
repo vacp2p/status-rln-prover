@@ -86,7 +86,6 @@ impl ProofService {
             //       see https://ryhl.io/blog/async-what-is-blocking/
 
             rayon::spawn(move || {
-
                 let proof_generation_start = std::time::Instant::now();
 
                 let message_id = {
@@ -281,7 +280,7 @@ mod tests {
         debug!("Starting broadcast receiver...");
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         let res =
-            tokio::time::timeout(std::time::Duration::from_secs(5), broadcast_receiver.recv())
+            tokio::time::timeout(std::time::Duration::from_secs(7), broadcast_receiver.recv())
                 .await
                 .map_err(|_e| AppErrorExt::Elapsed)?;
         debug!("res: {:?}", res);

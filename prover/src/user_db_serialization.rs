@@ -12,6 +12,7 @@ use nom::{
     multi::length_count,
     number::complete::{le_u32, le_u64},
 };
+use rln::utils::IdSecret;
 use rln_proof::RlnUserIdentity;
 // internal
 use crate::tier::TierLimits;
@@ -49,8 +50,8 @@ impl RlnUserIdentityDeserializer {
         let (co_buffer, rem_buffer) = buffer.split_at(compressed_size);
         let commitment: Fr = CanonicalDeserialize::deserialize_compressed(co_buffer)?;
         let (secret_buffer, user_limit_buffer) = rem_buffer.split_at(compressed_size);
-        // TODO: IdSecret (wait for Zerokit PR: https://github.com/vacp2p/zerokit/pull/320)
-        let secret_hash: Fr = CanonicalDeserialize::deserialize_compressed(secret_buffer)?;
+        let mut secret_hash_: Fr = CanonicalDeserialize::deserialize_compressed(secret_buffer)?;
+        let secret_hash = IdSecret::from(&mut secret_hash_);
         let user_limit: Fr = CanonicalDeserialize::deserialize_compressed(user_limit_buffer)?;
 
         Ok({
@@ -226,7 +227,7 @@ mod tests {
     fn test_rln_ser_der() {
         let rln_user_identity = RlnUserIdentity {
             commitment: Fr::from(42),
-            secret_hash: Fr::from(u16::MAX),
+            secret_hash: IdSecret::from(&mut Fr::from(u16::MAX)),
             user_limit: Fr::from(1_000_000),
         };
         let serializer = RlnUserIdentitySerializer {};
