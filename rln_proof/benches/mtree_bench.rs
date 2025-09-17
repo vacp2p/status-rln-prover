@@ -1,18 +1,15 @@
 use std::hint::black_box;
 // std
-use std::str::FromStr;
-use std::path::PathBuf;
 use ark_bn254::Fr;
+use std::path::PathBuf;
+use std::str::FromStr;
 // third-party
+use ark_std::{UniformRand, rand::thread_rng};
+use rln::{pm_tree_adapter::PmtreeConfig, poseidon_tree::PoseidonTree};
 use serde::{Deserialize, Serialize};
-use rln::{
-    pm_tree_adapter::PmtreeConfig,
-    poseidon_tree::PoseidonTree
-};
 use zerokit_utils::ZerokitMerkleTree;
-use ark_std::{rand::thread_rng, UniformRand};
 // Criterion
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 #[derive(Serialize, Deserialize)]
 struct PmTreeConfigJson {
@@ -95,33 +92,15 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("PmTree set");
 
     for i in [0, 1000, 10_000, 100_000, 500_000, 750_000, 1_000_000].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("PmTree d20 set", i),
-            i,
-            |b, i| {
-                b.iter(|| {
-                    let _ = tree_d20.set(black_box(*i), black_box(rate_commit)).unwrap();
-                })
-            }
-        );
-        group.bench_with_input(
-            BenchmarkId::new("PmTree d21 set", i),
-            i,
-            |b, i| {
-                b.iter(|| {
-                    let _ = tree_d21.set(black_box(*i), black_box(rate_commit)).unwrap();
-                })
-            }
-        );
-        group.bench_with_input(
-            BenchmarkId::new("PmTree d22 set", i),
-            i,
-            |b, i| {
-                b.iter(|| {
-                    let _ = tree_d22.set(black_box(*i), black_box(rate_commit)).unwrap();
-                })
-            }
-        );
+        group.bench_with_input(BenchmarkId::new("PmTree d20 set", i), i, |b, i| {
+            b.iter(|| tree_d20.set(black_box(*i), black_box(rate_commit)).unwrap())
+        });
+        group.bench_with_input(BenchmarkId::new("PmTree d21 set", i), i, |b, i| {
+            b.iter(|| tree_d21.set(black_box(*i), black_box(rate_commit)).unwrap())
+        });
+        group.bench_with_input(BenchmarkId::new("PmTree d22 set", i), i, |b, i| {
+            b.iter(|| tree_d22.set(black_box(*i), black_box(rate_commit)).unwrap())
+        });
     }
 
     group.finish();
@@ -129,36 +108,30 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("PmTree merkle proof");
 
     for i in [0, 1000, 10_000, 100_000, 500_000, 750_000, 1_000_000].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("PmTree d20 proof", i),
-            i,
-            |b, i| {
-                b.iter(|| {
-                    let _ = tree_d20_b2.set(black_box(*i), black_box(rate_commit)).unwrap();
-                    let _proof = tree_d20_b2.proof(black_box(*i)).unwrap();
-                })
-            }
-        );
-        group.bench_with_input(
-            BenchmarkId::new("PmTree d21 proof", i),
-            i,
-            |b, i| {
-                b.iter(|| {
-                    let _ = tree_d21_b2.set(black_box(*i), black_box(rate_commit)).unwrap();
-                    let _proof = tree_d21_b2.proof(black_box(*i)).unwrap();
-                })
-            }
-        );
-        group.bench_with_input(
-            BenchmarkId::new("PmTree d22 proof", i),
-            i,
-            |b, i| {
-                b.iter(|| {
-                    let _ = tree_d22_b2.set(black_box(*i), black_box(rate_commit)).unwrap();
-                    let _proof = tree_d22_b2.proof(black_box(*i)).unwrap();
-                })
-            }
-        );
+        group.bench_with_input(BenchmarkId::new("PmTree d20 proof", i), i, |b, i| {
+            b.iter(|| {
+                tree_d20_b2
+                    .set(black_box(*i), black_box(rate_commit))
+                    .unwrap();
+                let _proof = tree_d20_b2.proof(black_box(*i)).unwrap();
+            })
+        });
+        group.bench_with_input(BenchmarkId::new("PmTree d21 proof", i), i, |b, i| {
+            b.iter(|| {
+                tree_d21_b2
+                    .set(black_box(*i), black_box(rate_commit))
+                    .unwrap();
+                let _proof = tree_d21_b2.proof(black_box(*i)).unwrap();
+            })
+        });
+        group.bench_with_input(BenchmarkId::new("PmTree d22 proof", i), i, |b, i| {
+            b.iter(|| {
+                tree_d22_b2
+                    .set(black_box(*i), black_box(rate_commit))
+                    .unwrap();
+                let _proof = tree_d22_b2.proof(black_box(*i)).unwrap();
+            })
+        });
     }
 
     group.finish();
