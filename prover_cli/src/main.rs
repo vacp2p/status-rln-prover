@@ -17,13 +17,6 @@ use opentelemetry_sdk::Resource;
 // internal
 use prover::{AppArgs, AppArgsConfig, metrics::init_metrics, run_prover};
 
-#[cfg(not(target_env = "msvc"))]
-use tikv_jemallocator::Jemalloc;
-
-#[cfg(not(target_env = "msvc"))]
-#[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
-
 const APP_NAME: &str = "prover-cli";
 
 #[tokio::main]
