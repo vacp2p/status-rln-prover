@@ -37,6 +37,7 @@ use zeroize::Zeroizing;
 // internal
 pub use crate::args::{AppArgs, AppArgsConfig};
 use crate::epoch_service::EpochService;
+use crate::error::AppError;
 use crate::grpc_service::GrpcProverService;
 pub use crate::mock::MockUser;
 use crate::mock::read_mock_user;
@@ -50,7 +51,6 @@ use crate::user_db_types::RateLimit;
 use rln_proof::RlnIdentifier;
 use smart_contract::KarmaTiers::KarmaTiersInstance;
 use smart_contract::{KarmaTiersError, TIER_LIMITS};
-use crate::error::AppError;
 
 const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
 const PROVER_SPAM_LIMIT: RateLimit = RateLimit::new(10_000u64);
@@ -58,9 +58,7 @@ const GENESIS: DateTime<Utc> = DateTime::from_timestamp(1431648000, 0).unwrap();
 const PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION: U256 =
     U256::from_le_slice(10u64.to_le_bytes().as_slice());
 
-pub async fn run_prover(
-    app_args: AppArgs,
-) -> Result<(), AppError> {
+pub async fn run_prover(app_args: AppArgs) -> Result<(), AppError> {
     // Epoch
     let epoch_service = EpochService::try_from((Duration::from_secs(60 * 2), GENESIS))
         .expect("Failed to create epoch service");
@@ -68,9 +66,7 @@ pub async fn run_prover(
     // Alloy provider (Smart contract provider)
     let provider = if app_args.ws_rpc_url.is_some() {
         let ws = WsConnect::new(app_args.ws_rpc_url.clone().unwrap().as_str());
-        let provider = ProviderBuilder::new()
-            .connect_ws(ws)
-            .await?;
+        let provider = ProviderBuilder::new().connect_ws(ws).await?;
         Some(provider)
     } else {
         None
@@ -244,12 +240,10 @@ pub async fn run_prover(
     let res = set.join_all().await;
     // Print all errors from services (if any)
     // We expect that the Prover should never stop unexpectedly, but printing error can help to debug
-    res
-        .iter()
-        .for_each(|r| {
-            if r.is_err() {
-                info!("Error: {:?}", r);
-            }
-        });
+    res.iter().for_each(|r| {
+        if r.is_err() {
+            info!("Error: {:?}", r);
+        }
+    });
     Ok(())
 }

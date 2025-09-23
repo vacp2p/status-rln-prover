@@ -11,10 +11,10 @@ use tracing::{
 };
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
+use anyhow::{Context, Result, anyhow};
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::WithTonicConfig;
 use opentelemetry_sdk::Resource;
-use anyhow::{Result, anyhow, Context};
 // internal
 use prover::{AppArgs, AppArgsConfig, metrics::init_metrics, run_prover};
 
@@ -60,8 +60,7 @@ async fn main() -> Result<()> {
         let config_path = app_args.get_one::<PathBuf>("config_path").unwrap();
         debug!("Reading config path: {:?}...", config_path);
         let config_str = std::fs::read_to_string(config_path)
-            .context(format!("Failed to read config file: {:?}", config_path))
-            ?;
+            .context(format!("Failed to read config file: {:?}", config_path))?;
         let config: AppArgsConfig = toml::from_str(config_str.as_str())?;
         debug!("Config: {:?}", config);
         config
@@ -82,14 +81,14 @@ async fn main() -> Result<()> {
             return Err(anyhow!("Please provide smart contract addresses"));
         }
     } else if app_args.mock_sc.is_none() {
-        return Err(anyhow!("Please provide rpc url (--ws-rpc-url) or mock (--mock-sc)"));
+        return Err(anyhow!(
+            "Please provide rpc url (--ws-rpc-url) or mock (--mock-sc)"
+        ));
     }
 
     init_metrics(app_args.metrics_ip, &app_args.metrics_port);
 
-    run_prover(app_args)
-        .await
-        .map_err(|e| anyhow::Error::new(e))
+    run_prover(app_args).await.map_err(anyhow::Error::new)
 }
 
 fn create_otlp_tracer_provider() -> Option<opentelemetry_sdk::trace::SdkTracerProvider> {

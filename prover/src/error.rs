@@ -6,7 +6,9 @@ use smart_contract::{KarmaScError, KarmaTiersError, RlnScError};
 // internal
 use crate::epoch_service::WaitUntilError;
 use crate::tier::ValidateTierLimitsError;
-use crate::user_db_error::{RegisterError, TxCounterError, UserDbOpenError, UserMerkleTreeIndexError};
+use crate::user_db_error::{
+    RegisterError, TxCounterError, UserDbOpenError, UserMerkleTreeIndexError,
+};
 
 #[derive(thiserror::Error, Debug)]
 pub enum AppError {
