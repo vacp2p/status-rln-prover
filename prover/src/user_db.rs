@@ -63,6 +63,14 @@ pub(crate) struct UserDb {
     merkle_tree: Arc<RwLock<PoseidonTree>>,
     rate_limit: RateLimit,
     pub(crate) epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
+    rln_identity_serializer: RlnUserIdentitySerializer,
+    rln_identity_deserializer: RlnUserIdentityDeserializer,
+    merkle_index_serializer: MerkleTreeIndexSerializer,
+    merkle_index_deserializer: MerkleTreeIndexDeserializer,
+    epoch_increase_serializer: EpochIncrSerializer,
+    epoch_counter_deserializer: EpochCounterDeserializer,
+    tier_limits_serializer: TierLimitsSerializer,
+    tier_limits_deserializer: TierLimitsDeserializer,
 }
 
 impl std::fmt::Debug for UserDb {
@@ -84,6 +92,7 @@ impl UserDb {
         tier_limits: TierLimits,
         rate_limit: RateLimit,
     ) -> Result<Self, UserDbOpenError> {
+
         let db_options = {
             let mut db_opts = Options::default();
             db_opts.set_max_open_files(820);
@@ -129,7 +138,8 @@ impl UserDb {
         // merkle tree index
 
         let cf_mtree = db.cf_handle(MERKLE_TREE_COUNTER_CF).unwrap();
-        if let Err(e) = Self::get_merkle_tree_index_(db.clone(), cf_mtree) {
+        let merkle_index_deserializer = MerkleTreeIndexDeserializer {};
+        if let Err(e) = Self::get_merkle_tree_index_(db.clone(), cf_mtree, &merkle_index_deserializer) {
             match e {
                 MerkleTreeIndexError::DbUninitialized => {
                     // Check if the value is already there (e.g. after a restart)
@@ -151,11 +161,23 @@ impl UserDb {
             .build()?;
         let tree = PoseidonTree::new(MERKLE_TREE_HEIGHT, Default::default(), tree_config)?;
 
+
+        let tier_limits_deserializer = TierLimitsDeserializer {
+            tier_deserializer: TierDeserializer {},
+        };
         Ok(Self {
             db,
             merkle_tree: Arc::new(RwLock::new(tree)),
             rate_limit,
             epoch_store,
+            rln_identity_serializer: RlnUserIdentitySerializer {},
+            rln_identity_deserializer: RlnUserIdentityDeserializer {},
+            merkle_index_serializer: MerkleTreeIndexSerializer {},
+            merkle_index_deserializer,
+            epoch_increase_serializer: EpochIncrSerializer {},
+            epoch_counter_deserializer: EpochCounterDeserializer {},
+            tier_limits_serializer,
+            tier_limits_deserializer
         })
     }
 
@@ -180,10 +202,6 @@ impl UserDb {
     }
 
     pub(crate) fn register(&self, address: Address) -> Result<Fr, RegisterError> {
-        let rln_identity_serializer = RlnUserIdentitySerializer {};
-        let merkle_index_serializer = MerkleTreeIndexSerializer {};
-        let merkle_index_deserializer = MerkleTreeIndexDeserializer {};
-
         let (identity_secret_hash, id_commitment) = keygen();
 
         let rln_identity = RlnUserIdentity::from((
@@ -194,10 +212,10 @@ impl UserDb {
 
         let key = address.as_slice();
         let mut buffer =
-            vec![0; rln_identity_serializer.size_hint() + merkle_index_serializer.size_hint()];
+            vec![0; self.rln_identity_serializer.size_hint() + self.merkle_index_serializer.size_hint()];
 
         // unwrap safe - this is serialized by the Prover + RlnUserIdentitySerializer is unit tested
-        rln_identity_serializer
+        self.rln_identity_serializer
             .serialize(&rln_identity, &mut buffer)
             .unwrap();
 
@@ -238,7 +256,7 @@ impl UserDb {
                 // Increase merkle tree index
                 db_batch.merge_cf(cf_mtree, MERKLE_TREE_INDEX_KEY, 1i64.to_le_bytes());
                 // Unwrap safe - serialization is handled by the prover
-                let (_, new_index) = merkle_index_deserializer
+                let (_, new_index) = self.merkle_index_deserializer
                     .deserialize(batch_read.as_slice())
                     .unwrap();
 
@@ -250,7 +268,7 @@ impl UserDb {
                     .map_err(|e| RegisterError::TreeError(e.to_string()))?;
 
                 // Add index for user
-                merkle_index_serializer.serialize(&new_index, &mut buffer);
+                self.merkle_index_serializer.serialize(&new_index, &mut buffer);
                 // Put user
                 db_batch.put_cf(cf_user, key, buffer.as_slice());
                 // Put user tx counter
@@ -280,11 +298,10 @@ impl UserDb {
 
     pub fn get_user(&self, address: &Address) -> Option<RlnUserIdentity> {
         let cf_user = self.get_user_cf();
-        let rln_identity_deserializer = RlnUserIdentityDeserializer {};
         match self.db.get_pinned_cf(cf_user, address.as_slice()) {
             Ok(Some(value)) => {
                 // Here we silence the error - this is safe as the prover controls this
-                rln_identity_deserializer.deserialize(&value).ok()
+                self.rln_identity_deserializer.deserialize(&value).ok()
             }
             Ok(None) => None,
             Err(_e) => None,
@@ -295,14 +312,13 @@ impl UserDb {
         &self,
         address: &Address,
     ) -> Result<MerkleTreeIndex, UserMerkleTreeIndexError> {
+        
         let cf_user = self.get_user_cf();
-        let rln_identity_serializer = RlnUserIdentitySerializer {};
-        let merkle_tree_index_deserializer = MerkleTreeIndexDeserializer {};
         match self.db.get_pinned_cf(cf_user, address.as_slice()) {
             Ok(Some(buffer)) => {
                 // Here we silence the error - this is safe as the prover controls this
-                let start = rln_identity_serializer.size_hint();
-                let (_, index) = merkle_tree_index_deserializer
+                let start = self.rln_identity_serializer.size_hint();
+                let (_, index) = self.merkle_index_deserializer
                     .deserialize(&buffer[start..])
                     .unwrap();
                 Ok(index)
@@ -367,9 +383,8 @@ impl UserDb {
             epoch_slice,
             incr_value,
         };
-        let incr_ser = EpochIncrSerializer {};
-        let mut buffer = Vec::with_capacity(incr_ser.size_hint());
-        incr_ser.serialize(&incr, &mut buffer);
+        let mut buffer = Vec::with_capacity(self.epoch_increase_serializer.size_hint());
+        self.epoch_increase_serializer.serialize(&incr, &mut buffer);
 
         // Create a transaction
         // By using a WriteBatchWithIndex, we can "read your own writes" so here we incr then read the new value
@@ -404,11 +419,10 @@ impl UserDb {
         address: &Address,
         key: Option<Vec<u8>>,
     ) -> Result<(EpochCounter, EpochSliceCounter), TxCounterError> {
-        let deserializer = EpochCounterDeserializer {};
 
         match key {
             Some(value) => {
-                let (_, counter) = deserializer.deserialize(&value).unwrap();
+                let (_, counter) = self.epoch_counter_deserializer.deserialize(&value).unwrap();
                 let (epoch, epoch_slice) = *self.epoch_store.read();
 
                 let cmp = (counter.epoch == epoch, counter.epoch_slice == epoch_slice);
@@ -459,19 +473,20 @@ impl UserDb {
     #[cfg(test)]
     pub(crate) fn get_merkle_tree_index(&self) -> Result<MerkleTreeIndex, MerkleTreeIndexError> {
         let cf_mtree = self.get_mtree_cf();
-        Self::get_merkle_tree_index_(self.db.clone(), cf_mtree)
+        Self::get_merkle_tree_index_(self.db.clone(), cf_mtree, &self.merkle_index_deserializer)
     }
 
     fn get_merkle_tree_index_(
         db: Arc<DB>,
         cf: &ColumnFamily,
+        merkle_tree_index_deserializer: &MerkleTreeIndexDeserializer,
     ) -> Result<MerkleTreeIndex, MerkleTreeIndexError> {
-        let deserializer = MerkleTreeIndexDeserializer {};
-
+        
         match db.get_cf(cf, MERKLE_TREE_INDEX_KEY) {
             Ok(Some(v)) => {
                 // Unwrap safe - serialization is done by the prover
-                let (_, index) = deserializer.deserialize(v.as_slice()).unwrap();
+                let (_, index) = merkle_tree_index_deserializer
+                    .deserialize(v.as_slice()).unwrap();
                 Ok(index)
             }
             Ok(None) => Err(MerkleTreeIndexError::DbUninitialized),
@@ -510,12 +525,8 @@ impl UserDb {
         let cf = self.get_tier_limits_cf();
         // Unwrap safe - Db is initialized with valid tier limits
         let buffer = self.db.get_cf(cf, TIER_LIMITS_KEY.as_slice())?.unwrap();
-        let tier_limits_deserializer = TierLimitsDeserializer {
-            tier_deserializer: TierDeserializer {},
-        };
-
         // Unwrap safe - serialized by the prover (should always deserialize)
-        let (_, tier_limits) = tier_limits_deserializer.deserialize(&buffer).unwrap();
+        let (_, tier_limits) = self.tier_limits_deserializer.deserialize(&buffer).unwrap();
         Ok(tier_limits)
     }
 
@@ -526,10 +537,9 @@ impl UserDb {
         tier_limits.validate()?;
 
         // Serialize
-        let tier_limits_serializer = TierLimitsSerializer::default();
-        let mut buffer = Vec::with_capacity(tier_limits_serializer.size_hint(tier_limits.len()));
+        let mut buffer = Vec::with_capacity(self.tier_limits_serializer.size_hint(tier_limits.len()));
         // Unwrap safe - already validated - should always serialize
-        tier_limits_serializer
+        self.tier_limits_serializer
             .serialize(&tier_limits, &mut buffer)
             .unwrap();
 
