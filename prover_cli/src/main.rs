@@ -14,13 +14,14 @@ use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitEx
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::WithTonicConfig;
 use opentelemetry_sdk::Resource;
+use anyhow::{Result, anyhow, Context};
 // internal
 use prover::{AppArgs, AppArgsConfig, metrics::init_metrics, run_prover};
 
 const APP_NAME: &str = "prover-cli";
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+async fn main() -> Result<()> {
     // install crypto provider for rustls - required for WebSocket TLS connections
     rustls::crypto::CryptoProvider::install_default(aws_lc_rs::default_provider())
         .expect("Failed to install default CryptoProvider");
@@ -58,7 +59,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>
         // Unwrap safe - default value provided
         let config_path = app_args.get_one::<PathBuf>("config_path").unwrap();
         debug!("Reading config path: {:?}...", config_path);
-        let config_str = std::fs::read_to_string(config_path)?;
+        let config_str = std::fs::read_to_string(config_path)
+            .context(format!("Failed to read config file: {:?}", config_path))
+            ?;
         let config: AppArgsConfig = toml::from_str(config_str.as_str())?;
         debug!("Config: {:?}", config);
         config
@@ -76,15 +79,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>
             || app_args.ksc_address.is_none()
             || app_args.tsc_address.is_none()
         {
-            return Err("Please provide smart contract addresses".into());
+            return Err(anyhow!("Please provide smart contract addresses"));
         }
     } else if app_args.mock_sc.is_none() {
-        return Err("Please provide rpc url (--ws-rpc-url) or mock (--mock-sc)".into());
+        return Err(anyhow!("Please provide rpc url (--ws-rpc-url) or mock (--mock-sc)"));
     }
 
     init_metrics(app_args.metrics_ip, &app_args.metrics_port);
 
-    run_prover(app_args).await
+    run_prover(app_args)
+        .await
+        .map_err(|e| anyhow::Error::new(e))
 }
 
 fn create_otlp_tracer_provider() -> Option<opentelemetry_sdk::trace::SdkTracerProvider> {

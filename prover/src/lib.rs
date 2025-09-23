@@ -32,11 +32,7 @@ use alloy::providers::{ProviderBuilder, WsConnect};
 use alloy::signers::local::PrivateKeySigner;
 use chrono::{DateTime, Utc};
 use tokio::task::JoinSet;
-use tracing::{
-    debug,
-    // error,
-    // info
-};
+use tracing::{debug, info};
 use zeroize::Zeroizing;
 // internal
 pub use crate::args::{AppArgs, AppArgsConfig};
@@ -54,6 +50,7 @@ use crate::user_db_types::RateLimit;
 use rln_proof::RlnIdentifier;
 use smart_contract::KarmaTiers::KarmaTiersInstance;
 use smart_contract::{KarmaTiersError, TIER_LIMITS};
+use crate::error::AppError;
 
 const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
 const PROVER_SPAM_LIMIT: RateLimit = RateLimit::new(10_000u64);
@@ -63,7 +60,7 @@ const PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION: U256 =
 
 pub async fn run_prover(
     app_args: AppArgs,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+) -> Result<(), AppError> {
     // Epoch
     let epoch_service = EpochService::try_from((Duration::from_secs(60 * 2), GENESIS))
         .expect("Failed to create epoch service");
@@ -73,8 +70,7 @@ pub async fn run_prover(
         let ws = WsConnect::new(app_args.ws_rpc_url.clone().unwrap().as_str());
         let provider = ProviderBuilder::new()
             .connect_ws(ws)
-            .await
-            .map_err(KarmaTiersError::RpcTransportError)?;
+            .await?;
         Some(provider)
     } else {
         None
@@ -146,7 +142,7 @@ pub async fn run_prover(
                         debug!("User {} already registered", mock_user.address);
                     }
                     _ => {
-                        return Err(Box::new(e));
+                        return Err(AppError::from(e));
                     }
                 }
             }
@@ -155,9 +151,8 @@ pub async fn run_prover(
     }
 
     // Smart contract
-    // FIXME: use provider
     let registry_listener = if app_args.mock_sc.is_some() {
-        // debug!("No registry listener when mock is enabled");
+        // No registry listener when mock is enabled
         None
     } else {
         Some(RegistryListener::new(
@@ -185,7 +180,7 @@ pub async fn run_prover(
 
     let rln_identifier = RlnIdentifier::new(RLN_IDENTIFIER_NAME);
     let addr = SocketAddr::new(app_args.ip, app_args.port);
-    debug!("Listening on: {}", addr);
+    info!("Listening on: {}", addr);
     let prover_grpc_service = {
         let mut service = GrpcProverService {
             proof_sender,
@@ -242,11 +237,19 @@ pub async fn run_prover(
     if app_args.ws_rpc_url.is_some() {
         set.spawn(async move { prover_grpc_service.serve().await });
     } else {
-        debug!("Grpc service started with mocked smart contracts");
+        info!("Grpc service started with mocked smart contracts");
         set.spawn(async move { prover_grpc_service.serve_with_mock().await });
     }
 
-    // TODO: handle error
-    let _ = set.join_all().await;
+    let res = set.join_all().await;
+    // Print all errors from services (if any)
+    // We expect that the Prover should never stop unexpectedly, but printing error can help to debug
+    res
+        .iter()
+        .for_each(|r| {
+            if r.is_err() {
+                info!("Error: {:?}", r);
+            }
+        });
     Ok(())
 }

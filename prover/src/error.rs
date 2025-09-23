@@ -1,10 +1,12 @@
+use alloy::signers::local::LocalSignerError;
 use alloy::transports::{RpcError, TransportErrorKind};
 use ark_serialize::SerializationError;
 use rln::error::ProofError;
 use smart_contract::{KarmaScError, KarmaTiersError, RlnScError};
 // internal
 use crate::epoch_service::WaitUntilError;
-use crate::user_db_error::{RegisterError, UserMerkleTreeIndexError};
+use crate::tier::ValidateTierLimitsError;
+use crate::user_db_error::{RegisterError, TxCounterError, UserDbOpenError, UserMerkleTreeIndexError};
 
 #[derive(thiserror::Error, Debug)]
 pub enum AppError {
@@ -26,6 +28,16 @@ pub enum AppError {
     KarmaTiersError(#[from] KarmaTiersError),
     #[error(transparent)]
     RlnScError(#[from] RlnScError),
+    #[error(transparent)]
+    SignerInitError(#[from] LocalSignerError),
+    #[error(transparent)]
+    ValidateTierError(#[from] ValidateTierLimitsError),
+    #[error(transparent)]
+    UserDbOpenError(#[from] UserDbOpenError),
+    #[error(transparent)]
+    MockUserRegisterError(#[from] RegisterError),
+    #[error(transparent)]
+    MockUserTxCounterError(#[from] TxCounterError),
 }
 
 #[derive(thiserror::Error, Debug)]
