@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::Arc;
 // third-party
 use alloy::primitives::{Address, U256};
@@ -15,8 +14,8 @@ use rln::{
 use rocksdb::{
     ColumnFamily, ColumnFamilyDescriptor, DB, Options, ReadOptions, WriteBatch, WriteBatchWithIndex,
 };
-use serde::{Deserialize, Serialize};
 use tracing::error;
+use zerokit_utils::Mode::HighThroughput;
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::GetMerkleTreeProofError;
@@ -56,16 +55,6 @@ pub struct UserTierInfo {
     pub(crate) karma_amount: U256,
     pub(crate) tier_name: Option<TierName>,
     pub(crate) tier_limit: Option<TierLimit>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct PmTreeConfigJson {
-    path: PathBuf,
-    temporary: bool,
-    cache_capacity: u64,
-    flush_every_ms: u64,
-    mode: String,
-    use_compression: bool,
 }
 
 #[derive(Clone)]
@@ -152,19 +141,15 @@ impl UserDb {
         }
 
         // merkle tree
-
-        let config_ = PmTreeConfigJson {
-            path: merkle_tree_path,
-            temporary: false,
-            cache_capacity: 100_000,
-            flush_every_ms: 12_000,
-            mode: "HighThroughput".to_string(),
-            use_compression: false,
-        };
-        let config_str = serde_json::to_string(&config_)?;
-        // Note: in Zerokit 0.8 this is the only way to initialize a PmTreeConfig
-        let config = PmtreeConfig::from_str(config_str.as_str())?;
-        let tree = PoseidonTree::new(MERKLE_TREE_HEIGHT, Default::default(), config)?;
+        let tree_config = PmtreeConfig::builder()
+            .path(merkle_tree_path)
+            .temporary(false)
+            .cache_capacity(100_000)
+            .flush_every_ms(12_000)
+            .mode(HighThroughput)
+            .use_compression(false)
+            .build()?;
+        let tree = PoseidonTree::new(MERKLE_TREE_HEIGHT, Default::default(), tree_config)?;
 
         Ok(Self {
             db,
@@ -782,16 +767,15 @@ mod tests {
         .unwrap();
 
         let temp_folder_tree_2 = tempfile::tempdir().unwrap();
-        let config_ = PmTreeConfigJson {
-            path: temp_folder_tree_2.path().to_path_buf(),
-            temporary: false,
-            cache_capacity: 100_000,
-            flush_every_ms: 12_000,
-            mode: "HighThroughput".to_string(),
-            use_compression: false,
-        };
-        let config_str = serde_json::to_string(&config_).unwrap();
-        let config = PmtreeConfig::from_str(config_str.as_str()).unwrap();
+        let config = PmtreeConfig::builder()
+            .path(temp_folder_tree_2.path().to_path_buf())
+            .temporary(false)
+            .cache_capacity(100_000)
+            .flush_every_ms(12_000)
+            .mode(HighThroughput)
+            .use_compression(false)
+            .build()
+            .unwrap();
         let tree = PoseidonTree::new(1, Default::default(), config).unwrap();
         let tree = Arc::new(RwLock::new(tree));
         user_db.merkle_tree = tree.clone();
