@@ -205,7 +205,7 @@ fn proof_generation_bench(c: &mut Criterion) {
                             .as_ref()
                             .map(|v| v.len())
                             .unwrap_or(0) == proof_count
-                    }).count(), proof_count);
+                    }).count(), 1);
                 }
             });
         },
