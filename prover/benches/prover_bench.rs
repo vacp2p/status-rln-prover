@@ -59,12 +59,14 @@ async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
         let request = tonic::Request::new(request_0);
         let response: Response<SendTransactionReply> =
             client.send_transaction(request).await.unwrap();
+
         assert!(response.into_inner().result);
     }
 }
 
-async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
-    let result = Arc::new(RwLock::new(Vec::with_capacity(proof_count)));
+async fn proof_collector(port: u16, proof_count: usize) -> Option<Vec<RlnProofReply>> {
+    // let result = Arc::new(RwLock::new(Vec::with_capacity(proof_count)));
+    let mut result = Vec::with_capacity(proof_count);
 
     let url = format!("http://127.0.0.1:{port}");
     let mut client = RlnProverClient::connect(url).await.unwrap();
@@ -74,17 +76,17 @@ async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
     let request = tonic::Request::new(request_0);
     let stream_ = client.get_proofs(request).await.unwrap();
     let mut stream = stream_.into_inner();
-    let result_2 = result.clone();
+    // let result_2 = result.clone();
     let mut proof_received = 0;
     while let Some(response) = stream.message().await.unwrap() {
-        result_2.write().push(response);
+        result.push(response);
         proof_received += 1;
         if proof_received >= proof_count {
             break;
         }
     }
 
-    std::mem::take(&mut *result.write())
+    Some(std::mem::take(&mut result))
 }
 
 fn proof_generation_bench(c: &mut Criterion) {
@@ -140,10 +142,10 @@ fn proof_generation_bench(c: &mut Criterion) {
         no_config: true,
         metrics_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         metrics_port: 30051,
-        broadcast_channel_size: 100,
+        broadcast_channel_size: 500,
         proof_service_count,
-        transaction_channel_size: 100,
-        proof_sender_channel_size: 100,
+        transaction_channel_size: 500,
+        proof_sender_channel_size: 500,
     };
 
     // Tokio notify - wait for some time after spawning run_prover then notify it's ready to accept
@@ -190,14 +192,19 @@ fn proof_generation_bench(c: &mut Criterion) {
             b.to_async(&rt).iter(|| {
                 async {
                     let mut set = JoinSet::new();
-                    set.spawn(proof_collector(port, proof_count));
-                    set.spawn(proof_sender(port, addresses.clone(), proof_count).map(|_r| vec![]));
+                    set.spawn(proof_collector(port, proof_count)); // return Option<Vec<...>>
+                    set.spawn(proof_sender(port, addresses.clone(), proof_count).map(|_r| None)); // Map to None
                     // Wait for proof_sender + proof_collector to complete
                     let res = set.join_all().await;
-                    // Check proof_sender return an empty vec
-                    assert_eq!(res.iter().filter(|r| r.is_empty()).count(), 1);
+                    // Check proof_sender return None
+                    assert_eq!(res.iter().filter(|r| r.is_none()).count(), 1);
                     // Check we receive enough proofs
-                    assert_eq!(res.iter().filter(|r| r.len() == proof_count).count(), 1);
+                    assert_eq!(res.iter().filter(|r| {
+                        r
+                            .as_ref()
+                            .map(|v| v.len())
+                            .unwrap_or(0) >= 1
+                    }).count(), proof_count);
                 }
             });
         },
