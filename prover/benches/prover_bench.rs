@@ -1,9 +1,9 @@
 use criterion::Criterion;
 use criterion::{BenchmarkId, Throughput};
 use criterion::{criterion_group, criterion_main};
-use std::io::Write;
 
 // std
+use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;

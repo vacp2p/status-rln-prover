@@ -54,6 +54,8 @@ criterion.workspace = true
 ark-groth16.workspace = true
 tempfile = "3.21"
 tracing-test = "0.2.5"
+arbitrary = "*"
+mpchash = "2.0.9"
 
 [[bench]]
 name = "prover_bench"
@@ -61,4 +63,8 @@ harness = false
 
 [[bench]]
 name = "prover_many_subscribers"
+harness = false
+
+[[bench]]
+name = "multi_tree_rebalance"
 harness = false
