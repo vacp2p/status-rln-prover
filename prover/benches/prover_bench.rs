@@ -196,6 +196,7 @@ fn proof_generation_bench(c: &mut Criterion) {
                     set.spawn(proof_sender(port, addresses.clone(), proof_count).map(|_r| None)); // Map to None
                     // Wait for proof_sender + proof_collector to complete
                     let res = set.join_all().await;
+                    assert_eq!(res.len(), 2);
                     // Check proof_sender return None
                     assert_eq!(res.iter().filter(|r| r.is_none()).count(), 1);
                     // Check we receive enough proofs
@@ -203,7 +204,7 @@ fn proof_generation_bench(c: &mut Criterion) {
                         r
                             .as_ref()
                             .map(|v| v.len())
-                            .unwrap_or(0) >= 1
+                            .unwrap_or(0) == proof_count
                     }).count(), proof_count);
                 }
             });
