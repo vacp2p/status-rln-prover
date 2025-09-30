@@ -139,7 +139,17 @@ impl RegistryListener {
                 let id_commitment = self
                     .user_db
                     .on_new_user(&to_address)
-                    .map_err(HandleTransferError::Register)?;
+                    .map_err(HandleTransferError::Register);
+
+                // Don't stop the registry_listener if the user_db is full
+                // Prover will still be functional
+                if let Err(HandleTransferError::Register(RegisterError::TooManyUsers)) =
+                    id_commitment
+                {
+                    error!("Cannot register a new user: {:?}", id_commitment);
+                }
+
+                let id_commitment = id_commitment?;
 
                 let id_co =
                     U256::from_le_slice(BigUint::from(id_commitment).to_bytes_le().as_slice());
