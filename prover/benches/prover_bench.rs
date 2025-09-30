@@ -10,8 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 // third-party
 use alloy::primitives::{Address, U256};
-use futures::FutureExt;
-use parking_lot::RwLock;
+use futures::{FutureExt};
 use tempfile::NamedTempFile;
 use tokio::sync::Notify;
 use tokio::task::JoinSet;
@@ -28,6 +27,31 @@ use prover_proto::{
     Address as GrpcAddress, RlnProofFilter, RlnProofReply, SendTransactionReply,
     SendTransactionRequest, U256 as GrpcU256, Wei as GrpcWei, rln_prover_client::RlnProverClient,
 };
+
+use lazy_static::lazy_static;
+use std::sync::Once;
+
+lazy_static! {
+    static ref TRACING_INIT: Once = Once::new();
+}
+
+pub fn setup_tracing() {
+    TRACING_INIT.call_once(|| {
+
+        let filter = tracing_subscriber::EnvFilter::from_default_env()
+            .add_directive("h2=error".parse().unwrap())
+            .add_directive("sled::pagecache=error".parse().unwrap())
+            .add_directive("opentelemetry_sdk=error".parse().unwrap())
+            ;
+
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_line_number(true)
+            .with_file(true)
+            .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
+            .init();
+    });
+}
 
 async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
     let chain_id = GrpcU256 {
@@ -62,6 +86,7 @@ async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
 
         assert!(response.into_inner().result);
     }
+    // println!("[proof_sender] returning...");
 }
 
 async fn proof_collector(port: u16, proof_count: usize) -> Option<Vec<RlnProofReply>> {
@@ -78,18 +103,36 @@ async fn proof_collector(port: u16, proof_count: usize) -> Option<Vec<RlnProofRe
     let mut stream = stream_.into_inner();
     // let result_2 = result.clone();
     let mut proof_received = 0;
-    while let Some(response) = stream.message().await.unwrap() {
-        result.push(response);
+
+    loop {
+        let response = stream.message().await;
+        if let Err(_e) = response {
+            // println!("[proof_collector] error: {:?}", _e);
+            break;
+        }
+
+        let response = response.unwrap();
+
+        if response.is_none() {
+            // println!("[proof_collector] response is None");
+            break;
+        }
+
+        result.push(response.unwrap());
         proof_received += 1;
         if proof_received >= proof_count {
             break;
         }
     }
 
+    // println!("[proof_collector] returning after received: {:?} proof replies", result.len());
     Some(std::mem::take(&mut result))
 }
 
 fn proof_generation_bench(c: &mut Criterion) {
+
+    // setup_tracing();
+
     let rayon_num_threads = std::env::var("RAYON_NUM_THREADS").unwrap_or("".to_string());
     let proof_service_count_default = 4;
     let proof_service_count = std::env::var("PROOF_SERVICE_COUNT")

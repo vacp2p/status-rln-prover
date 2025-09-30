@@ -3930,6 +3930,7 @@ dependencies = [
  "derive_more",
  "futures",
  "http",
+ "lazy_static",
  "metrics",
  "metrics-exporter-prometheus",
  "metrics-util",
