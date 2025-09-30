@@ -3967,6 +3967,7 @@ dependencies = [
 name = "prover_cli"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
  "opentelemetry",
  "opentelemetry-otlp",
