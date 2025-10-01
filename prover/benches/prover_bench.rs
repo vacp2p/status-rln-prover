@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 // third-party
 use alloy::primitives::{Address, U256};
-use futures::{FutureExt};
+use futures::FutureExt;
 use tempfile::NamedTempFile;
 use tokio::sync::Notify;
 use tokio::task::JoinSet;
@@ -37,12 +37,10 @@ lazy_static! {
 
 pub fn setup_tracing() {
     TRACING_INIT.call_once(|| {
-
         let filter = tracing_subscriber::EnvFilter::from_default_env()
             .add_directive("h2=error".parse().unwrap())
             .add_directive("sled::pagecache=error".parse().unwrap())
-            .add_directive("opentelemetry_sdk=error".parse().unwrap())
-            ;
+            .add_directive("opentelemetry_sdk=error".parse().unwrap());
 
         tracing_subscriber::fmt()
             .with_env_filter(filter)
@@ -130,7 +128,6 @@ async fn proof_collector(port: u16, proof_count: usize) -> Option<Vec<RlnProofRe
 }
 
 fn proof_generation_bench(c: &mut Criterion) {
-
     // setup_tracing();
 
     let rayon_num_threads = std::env::var("RAYON_NUM_THREADS").unwrap_or("".to_string());
@@ -243,12 +240,12 @@ fn proof_generation_bench(c: &mut Criterion) {
                     // Check proof_sender return None
                     assert_eq!(res.iter().filter(|r| r.is_none()).count(), 1);
                     // Check we receive enough proofs
-                    assert_eq!(res.iter().filter(|r| {
-                        r
-                            .as_ref()
-                            .map(|v| v.len())
-                            .unwrap_or(0) == proof_count
-                    }).count(), 1);
+                    assert_eq!(
+                        res.iter()
+                            .filter(|r| { r.as_ref().map(|v| v.len()).unwrap_or(0) == proof_count })
+                            .count(),
+                        1
+                    );
                 }
             });
         },
