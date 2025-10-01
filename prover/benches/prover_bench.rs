@@ -186,6 +186,9 @@ fn proof_generation_bench(c: &mut Criterion) {
         proof_service_count,
         transaction_channel_size: 500,
         proof_sender_channel_size: 500,
+        registration_min_amount: AppArgs::default_minimal_amount_for_registration(),
+        rln_identifier: AppArgs::default_rln_identifier_name(),
+        spam_limit: 1_000_000u64,
     };
 
     // Tokio notify - wait for some time after spawning run_prover then notify it's ready to accept

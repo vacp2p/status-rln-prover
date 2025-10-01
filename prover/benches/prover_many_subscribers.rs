@@ -146,10 +146,13 @@ fn proof_generation_bench(c: &mut Criterion) {
         no_config: true,
         metrics_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         metrics_port: 30051,
-        broadcast_channel_size: 100,
+        broadcast_channel_size: 500,
         proof_service_count,
-        transaction_channel_size: 100,
-        proof_sender_channel_size: 100,
+        transaction_channel_size: 500,
+        proof_sender_channel_size: 500,
+        registration_min_amount: AppArgs::default_minimal_amount_for_registration(),
+        rln_identifier: AppArgs::default_rln_identifier_name(),
+        spam_limit: 1_000_000u64,
     };
 
     // Tokio notify - wait for some time after spawning run_prover then notify it's ready to accept
