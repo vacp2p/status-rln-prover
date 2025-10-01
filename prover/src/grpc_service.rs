@@ -60,6 +60,7 @@ use prover_proto::{
     rln_proof_reply::Resp as GetProofsResp,
     rln_prover_server::{RlnProver, RlnProverServer},
 };
+use crate::user_db_types::RateLimit;
 
 const PROVER_SERVICE_LIMIT_PER_CONNECTION: usize = 16;
 // Timeout for all handlers of a request
@@ -88,6 +89,7 @@ pub struct ProverService<KSC: KarmaAmountExt> {
     // karma_rln_sc: RLNSC,
     proof_sender_channel_size: usize,
     tx_gas_quota: u64,
+    rate_limit: RateLimit,
 }
 
 #[tonic::async_trait]
@@ -130,6 +132,12 @@ where
 
         // Update the counter as soon as possible (should help to prevent spamming...)
         let counter = self.user_db.on_new_tx(&sender, tx_counter_incr).unwrap_or_default();
+
+        if counter > self.rate_limit {
+            return Err(Status::resource_exhausted(
+                "Too many transactions sent by this user",
+            ));
+        }
 
         if req.transaction_hash.len() != PROVER_TX_HASH_BYTESIZE {
             return Err(Status::invalid_argument(
@@ -306,6 +314,7 @@ pub(crate) struct GrpcProverService<P: Provider> {
     pub proof_sender_channel_size: usize,
     pub grpc_reflection: bool,
     pub tx_gas_quota: u64,
+    pub rate_limit: RateLimit,
 }
 
 impl<P: Provider + Clone + Send + Sync + 'static> GrpcProverService<P> {
@@ -329,6 +338,7 @@ impl<P: Provider + Clone + Send + Sync + 'static> GrpcProverService<P> {
             karma_sc,
             proof_sender_channel_size: self.proof_sender_channel_size,
             tx_gas_quota: self.tx_gas_quota,
+            rate_limit: self.rate_limit,
         };
 
         let reflection_service = if self.grpc_reflection {
@@ -398,6 +408,7 @@ impl<P: Provider + Clone + Send + Sync + 'static> GrpcProverService<P> {
             // karma_rln_sc: MockKarmaRLNSc {},
             proof_sender_channel_size: self.proof_sender_channel_size,
             tx_gas_quota: self.tx_gas_quota,
+            rate_limit: self.rate_limit,
         };
 
         let reflection_service = if self.grpc_reflection {

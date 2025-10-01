@@ -806,10 +806,11 @@ mod tests {
         user_db.register(addr).unwrap();
 
         let (ec, ecs) = user_db.get_tx_counter(&addr).unwrap();
-        assert_eq!(ec, 0.into());
-        assert_eq!(ecs, 0.into());
+        assert_eq!(ec, 0u64.into());
+        assert_eq!(ecs, EpochSliceCounter::from(0u64));
+
         let ecs_2 = user_db.incr_tx_counter(&addr, Some(42)).unwrap();
-        assert_eq!(ecs_2, 42.into());
+        assert_eq!(ecs_2, EpochSliceCounter::from(42));
     }
 
     #[tokio::test]
