@@ -6,7 +6,7 @@ use zerokit_utils::error::{FromConfigError, ZerokitMerkleTreeError};
 use crate::tier::ValidateTierLimitsError;
 
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum UserDbOpenError {
+pub enum UserDbOpenError {
     #[error(transparent)]
     RocksDb(#[from] rocksdb::Error),
     #[error("Serialization error: {0}")]

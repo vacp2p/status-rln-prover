@@ -5,7 +5,6 @@ mod tests {
     use std::sync::Arc;
     // third-party
     use alloy::primitives::{Address, address};
-    use ark_bn254::Fr;
     use ark_groth16::{Proof as ArkProof, Proof, VerifyingKey};
     use ark_serialize::CanonicalDeserialize;
     use claims::assert_matches;
@@ -14,6 +13,7 @@ mod tests {
     use rln::circuit::{Curve, zkey_from_folder};
     use rln::error::ComputeIdSecretError;
     use rln::protocol::{compute_id_secret, deserialize_proof_values, verify_proof};
+    use rln::utils::IdSecret;
     use tokio::sync::broadcast;
     use tracing::{debug, info};
     // internal
@@ -50,7 +50,7 @@ mod tests {
         #[error(transparent)]
         RecoverSecretFailed(ComputeIdSecretError),
         #[error("Recovered secret")]
-        RecoveredSecret(Fr),
+        RecoveredSecret(IdSecret),
     }
 
     async fn proof_sender(

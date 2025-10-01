@@ -1,29 +1,31 @@
 // std
-use std::io::Cursor;
+// use std::io::Cursor;
 // third-party
 use ark_bn254::{Bn254, Fr};
 use ark_groth16::{Proof, ProvingKey};
 use ark_relations::r1cs::ConstraintMatrices;
+use rln::utils::IdSecret;
 use rln::{
-    circuit::{ZKEY_BYTES, zkey::read_zkey},
+    circuit::{ARKZKEY_BYTES, read_arkzkey_from_bytes_uncompressed as read_zkey},
     error::ProofError,
-    hashers::{hash_to_field, poseidon_hash},
+    hashers::{hash_to_field_le, poseidon_hash},
     poseidon_tree::MerkleProof,
     protocol::{
         RLNProofValues, generate_proof, proof_values_from_witness, rln_witness_from_values,
     },
 };
+use zerokit_utils::ZerokitMerkleProof;
 
 /// A RLN user identity & limit
 #[derive(Debug, Clone, PartialEq)]
 pub struct RlnUserIdentity {
     pub commitment: Fr,
-    pub secret_hash: Fr,
+    pub secret_hash: IdSecret,
     pub user_limit: Fr,
 }
 
-impl From<(Fr, Fr, Fr)> for RlnUserIdentity {
-    fn from((commitment, secret_hash, user_limit): (Fr, Fr, Fr)) -> Self {
+impl From<(Fr, IdSecret, Fr)> for RlnUserIdentity {
+    fn from((commitment, secret_hash, user_limit): (Fr, IdSecret, Fr)) -> Self {
         Self {
             commitment,
             secret_hash,
@@ -43,13 +45,13 @@ pub struct RlnIdentifier {
 impl RlnIdentifier {
     pub fn new(identifier: &[u8]) -> Self {
         let pk_and_matrices = {
-            let mut reader = Cursor::new(ZKEY_BYTES);
-            read_zkey(&mut reader).unwrap()
+            // let mut reader = Cursor::new(ARKZKEY_BYTES);
+            read_zkey(ARKZKEY_BYTES).unwrap()
         };
         let graph_bytes = include_bytes!("../resources/graph.bin");
 
         Self {
-            identifier: hash_to_field(identifier),
+            identifier: hash_to_field_le(identifier),
             pkey_and_constraints: pk_and_matrices,
             graph: graph_bytes.to_vec(),
         }
@@ -74,9 +76,15 @@ pub fn compute_rln_proof_and_values(
 ) -> Result<(Proof<Bn254>, RLNProofValues), ProofError> {
     let external_nullifier = poseidon_hash(&[rln_identifier.identifier, epoch]);
 
+    let path_elements = merkle_proof.get_path_elements();
+    let identity_path_index = merkle_proof.get_path_index();
+
+    // let mut id_s = user_identity.secret_hash;
+
     let witness = rln_witness_from_values(
-        user_identity.secret_hash,
-        merkle_proof,
+        user_identity.secret_hash.clone(),
+        path_elements,
+        identity_path_index,
         rln_data.data,
         external_nullifier,
         user_identity.user_limit,
@@ -101,8 +109,9 @@ mod tests {
 
     #[test]
     fn test_recover_secret_hash() {
-        let (user_co, user_sh) = keygen();
-        let epoch = hash_to_field(b"foo");
+        let (user_co, mut user_sh_) = keygen();
+        let user_sh = IdSecret::from(&mut user_sh_);
+        let epoch = hash_to_field_le(b"foo");
         let spam_limit = Fr::from(10);
 
         // let mut tree = OptimalMerkleTree::new(20, Default::default(), Default::default()).unwrap();
@@ -116,14 +125,14 @@ mod tests {
 
         let (_proof_0, proof_values_0) = compute_rln_proof_and_values(
             &RlnUserIdentity {
-                commitment: user_co,
-                secret_hash: user_sh,
+                commitment: *user_co,
+                secret_hash: user_sh.clone(),
                 user_limit: spam_limit,
             },
             &rln_identifier,
             RlnData {
                 message_id,
-                data: hash_to_field(b"sig"),
+                data: hash_to_field_le(b"sig"),
             },
             epoch,
             &m_proof,
@@ -132,14 +141,14 @@ mod tests {
 
         let (_proof_1, proof_values_1) = compute_rln_proof_and_values(
             &RlnUserIdentity {
-                commitment: user_co,
-                secret_hash: user_sh,
+                commitment: *user_co,
+                secret_hash: user_sh.clone(),
                 user_limit: spam_limit,
             },
             &rln_identifier,
             RlnData {
                 message_id,
-                data: hash_to_field(b"sig 2"),
+                data: hash_to_field_le(b"sig 2"),
             },
             epoch,
             &m_proof,

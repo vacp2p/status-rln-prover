@@ -21,7 +21,7 @@ const ARGS_DEFAULT_PROOF_SERVICE_COUNT: &str = "8";
 ///
 /// Used by grpc service to send the transaction to one of the proof services. A too low value could stall
 /// the grpc service when it receives a transaction.
-const ARGS_DEFAULT_TRANSACTION_CHANNEL_SIZE: &str = "100";
+const ARGS_DEFAULT_TRANSACTION_CHANNEL_SIZE: &str = "256";
 /// Proof sender channel size
 ///
 /// Used by grpc service to send the generated proof to the Verifier. A too low value could stall

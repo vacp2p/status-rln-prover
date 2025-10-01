@@ -44,7 +44,7 @@ clap_config = "0.1"
 metrics = "0.24"
 metrics-exporter-prometheus = "0.17"
 metrics-util = "0.20"
-rayon = "1.7"
+rayon = "1.10"
 
 [build-dependencies]
 tonic-prost-build.workspace = true
@@ -52,8 +52,9 @@ tonic-prost-build.workspace = true
 [dev-dependencies]
 criterion.workspace = true
 ark-groth16.workspace = true
-tempfile = "3.20"
+tempfile = "3.21"
 tracing-test = "0.2.5"
+lazy_static = "1.5.0"
 
 [[bench]]
 name = "prover_bench"
