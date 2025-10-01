@@ -16,6 +16,10 @@ use rocksdb::{
 };
 use tracing::error;
 use zerokit_utils::Mode::HighThroughput;
+use zerokit_utils::{
+    error::ZerokitMerkleTreeError,
+    pmtree::{PmtreeErrorKind, TreeErrorKind},
+};
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::GetMerkleTreeProofError;
@@ -247,7 +251,19 @@ impl UserDb {
                 self.merkle_tree
                     .write()
                     .set(new_index.into(), rate_commit)
-                    .map_err(|e| RegisterError::TreeError(e.to_string()))?;
+                    .map_err(|e| {
+                        // Check Zerokit issue: https://github.com/vacp2p/zerokit/issues/343
+                        if matches!(
+                            e,
+                            ZerokitMerkleTreeError::PmtreeErrorKind(PmtreeErrorKind::TreeError(
+                                TreeErrorKind::IndexOutOfBounds
+                            ))
+                        ) {
+                            RegisterError::TooManyUsers
+                        } else {
+                            RegisterError::TreeError(e.to_string())
+                        }
+                    })?;
 
                 // Add index for user
                 merkle_index_serializer.serialize(&new_index, &mut buffer);
@@ -789,7 +805,7 @@ mod tests {
         assert_eq!(tree.read().leaves_set(), 2);
 
         let res = user_db.register(ADDR_2);
-        assert_matches!(res, Err(RegisterError::TreeError(_)));
+        assert_matches!(res, Err(RegisterError::TooManyUsers));
         assert_eq!(user_db.has_user(&ADDR_1), Ok(true));
         assert_eq!(user_db.has_user(&ADDR_2), Ok(false));
         assert_eq!(tree.read().leaves_set(), 2);

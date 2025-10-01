@@ -27,6 +27,8 @@ pub enum RegisterError {
     AlreadyRegistered(Address),
     #[error(transparent)]
     Db(#[from] rocksdb::Error),
+    #[error("Too many users, exceeding merkle tree capacity...")]
+    TooManyUsers,
     #[error("Merkle tree error: {0}")]
     TreeError(String),
 }
