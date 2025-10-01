@@ -1,9 +1,14 @@
 use std::net::IpAddr;
 use std::path::PathBuf;
+use std::str::FromStr;
 // third-party
-use alloy::primitives::Address;
+use alloy::primitives::ruint::ParseError;
+use alloy::primitives::{Address, U256};
+use chrono::{DateTime, Utc};
 use clap::Parser;
 use clap_config::ClapConfig;
+use derive_more::Display;
+use serde::{Deserialize, Serialize};
 use url::Url;
 
 /// Broadcast channel size
@@ -27,6 +32,12 @@ const ARGS_DEFAULT_TRANSACTION_CHANNEL_SIZE: &str = "256";
 /// Used by grpc service to send the generated proof to the Verifier. A too low value could stall
 /// the broadcast channel.
 const ARGS_DEFAULT_PROOF_SENDER_CHANNEL_SIZE: &str = "100";
+
+const ARGS_DEFAULT_RLN_IDENTIFIER_NAME: &str = "test-rln-identifier";
+const ARGS_DEFAULT_PROVER_SPAM_LIMIT: u64 = 10_000_u64;
+pub const ARGS_DEFAULT_GENESIS: DateTime<Utc> = DateTime::from_timestamp(1431648000, 0).unwrap();
+const ARGS_DEFAULT_PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION: WrappedU256 =
+    WrappedU256(U256::from_le_slice(10u64.to_le_bytes().as_slice()));
 
 #[derive(Debug, Clone, Parser, ClapConfig)]
 #[command(about = "RLN prover service", long_about = None)]
@@ -58,21 +69,24 @@ pub struct AppArgs {
         short = 'k',
         long = "ksc",
         default_value = "0x011b9de308BE357BbF24EfB387a270a14A04E5d2",
-        help = "Karma smart contract address"
+        help = "Karma smart contract address",
+        help_heading = "smart contract"
     )]
     pub ksc_address: Option<Address>,
     #[arg(
         short = 'r',
         long = "rlnsc",
         default_value = "0xc98994691E96D2f4CA2a718Bc8FDF30bd21d1c59",
-        help = "RLN smart contract address"
+        help = "RLN smart contract address",
+        help_heading = "smart contract"
     )]
     pub rlnsc_address: Option<Address>,
     #[arg(
         short = 't',
         long = "tsc",
         default_value = "0x011b9de308BE357BbF24EfB387a270a14A04E5d2",
-        help = "KarmaTiers smart contract address"
+        help = "KarmaTiers smart contract address",
+        help_heading = "smart contract"
     )]
     pub tsc_address: Option<Address>,
     #[arg(
@@ -94,7 +108,7 @@ pub struct AppArgs {
         long = "config",
         help = "Config file path",
         default_value = "./config.toml",
-        help_heading = "config"
+        help_heading = "config file"
     )]
     pub config_path: PathBuf,
     #[arg(
@@ -102,17 +116,47 @@ pub struct AppArgs {
         help = "Dont read a config file",
         required = false,
         action,
-        help_heading = "Do not try to read config file"
+        help_heading = "config file"
     )]
     pub no_config: bool,
     #[arg(
         long = "metrics-ip",
         default_value = "::1",
-        help = "Prometheus Metrics ip"
+        help = "Prometheus Metrics ip",
+        help_heading = "monitoring"
     )]
     pub metrics_ip: IpAddr,
-    #[arg(long = "metrics-port", default_value = "30031", help = "Metrics port")]
+    #[arg(
+        long = "metrics-port",
+        default_value = "30031",
+        help = "Metrics port",
+        help_heading = "monitoring"
+    )]
     pub metrics_port: u16,
+
+    #[arg(
+        help_heading = "RLN",
+        long = "rln-identifier",
+        default_value_t = AppArgs::default_rln_identifier_name(),
+        help = "RLN identifier name"
+    )]
+    pub rln_identifier: String,
+    #[arg(
+        help_heading = "RLN",
+        long = "spam-limit",
+        help = "RLN spam limit",
+        default_value_t = AppArgs::default_spam_limit(),
+    )]
+    pub spam_limit: u64,
+
+    #[arg(
+        help_heading = "prover config",
+        long = "registration-min",
+        help = "Minimal amount of Karma to register a user in the prover",
+        default_value_t = AppArgs::default_minimal_amount_for_registration(),
+    )]
+    pub registration_min_amount: WrappedU256,
+
     // Hidden option - expect user set it via a config file
     #[arg(
         long = "broadcast-channel-size",
@@ -144,6 +188,40 @@ pub struct AppArgs {
     pub proof_sender_channel_size: usize,
 }
 
+impl AppArgs {
+    pub fn default_spam_limit() -> u64 {
+        ARGS_DEFAULT_PROVER_SPAM_LIMIT
+    }
+
+    pub fn default_genesis() -> DateTime<Utc> {
+        ARGS_DEFAULT_GENESIS
+    }
+
+    pub fn default_minimal_amount_for_registration() -> WrappedU256 {
+        ARGS_DEFAULT_PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION
+    }
+
+    pub fn default_rln_identifier_name() -> String {
+        ARGS_DEFAULT_RLN_IDENTIFIER_NAME.to_string()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Display)]
+pub struct WrappedU256(U256);
+
+impl WrappedU256 {
+    pub fn to_u256(&self) -> U256 {
+        self.0
+    }
+}
+
+impl FromStr for WrappedU256 {
+    type Err = ParseError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(WrappedU256(U256::from_str(s)?))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,6 +236,8 @@ mod tests {
             mock_sc: Some(true),
             ..Default::default()
         };
+
+        println!("config: {:?}", config);
 
         {
             let args_1 = vec!["program", "--ip", "127.0.0.1", "--port", "50051"];

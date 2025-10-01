@@ -252,6 +252,9 @@ async fn test_grpc_gen_proof() {
         proof_service_count: 8,
         transaction_channel_size: 500,
         proof_sender_channel_size: 500,
+        registration_min_amount: AppArgs::default_minimal_amount_for_registration(),
+        rln_identifier: AppArgs::default_rln_identifier_name(),
+        spam_limit: AppArgs::default_spam_limit(),
     };
 
     info!("Starting prover with args: {:?}", app_args);

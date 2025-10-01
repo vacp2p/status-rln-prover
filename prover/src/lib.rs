@@ -27,15 +27,13 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
 // third-party
-use alloy::primitives::U256;
 use alloy::providers::{ProviderBuilder, WsConnect};
 use alloy::signers::local::PrivateKeySigner;
-use chrono::{DateTime, Utc};
 use tokio::task::JoinSet;
 use tracing::{debug, info};
 use zeroize::Zeroizing;
 // internal
-pub use crate::args::{AppArgs, AppArgsConfig};
+pub use crate::args::{ARGS_DEFAULT_GENESIS, AppArgs, AppArgsConfig};
 use crate::epoch_service::EpochService;
 use crate::error::AppError;
 use crate::grpc_service::GrpcProverService;
@@ -52,15 +50,9 @@ use rln_proof::RlnIdentifier;
 use smart_contract::KarmaTiers::KarmaTiersInstance;
 use smart_contract::{KarmaTiersError, TIER_LIMITS};
 
-const RLN_IDENTIFIER_NAME: &[u8] = b"test-rln-identifier";
-const PROVER_SPAM_LIMIT: RateLimit = RateLimit::new(10_000u64);
-const GENESIS: DateTime<Utc> = DateTime::from_timestamp(1431648000, 0).unwrap();
-const PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION: U256 =
-    U256::from_le_slice(10u64.to_le_bytes().as_slice());
-
 pub async fn run_prover(app_args: AppArgs) -> Result<(), AppError> {
     // Epoch
-    let epoch_service = EpochService::try_from((Duration::from_secs(60 * 2), GENESIS))
+    let epoch_service = EpochService::try_from((Duration::from_secs(60 * 2), ARGS_DEFAULT_GENESIS))
         .expect("Failed to create epoch service");
 
     // Alloy provider (Smart contract provider)
@@ -115,7 +107,7 @@ pub async fn run_prover(app_args: AppArgs) -> Result<(), AppError> {
         app_args.merkle_tree_path.clone(),
         epoch_service.epoch_changes.clone(),
         epoch_service.current_epoch.clone(),
-        PROVER_SPAM_LIMIT,
+        RateLimit::new(app_args.spam_limit),
         tier_limits,
     )?;
 
@@ -155,7 +147,7 @@ pub async fn run_prover(app_args: AppArgs) -> Result<(), AppError> {
             app_args.ksc_address.unwrap(),
             app_args.rlnsc_address.unwrap(),
             user_db_service.get_user_db(),
-            PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION,
+            app_args.registration_min_amount.to_u256(),
         ))
     };
 
@@ -174,7 +166,7 @@ pub async fn run_prover(app_args: AppArgs) -> Result<(), AppError> {
 
     // grpc
 
-    let rln_identifier = RlnIdentifier::new(RLN_IDENTIFIER_NAME);
+    let rln_identifier = RlnIdentifier::new(app_args.rln_identifier.as_bytes());
     let addr = SocketAddr::new(app_args.ip, app_args.port);
     info!("Listening on: {}", addr);
     let prover_grpc_service = {
@@ -209,7 +201,7 @@ pub async fn run_prover(app_args: AppArgs) -> Result<(), AppError> {
                 broadcast_sender,
                 current_epoch,
                 user_db,
-                PROVER_SPAM_LIMIT,
+                RateLimit::new(app_args.spam_limit),
                 u64::from(i),
             );
             proof_service.serve().await
