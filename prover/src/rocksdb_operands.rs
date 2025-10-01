@@ -56,6 +56,7 @@ impl EpochCounterSerializer {
     }
 }
 
+#[derive(Clone)]
 pub struct EpochCounterDeserializer {}
 
 impl EpochCounterDeserializer {
@@ -86,6 +87,7 @@ pub struct EpochIncr {
     pub incr_value: u64,
 }
 
+#[derive(Clone)]
 pub struct EpochIncrSerializer {}
 
 impl EpochIncrSerializer {

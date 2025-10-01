@@ -19,6 +19,7 @@ use crate::tier::TierLimits;
 use crate::user_db_types::MerkleTreeIndex;
 use smart_contract::Tier;
 
+#[derive(Clone)]
 pub(crate) struct RlnUserIdentitySerializer {}
 
 impl RlnUserIdentitySerializer {
@@ -42,6 +43,7 @@ impl RlnUserIdentitySerializer {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct RlnUserIdentityDeserializer {}
 
 impl RlnUserIdentityDeserializer {
@@ -64,6 +66,7 @@ impl RlnUserIdentityDeserializer {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct MerkleTreeIndexSerializer {}
 
 impl MerkleTreeIndexSerializer {
@@ -78,6 +81,7 @@ impl MerkleTreeIndexSerializer {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct MerkleTreeIndexDeserializer {}
 
 impl MerkleTreeIndexDeserializer {
@@ -89,7 +93,7 @@ impl MerkleTreeIndexDeserializer {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct TierSerializer {}
 
 impl TierSerializer {
@@ -114,7 +118,7 @@ impl TierSerializer {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct TierDeserializer {}
 
 #[derive(Debug, PartialEq)]
@@ -167,7 +171,7 @@ impl TierDeserializer {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct TierLimitsSerializer {
     tier_serializer: TierSerializer,
 }
@@ -194,7 +198,7 @@ impl TierLimitsSerializer {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct TierLimitsDeserializer {
     pub(crate) tier_deserializer: TierDeserializer,
 }
