@@ -96,7 +96,6 @@ impl UserDb {
         tier_limits: TierLimits,
         rate_limit: RateLimit,
     ) -> Result<Self, UserDbOpenError> {
-
         let db_options = {
             let mut db_opts = Options::default();
             db_opts.set_max_open_files(820);
@@ -143,7 +142,9 @@ impl UserDb {
 
         let cf_mtree = db.cf_handle(MERKLE_TREE_COUNTER_CF).unwrap();
         let merkle_index_deserializer = MerkleTreeIndexDeserializer {};
-        if let Err(e) = Self::get_merkle_tree_index_(db.clone(), cf_mtree, &merkle_index_deserializer) {
+        if let Err(e) =
+            Self::get_merkle_tree_index_(db.clone(), cf_mtree, &merkle_index_deserializer)
+        {
             match e {
                 MerkleTreeIndexError::DbUninitialized => {
                     // Check if the value is already there (e.g. after a restart)
@@ -165,7 +166,6 @@ impl UserDb {
             .build()?;
         let tree = PoseidonTree::new(MERKLE_TREE_HEIGHT, Default::default(), tree_config)?;
 
-
         let tier_limits_deserializer = TierLimitsDeserializer {
             tier_deserializer: TierDeserializer {},
         };
@@ -181,7 +181,7 @@ impl UserDb {
             epoch_increase_serializer: EpochIncrSerializer {},
             epoch_counter_deserializer: EpochCounterDeserializer {},
             tier_limits_serializer,
-            tier_limits_deserializer
+            tier_limits_deserializer,
         })
     }
 
@@ -215,8 +215,11 @@ impl UserDb {
         ));
 
         let key = address.as_slice();
-        let mut buffer =
-            vec![0; self.rln_identity_serializer.size_hint() + self.merkle_index_serializer.size_hint()];
+        let mut buffer = vec![
+            0;
+            self.rln_identity_serializer.size_hint()
+                + self.merkle_index_serializer.size_hint()
+        ];
 
         // unwrap safe - this is serialized by the Prover + RlnUserIdentitySerializer is unit tested
         self.rln_identity_serializer
@@ -260,7 +263,8 @@ impl UserDb {
                 // Increase merkle tree index
                 db_batch.merge_cf(cf_mtree, MERKLE_TREE_INDEX_KEY, 1i64.to_le_bytes());
                 // Unwrap safe - serialization is handled by the prover
-                let (_, new_index) = self.merkle_index_deserializer
+                let (_, new_index) = self
+                    .merkle_index_deserializer
                     .deserialize(batch_read.as_slice())
                     .unwrap();
 
@@ -284,7 +288,8 @@ impl UserDb {
                     })?;
 
                 // Add index for user
-                self.merkle_index_serializer.serialize(&new_index, &mut buffer);
+                self.merkle_index_serializer
+                    .serialize(&new_index, &mut buffer);
                 // Put user
                 db_batch.put_cf(cf_user, key, buffer.as_slice());
                 // Put user tx counter
@@ -328,13 +333,13 @@ impl UserDb {
         &self,
         address: &Address,
     ) -> Result<MerkleTreeIndex, UserMerkleTreeIndexError> {
-        
         let cf_user = self.get_user_cf();
         match self.db.get_pinned_cf(cf_user, address.as_slice()) {
             Ok(Some(buffer)) => {
                 // Here we silence the error - this is safe as the prover controls this
                 let start = self.rln_identity_serializer.size_hint();
-                let (_, index) = self.merkle_index_deserializer
+                let (_, index) = self
+                    .merkle_index_deserializer
                     .deserialize(&buffer[start..])
                     .unwrap();
                 Ok(index)
@@ -435,7 +440,6 @@ impl UserDb {
         address: &Address,
         key: Option<Vec<u8>>,
     ) -> Result<(EpochCounter, EpochSliceCounter), TxCounterError> {
-
         match key {
             Some(value) => {
                 let (_, counter) = self.epoch_counter_deserializer.deserialize(&value).unwrap();
@@ -497,12 +501,12 @@ impl UserDb {
         cf: &ColumnFamily,
         merkle_tree_index_deserializer: &MerkleTreeIndexDeserializer,
     ) -> Result<MerkleTreeIndex, MerkleTreeIndexError> {
-        
         match db.get_cf(cf, MERKLE_TREE_INDEX_KEY) {
             Ok(Some(v)) => {
                 // Unwrap safe - serialization is done by the prover
                 let (_, index) = merkle_tree_index_deserializer
-                    .deserialize(v.as_slice()).unwrap();
+                    .deserialize(v.as_slice())
+                    .unwrap();
                 Ok(index)
             }
             Ok(None) => Err(MerkleTreeIndexError::DbUninitialized),
@@ -553,7 +557,8 @@ impl UserDb {
         tier_limits.validate()?;
 
         // Serialize
-        let mut buffer = Vec::with_capacity(self.tier_limits_serializer.size_hint(tier_limits.len()));
+        let mut buffer =
+            Vec::with_capacity(self.tier_limits_serializer.size_hint(tier_limits.len()));
         // Unwrap safe - already validated - should always serialize
         self.tier_limits_serializer
             .serialize(&tier_limits, &mut buffer)
