@@ -29,6 +29,7 @@ RUST_LOG=debug cargo run -p prover_cli -- --ip 127.0.0.1 --metrics-ip 127.0.0.1 
 
 ## Debug
 
+* grpcurl -plaintext 127.0.0.1:50051 list
 * grpcurl -plaintext -d '{"sender": "Alice", "tx_id": "42"}' '[::1]:50051' prover.RlnProver/SendTransaction
 * grpcurl -plaintext '[::1]:50051' prover.RlnProver/GetProofs
 

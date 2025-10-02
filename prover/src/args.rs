@@ -32,6 +32,11 @@ const ARGS_DEFAULT_TRANSACTION_CHANNEL_SIZE: &str = "256";
 /// Used by grpc service to send the generated proof to the Verifier. A too low value could stall
 /// the broadcast channel.
 const ARGS_DEFAULT_PROOF_SENDER_CHANNEL_SIZE: &str = "100";
+/// Disable the grpc reflection service
+///
+/// By default, the prover offers GRPC reflection (to ease with the development). This could be turned off
+/// in production.
+const ARGS_DEFAULT_NO_GRPC_REFLECTION: &str = "false";
 
 const ARGS_DEFAULT_RLN_IDENTIFIER_NAME: &str = "test-rln-identifier";
 const ARGS_DEFAULT_PROVER_SPAM_LIMIT: u64 = 10_000_u64;
@@ -186,6 +191,14 @@ pub struct AppArgs {
         hide = true,
     )] // see const doc for more info
     pub proof_sender_channel_size: usize,
+    #[arg(
+        help_heading = "grpc",
+        long = "no-grpc-reflection",
+        help = "Disable grpc reflection",
+        default_value = ARGS_DEFAULT_NO_GRPC_REFLECTION,
+        hide = true,
+    )] // see const doc for more info
+    pub no_grpc_reflection: bool,
 }
 
 impl AppArgs {

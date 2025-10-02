@@ -296,6 +296,7 @@ pub(crate) struct GrpcProverService<P: Provider> {
     // pub rln_sc_info: Option<(Url, Address)>,
     pub provider: Option<P>,
     pub proof_sender_channel_size: usize,
+    pub grpc_reflection: bool,
 }
 
 impl<P: Provider + Clone + Send + Sync + 'static> GrpcProverService<P> {
@@ -320,9 +321,15 @@ impl<P: Provider + Clone + Send + Sync + 'static> GrpcProverService<P> {
             proof_sender_channel_size: self.proof_sender_channel_size,
         };
 
-        let reflection_service = tonic_reflection::server::Builder::configure()
-            .register_encoded_file_descriptor_set(prover_proto::FILE_DESCRIPTOR_SET)
-            .build_v1()?;
+        let reflection_service = if self.grpc_reflection {
+            Some(
+                tonic_reflection::server::Builder::configure()
+                    .register_encoded_file_descriptor_set(prover_proto::FILE_DESCRIPTOR_SET)
+                    .build_v1()?,
+            )
+        } else {
+            None
+        };
 
         let r = RlnProverServer::new(prover_service)
             .max_decoding_message_size(PROVER_SERVICE_MESSAGE_DECODING_MAX_SIZE.as_u64() as usize)
@@ -361,7 +368,7 @@ impl<P: Provider + Clone + Send + Sync + 'static> GrpcProverService<P> {
             // services
             .layer(cors)
             .layer(GrpcWebLayer::new())
-            .add_service(reflection_service)
+            .add_optional_service(reflection_service)
             .add_service(r)
             .serve(self.addr)
             .map_err(AppError::from)
@@ -382,9 +389,15 @@ impl<P: Provider + Clone + Send + Sync + 'static> GrpcProverService<P> {
             proof_sender_channel_size: self.proof_sender_channel_size,
         };
 
-        let reflection_service = tonic_reflection::server::Builder::configure()
-            .register_encoded_file_descriptor_set(prover_proto::FILE_DESCRIPTOR_SET)
-            .build_v1()?;
+        let reflection_service = if self.grpc_reflection {
+            Some(
+                tonic_reflection::server::Builder::configure()
+                    .register_encoded_file_descriptor_set(prover_proto::FILE_DESCRIPTOR_SET)
+                    .build_v1()?,
+            )
+        } else {
+            None
+        };
 
         let r = RlnProverServer::new(prover_service)
             .max_decoding_message_size(PROVER_SERVICE_MESSAGE_DECODING_MAX_SIZE.as_u64() as usize)
@@ -423,7 +436,7 @@ impl<P: Provider + Clone + Send + Sync + 'static> GrpcProverService<P> {
             // services
             .layer(cors)
             .layer(GrpcWebLayer::new())
-            .add_service(reflection_service)
+            .add_optional_service(reflection_service)
             .add_service(r)
             .serve(self.addr)
             .map_err(AppError::from)
