@@ -183,7 +183,9 @@ impl MultiTree {
 
         self.addresses[2].extend(extracted.iter().map(|(_, a)| a.clone()));
 
+        let start = Instant::now();
         let rln_ids: Vec<_> = extracted.iter().map(|(_, a)| keygen().1).collect();
+        println!("Keygen elapsed: {} ms", start.elapsed().as_millis());
         self.trees[2].override_range(0, rln_ids.into_iter(), vec![].into_iter()).unwrap();
     }
 
@@ -235,6 +237,11 @@ fn test_multi_tree_rebalance() {
     multi_tree_2_100_000.fill(vec![100_000, 0]);
     println!("100_000 - Fill elapsed: {} ms", start.elapsed().as_millis());
 
+    let mut multi_tree_2_1_000_000 = MultiTree::new(2);
+    let start = Instant::now();
+    multi_tree_2_1_000_000.fill(vec![1_000_000, 0]);
+    println!("100_000 - Fill elapsed: {} ms", start.elapsed().as_millis());
+
     let start = Instant::now();
     multi_tree_2_500.rebalance();
     println!("500 - rebalance: {} ms", start.elapsed().as_millis());
@@ -250,4 +257,8 @@ fn test_multi_tree_rebalance() {
     let start = Instant::now();
     multi_tree_2_100_000.rebalance();
     println!("100_000 - rebalance: {} ms", start.elapsed().as_millis());
+
+    let start = Instant::now();
+    multi_tree_2_1_000_000.rebalance();
+    println!("1_000_000 - rebalance: {} ms", start.elapsed().as_millis());
 }
