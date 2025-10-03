@@ -104,7 +104,7 @@ pub async fn run_prover(app_args: AppArgs) -> Result<(), AppError> {
     // User db service
     let user_db_service = UserDbService::new(
         app_args.db_path.clone(),
-        app_args.merkle_tree_path.clone(),
+        vec![app_args.merkle_tree_path.clone()],
         epoch_service.epoch_changes.clone(),
         epoch_service.current_epoch.clone(),
         RateLimit::new(app_args.spam_limit),

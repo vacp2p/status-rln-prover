@@ -16,7 +16,7 @@ use rln::utils::IdSecret;
 use rln_proof::RlnUserIdentity;
 // internal
 use crate::tier::TierLimits;
-use crate::user_db_types::MerkleTreeIndex;
+use crate::user_db_types::{IndexInMerkleTree, TreeIndex};
 use smart_contract::Tier;
 
 #[derive(Clone)]
@@ -67,29 +67,56 @@ impl RlnUserIdentityDeserializer {
 }
 
 #[derive(Clone)]
-pub(crate) struct MerkleTreeIndexSerializer {}
+pub(crate) struct TreeIndexSerializer {}
 
-impl MerkleTreeIndexSerializer {
-    pub(crate) fn serialize(&self, value: &MerkleTreeIndex, buffer: &mut Vec<u8>) {
+impl TreeIndexSerializer {
+    pub(crate) fn serialize(&self, value: &TreeIndex, buffer: &mut Vec<u8>) {
         let value: u64 = (*value).into();
         buffer.extend(value.to_le_bytes());
     }
 
     pub(crate) fn size_hint(&self) -> usize {
         // Note: Assume usize size == 8 bytes
-        size_of::<MerkleTreeIndex>()
+        size_of::<TreeIndex>()
     }
 }
 
 #[derive(Clone)]
-pub(crate) struct MerkleTreeIndexDeserializer {}
+pub(crate) struct TreeIndexDeserializer {}
 
-impl MerkleTreeIndexDeserializer {
+impl TreeIndexDeserializer {
     pub(crate) fn deserialize<'a>(
         &self,
         buffer: &'a [u8],
-    ) -> IResult<&'a [u8], MerkleTreeIndex, nom::error::Error<&'a [u8]>> {
-        le_u64(buffer).map(|(input, idx)| (input, MerkleTreeIndex::from(idx)))
+    ) -> IResult<&'a [u8], TreeIndex, nom::error::Error<&'a [u8]>> {
+        le_u64(buffer).map(|(input, idx)| (input, TreeIndex::from(idx)))
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct IndexInMerkleTreeSerializer {}
+
+impl IndexInMerkleTreeSerializer {
+    pub(crate) fn serialize(&self, value: &IndexInMerkleTree, buffer: &mut Vec<u8>) {
+        let value: u64 = (*value).into();
+        buffer.extend(value.to_le_bytes());
+    }
+
+    pub(crate) fn size_hint(&self) -> usize {
+        // Note: Assume usize size == 8 bytes
+        size_of::<IndexInMerkleTree>()
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct IndexInMerkleTreeDeserializer {}
+
+impl IndexInMerkleTreeDeserializer {
+    pub(crate) fn deserialize<'a>(
+        &self,
+        buffer: &'a [u8],
+    ) -> IResult<&'a [u8], IndexInMerkleTree, nom::error::Error<&'a [u8]>> {
+        le_u64(buffer).map(|(input, idx)| (input, IndexInMerkleTree::from(idx)))
     }
 }
 
@@ -247,14 +274,14 @@ mod tests {
     }
 
     #[test]
-    fn test_mtree_ser_der() {
-        let index = MerkleTreeIndex::from(4242);
+    fn test_index_mtree_ser_der() {
+        let index = IndexInMerkleTree::from(4242);
 
-        let serializer = MerkleTreeIndexSerializer {};
+        let serializer = IndexInMerkleTreeSerializer {};
         let mut buffer = Vec::with_capacity(serializer.size_hint());
         serializer.serialize(&index, &mut buffer);
 
-        let deserializer = MerkleTreeIndexDeserializer {};
+        let deserializer = IndexInMerkleTreeDeserializer {};
         let (_, de) = deserializer.deserialize(&buffer).unwrap();
 
         assert_eq!(index, de);

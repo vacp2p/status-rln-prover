@@ -23,7 +23,7 @@ pub struct UserDbService {
 impl UserDbService {
     pub fn new(
         db_path: PathBuf,
-        merkle_tree_path: PathBuf,
+        merkle_tree_folders: Vec<PathBuf>,
         epoch_changes_notifier: Arc<Notify>,
         epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
         rate_limit: RateLimit,
@@ -31,7 +31,7 @@ impl UserDbService {
     ) -> Result<Self, UserDbOpenError> {
         let user_db = UserDb::new(
             db_path,
-            merkle_tree_path,
+            merkle_tree_folders,
             epoch_store,
             tier_limits,
             rate_limit,
