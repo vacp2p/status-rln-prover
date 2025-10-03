@@ -1,18 +1,14 @@
-use std::cmp::{Ordering, PartialEq};
-use std::collections::BTreeMap;
+use std::cmp::Ordering;
 use std::fmt::Formatter;
 use std::time::Instant;
-use alloy::primitives::Address;
-use criterion::Criterion;
-use criterion::{BenchmarkId, Throughput};
-use criterion::{criterion_group, criterion_main};
-use rand::{Rng, RngCore};
-use rln::pm_tree_adapter::{PmTree, PmtreeConfig};
-use arbitrary::{Arbitrary, Unstructured};
+// third-party
 use mpchash::{HashRing, KeyRange, RingPosition};
-use rln::circuit::iden3calc::proto::DuoOp::Mul;
+use alloy::primitives::Address;
+use tracing_test::traced_test;
+// RLN
 use rln::poseidon_tree::PoseidonTree;
 use rln::protocol::keygen;
+use rln::pm_tree_adapter::{PmTree, PmtreeConfig};
 use zerokit_utils::Mode::HighThroughput;
 use zerokit_utils::ZerokitMerkleTree;
 
@@ -63,7 +59,7 @@ impl MultiTree {
             ring,
         }
     }
-    
+
     fn fill(&mut self, counts: Vec<usize>) {
 
         assert_eq!(counts.len(), self.trees.len());
@@ -215,65 +211,43 @@ pub fn pmtree_new() -> PmTree {
     tree_0
 }
 
-pub fn criterion_benchmark(c: &mut Criterion) {
+#[test]
+#[traced_test]
+fn test_multi_tree_rebalance() {
 
     let mut multi_tree_2_500 = MultiTree::new(2);
     let start = Instant::now();
     multi_tree_2_500.fill(vec![500, 0]);
     println!("500 - Fill elapsed: {} ms", start.elapsed().as_millis());
-    
+
     let mut multi_tree_2_1000 = MultiTree::new(2);
     let start = Instant::now();
     multi_tree_2_1000.fill(vec![1000, 0]);
     println!("1000 - Fill elapsed: {} ms", start.elapsed().as_millis());
-    
+
     let mut multi_tree_2_10_000 = MultiTree::new(2);
     let start = Instant::now();
     multi_tree_2_10_000.fill(vec![10_000, 0]);
-    println!("1000 - Fill elapsed: {} ms", start.elapsed().as_millis());
-    
+    println!("10_000 - Fill elapsed: {} ms", start.elapsed().as_millis());
+
     let mut multi_tree_2_100_000 = MultiTree::new(2);
     let start = Instant::now();
     multi_tree_2_100_000.fill(vec![100_000, 0]);
-    println!("1000 - Fill elapsed: {} ms", start.elapsed().as_millis());
+    println!("100_000 - Fill elapsed: {} ms", start.elapsed().as_millis());
 
-    let mut group = c.benchmark_group("Multi tree rebalance");
-    
-    group.bench_function("PmTree 500", |b| {
-        b.iter(|| {
-            multi_tree_2_500.rebalance();
-        })
-    });
-    
-    /*
-    for i in [0, 1000, 10_000, 100_000, 500_000, 750_000, 1_000_000].iter() {
-        group.bench_with_input(BenchmarkId::new("PmTree d20 set", i), i, |b, i| {
-            b.iter(|| {
-                tree_d20.set(black_box(*i), black_box(rate_commit)).unwrap()
-            })
-        });
-        group.bench_with_input(BenchmarkId::new("PmTree d21 set", i), i, |b, i| {
-            b.iter(|| {
-                tree_d21.set(black_box(*i), black_box(rate_commit)).unwrap()
-            })
-        });
-        group.bench_with_input(BenchmarkId::new("PmTree d22 set", i), i, |b, i| {
-            b.iter(|| {
-                tree_d22.set(black_box(*i), black_box(rate_commit)).unwrap()
-            })
-        });
-    }
-    */
+    let start = Instant::now();
+    multi_tree_2_500.rebalance();
+    println!("500 - rebalance: {} ms", start.elapsed().as_millis());
 
-    group.finish();
+    let start = Instant::now();
+    multi_tree_2_1000.rebalance();
+    println!("1000 - rebalance: {} ms", start.elapsed().as_millis());
+
+    let start = Instant::now();
+    multi_tree_2_10_000.rebalance();
+    println!("10_000 - rebalance: {} ms", start.elapsed().as_millis());
+
+    let start = Instant::now();
+    multi_tree_2_100_000.rebalance();
+    println!("100_000 - rebalance: {} ms", start.elapsed().as_millis());
 }
-
-criterion_group!(
-    name = benches;
-    config = Criterion::default()
-        // .sample_size(10)
-        // .measurement_time(Duration::from_secs(500))
-    ;
-    targets = criterion_benchmark
-);
-criterion_main!(benches);
