@@ -1,3 +1,4 @@
+use std::ops::{Rem};
 use ark_bn254::Fr;
 use derive_more::{Add, From, Into};
 
@@ -14,6 +15,14 @@ impl From<TreeIndex> for usize {
             "Expect usize to have the same size as of u64"
         );
         value.0 as usize
+    }
+}
+
+impl Rem<u64> for TreeIndex {
+    type Output = Self;
+
+    fn rem(self, modulus: u64) -> Self::Output {
+        Self(self.0 % modulus)
     }
 }
 

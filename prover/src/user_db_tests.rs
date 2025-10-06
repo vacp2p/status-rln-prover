@@ -9,7 +9,7 @@ mod tests {
     use parking_lot::RwLock;
     // internal
     use crate::user_db::UserDb;
-    use crate::user_db_types::{EpochCounter, EpochSliceCounter, IndexInMerkleTree};
+    use crate::user_db_types::{EpochCounter, EpochSliceCounter, IndexInMerkleTree, TreeIndex};
 
     const ADDR_1: Address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
     const ADDR_2: Address = address!("0xb20a608c624Ca5003905aA834De7156C68b2E1d0");
@@ -102,27 +102,28 @@ mod tests {
 
             assert_eq!(
                 user_db.get_merkle_tree_index().unwrap(),
-                IndexInMerkleTree::from(0)
+                (TreeIndex::from(0), IndexInMerkleTree::from(0))
             );
             // Register user
             user_db.register(ADDR_1).unwrap();
             assert_eq!(
                 user_db.get_merkle_tree_index().unwrap(),
-                IndexInMerkleTree::from(1)
+                (TreeIndex::from(0), IndexInMerkleTree::from(1))
             );
             // + 1 user
             user_db.register(ADDR_2).unwrap();
             assert_eq!(
                 user_db.get_merkle_tree_index().unwrap(),
-                IndexInMerkleTree::from(2)
+                (TreeIndex::from(1), IndexInMerkleTree::from(1))
+            );
+
+            assert_eq!(
+                user_db.get_user_indexes(&ADDR_1).unwrap(),
+                (TreeIndex::from(2), IndexInMerkleTree::from(0))
             );
             assert_eq!(
-                user_db.get_user_merkle_tree_index(&ADDR_1).unwrap(),
-                IndexInMerkleTree::from(0)
-            );
-            assert_eq!(
-                user_db.get_user_merkle_tree_index(&ADDR_2).unwrap(),
-                IndexInMerkleTree::from(1)
+                user_db.get_user_indexes(&ADDR_2).unwrap(),
+                (TreeIndex::from(2), IndexInMerkleTree::from(1))
             );
 
             assert_eq!(
@@ -163,15 +164,15 @@ mod tests {
 
             assert_eq!(
                 user_db.get_merkle_tree_index().unwrap(),
-                IndexInMerkleTree::from(2)
+                (TreeIndex::from(2), IndexInMerkleTree::from(2))
             );
             assert_eq!(
-                user_db.get_user_merkle_tree_index(&ADDR_1).unwrap(),
-                IndexInMerkleTree::from(0)
+                user_db.get_user_indexes(&ADDR_1).unwrap(),
+                (TreeIndex::from(2), IndexInMerkleTree::from(0))
             );
             assert_eq!(
-                user_db.get_user_merkle_tree_index(&ADDR_2).unwrap(),
-                IndexInMerkleTree::from(1)
+                user_db.get_user_indexes(&ADDR_2).unwrap(),
+                (TreeIndex::from(2), IndexInMerkleTree::from(1))
             );
         }
     }

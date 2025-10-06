@@ -227,7 +227,7 @@ mod tests {
         let temp_folder_tree = tempfile::tempdir().unwrap();
         let user_db_service = UserDbService::new(
             PathBuf::from(temp_folder.path()),
-            PathBuf::from(temp_folder_tree.path()),
+            vec![PathBuf::from(temp_folder_tree.path())],
             Default::default(),
             epoch_store,
             10.into(),

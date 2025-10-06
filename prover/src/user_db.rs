@@ -1,11 +1,8 @@
-use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 // third-party
 use alloy::primitives::{Address, U256};
 use ark_bn254::Fr;
-use claims::debug_assert_lt;
-use nom::AsBytes;
 use parking_lot::RwLock;
 use rln::{
     hashers::poseidon_hash,
@@ -73,6 +70,7 @@ pub struct UserTierInfo {
 pub(crate) struct UserDb {
     db: Arc<DB>,
     merkle_tree: Arc<RwLock<Vec<PoseidonTree>>>,
+    tree_count: u64,
     rate_limit: RateLimit,
     pub(crate) epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
     rln_identity_serializer: RlnUserIdentitySerializer,
@@ -195,7 +193,7 @@ impl UserDb {
 
         // merkle tree
         // TODO: args
-        let trees = (0..MERKLE_TREE_COUNT)
+        let trees = (0..merkle_tree_folders.len())
             .map(|i| {
 
                 let tree_config = PmtreeConfig::builder()
@@ -217,6 +215,7 @@ impl UserDb {
         Ok(Self {
             db,
             merkle_tree: Arc::new(RwLock::new(trees)),
+            tree_count: merkle_tree_folders.len() as u64,
             // merkle_tree_last_index: Arc::new(RwLock::new(0)),
             rate_limit,
             epoch_store,
@@ -325,6 +324,8 @@ impl UserDb {
                     .deserialize(batch_read.as_slice())
                     .unwrap();
 
+                let last_tree_index = last_tree_index % self.tree_count;
+
                 let key_last_index_in_mt = [
                     INDEX_COUNTERS_KEY_LAST_INDEX_IN_MT_PREFIX,
                     &u64::from(last_tree_index).to_le_bytes()
@@ -350,6 +351,7 @@ impl UserDb {
 
                 // Note: write to Merkle tree in the Db transaction so if the write fails
                 //       the Db transaction will also fails
+
                 self.merkle_tree
                     .write()
                     [usize::from(last_tree_index)]
@@ -772,7 +774,7 @@ mod tests {
             Default::default(),
             Default::default(),
         )
-        .unwrap();
+        .expect("Cannot create UserDb");
 
         let addr = Address::new([0; 20]);
         user_db.register(addr).unwrap();
@@ -866,6 +868,7 @@ mod tests {
 
     #[test]
     fn test_user_remove() {
+
         let temp_folder = tempfile::tempdir().unwrap();
         let temp_folder_tree = tempfile::tempdir().unwrap();
         let epoch_store = Arc::new(RwLock::new(Default::default()));
@@ -884,6 +887,7 @@ mod tests {
         user_db.register(ADDR_2).unwrap();
         let mtree_index_add_addr_2 = user_db.merkle_tree.read()[0].leaves_set();
         assert_ne!(mtree_index_add_addr_1, mtree_index_add_addr_2);
+
         user_db.remove_user(&ADDR_2, false);
         let mtree_index_after_rm_addr_2 = user_db.merkle_tree.read()[0].leaves_set();
         assert_eq!(user_db.has_user(&ADDR_1), Ok(true));
