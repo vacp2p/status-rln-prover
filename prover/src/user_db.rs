@@ -169,7 +169,7 @@ impl UserDb {
         if !db.key_may_exist_cf(cf_index, INDEX_COUNTERS_KEY_COUNT) {
 
             let mut buffer = Vec::with_capacity(tree_count_serializer.size_hint());
-            tree_count_serializer.serialize(&0u64, &mut buffer);
+            tree_count_serializer.serialize(&(merkle_tree_folders.len() as u64), &mut buffer);
 
             db.merge_cf(cf_index, INDEX_COUNTERS_KEY_COUNT, &buffer)?;
 
@@ -180,7 +180,7 @@ impl UserDb {
             tree_index_serializer.serialize(&TreeIndex::from(0), &mut buffer);
             db.merge_cf(cf_index, INDEX_COUNTERS_KEY_TREE_LAST_INDEX, &buffer)?;
 
-            for i in 0..MERKLE_TREE_COUNT {
+            for i in 0..merkle_tree_folders.len() {
                 let key = [
                     INDEX_COUNTERS_KEY_LAST_INDEX_IN_MT_PREFIX,
                     &(i as u64).to_le_bytes()
@@ -213,6 +213,7 @@ impl UserDb {
         let tier_limits_deserializer = TierLimitsDeserializer {
             tier_deserializer: TierDeserializer {},
         };
+
         Ok(Self {
             db,
             merkle_tree: Arc::new(RwLock::new(trees)),
@@ -707,6 +708,40 @@ impl UserDb {
 // Test functions
 #[cfg(test)]
 impl UserDb {
+
+    /// Test only - see `get_tree_count_`
+    pub(crate) fn get_tree_count(&self) -> Result<u64, MerkleTreeIndexError> {
+        Self::get_tree_count_(
+            self.db.clone(),
+            self.get_index_cf(),
+            &self.tree_count_deserializer
+        )
+    }
+
+    /// (Test only) - Return the tree count (e.g. number of merkle trees used)
+    fn get_tree_count_(
+        db: Arc<DB>,
+        cf: &ColumnFamily,
+        tree_count_deserializer: &U64Deserializer,
+    )
+        -> Result<u64, MerkleTreeIndexError> {
+
+        match db.get_pinned_cf(cf, INDEX_COUNTERS_KEY_COUNT) {
+            Ok(Some(v)) => {
+                let (_rem, tree_count) = tree_count_deserializer
+                    .deserialize(v.as_ref())
+                    .unwrap();
+                Ok(tree_count)
+            }
+            Ok(None) => { return Err(MerkleTreeIndexError::DbUninitialized); },
+            Err(e) => { return Err(MerkleTreeIndexError::Db(e)); },
+        }
+    }
+
+    pub(crate) fn set_merkle_trees(&mut self, trees: Arc<RwLock<Vec<PoseidonTree>>>) {
+        self.merkle_tree = trees;
+    }
+
 
     /// Test only - see `get_next_indexes_`
     pub(crate) fn get_next_indexes(&self) -> Result<(TreeIndex, IndexInMerkleTree), MerkleTreeIndexError> {
