@@ -4,18 +4,19 @@ use std::sync::Arc;
 use alloy::primitives::{Address, U256};
 use ark_bn254::Fr;
 use parking_lot::RwLock;
+use rocksdb::{
+    ColumnFamily, ColumnFamilyDescriptor, DB, Options, ReadOptions, WriteBatch, WriteBatchWithIndex,
+};
+use tracing::error;
+// Zerokit
 use rln::{
     hashers::poseidon_hash,
     pm_tree_adapter::PmtreeConfig,
     poseidon_tree::{MerkleProof, PoseidonTree},
     protocol::keygen,
 };
-use rocksdb::{
-    ColumnFamily, ColumnFamilyDescriptor, DB, Options, ReadOptions, WriteBatch, WriteBatchWithIndex,
-};
-use tracing::error;
-use zerokit_utils::Mode::HighThroughput;
 use zerokit_utils::{
+    Mode::HighThroughput,
     error::ZerokitMerkleTreeError,
     pmtree::{PmtreeErrorKind, TreeErrorKind},
 };
@@ -27,14 +28,14 @@ use crate::rocksdb_operands::{
     epoch_counters_operands, u64_counter_operands,
 };
 use crate::tier::{TierLimit, TierLimits, TierMatch, TierName};
-use crate::user_db_error::{
-    MerkleTreeIndexError, RegisterError, SetTierLimitsError, TxCounterError, UserDbOpenError,
-    UserMerkleTreeIndexError, UserTierInfoError,
-};
-use crate::user_db_serialization::{IndexInMerkleTreeDeserializer, IndexInMerkleTreeSerializer, RlnUserIdentityDeserializer, RlnUserIdentitySerializer, TierDeserializer, TierLimitsDeserializer, TierLimitsSerializer, TreeIndexDeserializer, TreeIndexSerializer};
+use crate::user_db_error::{RegisterError, SetTierLimitsError, TxCounterError, UserDbOpenError, UserMerkleTreeIndexError, UserTierInfoError};
+use crate::user_db_serialization::{IndexInMerkleTreeDeserializer, IndexInMerkleTreeSerializer, RlnUserIdentityDeserializer, RlnUserIdentitySerializer, TierDeserializer, TierLimitsDeserializer, TierLimitsSerializer, TreeIndexDeserializer, TreeIndexSerializer, U64Deserializer, U64Serializer};
 use crate::user_db_types::{EpochCounter, EpochSliceCounter, IndexInMerkleTree, RateLimit, TreeIndex};
 use rln_proof::{RlnUserIdentity, ZerokitMerkleTree};
 use smart_contract::KarmaAmountExt;
+
+#[cfg(test)]
+use crate::user_db_error::MerkleTreeIndexError;
 
 const MERKLE_TREE_HEIGHT: usize = 20;
 pub const USER_CF: &str = "user";
@@ -75,6 +76,8 @@ pub(crate) struct UserDb {
     pub(crate) epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
     rln_identity_serializer: RlnUserIdentitySerializer,
     rln_identity_deserializer: RlnUserIdentityDeserializer,
+    tree_count_serializer: U64Serializer,
+    tree_count_deserializer: U64Deserializer,
     tree_index_serializer: TreeIndexSerializer,
     tree_index_deserializer: TreeIndexDeserializer,
     index_in_merkle_tree_serializer: IndexInMerkleTreeSerializer,
@@ -130,8 +133,9 @@ impl UserDb {
                 // ColumnFamilyDescriptor::new(MERKLE_TREE_COUNTER_CF, user_mtree_cf_opts),
                 // Db Column for:
                 // * Trees count - key: INDEX_COUNTERS_KEY_COUNT
-                // * Trees last index - key: INDEX_COUNTERS_KEY_TREE_LAST_INDEX
-                // * Last Index in Merkle tree (for each tree) - key prefix: INDEX_COUNTERS_KEY_LAST_INDEX_IN_MT_PREFIX
+                // * Trees last index - key: INDEX_COUNTERS_KEY_TREE_LAST_INDEX (no modulo applied)
+                // * Last index in merkle tree (for each tree) - key prefix: INDEX_COUNTERS_KEY_LAST_INDEX_IN_MT_PREFIX
+                //    * So a key is: INDEX_COUNTERS_KEY_LAST_INDEX_IN_MT_PREFIX + tree_index as u64 as LE bytes
                 ColumnFamilyDescriptor::new(INDEX_COUNTERS_CF, user_mtree_cf_opts),
 
                 // Db column for user tx counters, key: User address, value: EpochCounters
@@ -157,39 +161,36 @@ impl UserDb {
         // index column
 
         let cf_index = db.cf_handle(INDEX_COUNTERS_CF).unwrap();
+        let tree_count_serializer = U64Serializer {};
+        let tree_index_serializer = TreeIndexSerializer {};
+        let index_in_mt_serializer = IndexInMerkleTreeSerializer {};
+
         // Initial DB initialization
         if !db.key_may_exist_cf(cf_index, INDEX_COUNTERS_KEY_COUNT) {
-            db.merge_cf(cf_index, INDEX_COUNTERS_KEY_COUNT, 0u64.to_le_bytes())?;
+
+            let mut buffer = Vec::with_capacity(tree_count_serializer.size_hint());
+            tree_count_serializer.serialize(&0u64, &mut buffer);
+
+            db.merge_cf(cf_index, INDEX_COUNTERS_KEY_COUNT, &buffer)?;
 
             // Ensure that the following key is not present
             debug_assert_eq!(db.key_may_exist_cf(cf_index, INDEX_COUNTERS_KEY_TREE_LAST_INDEX), false);
-            db.merge_cf(cf_index, INDEX_COUNTERS_KEY_TREE_LAST_INDEX, 0u64.to_le_bytes())?;
+
+            buffer.clear();
+            tree_index_serializer.serialize(&TreeIndex::from(0), &mut buffer);
+            db.merge_cf(cf_index, INDEX_COUNTERS_KEY_TREE_LAST_INDEX, &buffer)?;
 
             for i in 0..MERKLE_TREE_COUNT {
                 let key = [
                     INDEX_COUNTERS_KEY_LAST_INDEX_IN_MT_PREFIX,
                     &(i as u64).to_le_bytes()
                 ].concat();
-                db.merge_cf(cf_index, key, 0u64.to_le_bytes())?;
-            }
-        }
 
-        /*
-        let cf_mtree = db.cf_handle(MERKLE_TREE_COUNTER_CF).unwrap();
-        let merkle_index_deserializer = IndexInMerkleTreeDeserializer {};
-        if let Err(e) =
-            Self::get_merkle_tree_index_(db.clone(), cf_mtree, &merkle_index_deserializer)
-        {
-            match e {
-                MerkleTreeIndexError::DbUninitialized => {
-                    // Check if the value is already there (e.g. after a restart)
-                    // if not, we create it
-                    db.merge_cf(cf_mtree, MERKLE_TREE_INDEX_KEY, 0u64.to_le_bytes())?;
-                }
-                _ => return Err(UserDbOpenError::MerkleTreeIndex(e)),
+                buffer.clear();
+                index_in_mt_serializer.serialize(&IndexInMerkleTree::from(0), &mut buffer);
+                db.merge_cf(cf_index, key, &buffer)?;
             }
         }
-        */
 
         // merkle tree
         // TODO: args
@@ -221,6 +222,8 @@ impl UserDb {
             epoch_store,
             rln_identity_serializer: RlnUserIdentitySerializer {},
             rln_identity_deserializer: RlnUserIdentityDeserializer {},
+            tree_count_serializer: U64Serializer {},
+            tree_count_deserializer: U64Deserializer {},
             tree_index_serializer: TreeIndexSerializer {},
             tree_index_deserializer: TreeIndexDeserializer {},
             index_in_merkle_tree_serializer: IndexInMerkleTreeSerializer {},
@@ -481,7 +484,6 @@ impl UserDb {
                     return false;
                 }
             }
-
         }
 
         // Remove user
@@ -593,39 +595,6 @@ impl UserDb {
         self.register(*address)
     }
 
-    #[cfg(test)]
-    pub(crate) fn get_merkle_tree_index(&self) -> Result<(TreeIndex, IndexInMerkleTree), MerkleTreeIndexError> {
-        // let cf_mtree = self.get_mtree_cf();
-        Self::get_merkle_tree_index_(
-            self.db.clone(),
-            self.get_index_cf(),
-            &self.tree_index_deserializer,
-            &self.index_in_merkle_tree_deserializer)
-    }
-
-    fn get_merkle_tree_index_(
-        db: Arc<DB>,
-        cf: &ColumnFamily,
-        tree_index_deserializer: &TreeIndexDeserializer,
-        merkle_tree_index_deserializer: &IndexInMerkleTreeDeserializer,
-    ) -> Result<(TreeIndex, IndexInMerkleTree), MerkleTreeIndexError> {
-        match db.get_cf(cf, INDEX_COUNTERS_CF) {
-            Ok(Some(v)) => {
-                // Unwrap safe - serialization is done by the prover
-
-                let (rem, tree_index) = tree_index_deserializer
-                    .deserialize(v.as_slice())
-                    .unwrap();
-
-                let (_, index_in_mt) = merkle_tree_index_deserializer
-                    .deserialize(rem)
-                    .unwrap();
-                Ok((tree_index, index_in_mt))
-            }
-            Ok(None) => Err(MerkleTreeIndexError::DbUninitialized),
-            Err(e) => Err(MerkleTreeIndexError::Db(e)),
-        }
-    }
 
     pub fn get_merkle_proof(
         &self,
@@ -732,6 +701,84 @@ impl UserDb {
         };
 
         Ok(user_tier_info)
+    }
+}
+
+// Test functions
+#[cfg(test)]
+impl UserDb {
+
+    /// Test only - see `get_next_indexes_`
+    pub(crate) fn get_next_indexes(&self) -> Result<(TreeIndex, IndexInMerkleTree), MerkleTreeIndexError> {
+        Self::get_next_indexes_(
+            self.db.clone(),
+            self.get_index_cf(),
+            Some(self.tree_count),
+            &self.tree_count_deserializer,
+            &self.tree_index_deserializer,
+            &self.index_in_merkle_tree_deserializer)
+    }
+
+    /// (Test only) - Return the next tree index + corresponding next index in merkle index
+    fn get_next_indexes_(
+        db: Arc<DB>,
+        cf: &ColumnFamily,
+        tree_count: Option<u64>,
+        tree_count_deserializer: &U64Deserializer,
+        tree_index_deserializer: &TreeIndexDeserializer,
+        index_in_merkle_tree_deserializer: &IndexInMerkleTreeDeserializer
+    )
+        -> Result<(TreeIndex, IndexInMerkleTree), MerkleTreeIndexError> {
+
+        let tree_count = if tree_count.is_none() {
+            match db.get_pinned_cf(cf, INDEX_COUNTERS_KEY_COUNT) {
+                Ok(Some(v)) => {
+                    let (_rem, tree_count) = tree_count_deserializer
+                        .deserialize(v.as_ref())
+                        .unwrap();
+                    tree_count
+                }
+                Ok(None) => { return Err(MerkleTreeIndexError::DbUninitialized); },
+                Err(e) => { return Err(MerkleTreeIndexError::Db(e)); },
+            }
+        } else {
+            tree_count.unwrap()
+        };
+
+        let last_tree_index = match db.get_pinned_cf(cf, INDEX_COUNTERS_KEY_TREE_LAST_INDEX) {
+            Ok(Some(v)) => {
+                // Unwrap safe - serialization is done by the prover
+
+                let (_rem, last_tree_index) = tree_index_deserializer
+                    .deserialize(v.as_ref())
+                    .unwrap();
+
+                last_tree_index % tree_count
+            }
+            Ok(None) => { return Err(MerkleTreeIndexError::DbUninitialized); },
+            Err(e) => { return Err(MerkleTreeIndexError::Db(e)); },
+        };
+
+        let key_last_index_in_mt = [
+            INDEX_COUNTERS_KEY_LAST_INDEX_IN_MT_PREFIX,
+            &u64::from(last_tree_index).to_le_bytes()
+        ].concat();
+
+        // println!("[get indexes_] key last index in mt: {:?}", key_last_index_in_mt);
+
+        let last_index_in_mt = match db.get_pinned_cf(cf, key_last_index_in_mt) {
+            Ok(Some(v)) => {
+                let (_rem, last_index_in_mt) = index_in_merkle_tree_deserializer
+                    .deserialize(v.as_ref())
+                    .unwrap();
+
+                last_index_in_mt
+            },
+            Ok(None) => { return Err(MerkleTreeIndexError::DbUninitialized); },
+            Err(e) => { return Err(MerkleTreeIndexError::Db(e)); },
+        };
+
+        Ok((last_tree_index, last_index_in_mt))
     }
 }
 

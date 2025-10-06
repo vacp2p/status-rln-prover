@@ -85,6 +85,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_persistent_storage() {
+
         let temp_folder = tempfile::tempdir().unwrap();
         let temp_folder_tree = tempfile::tempdir().unwrap();
         let epoch_store = Arc::new(RwLock::new(Default::default()));
@@ -101,29 +102,30 @@ mod tests {
             .unwrap();
 
             assert_eq!(
-                user_db.get_merkle_tree_index().unwrap(),
+                user_db.get_next_indexes().unwrap(),
                 (TreeIndex::from(0), IndexInMerkleTree::from(0))
             );
             // Register user
             user_db.register(ADDR_1).unwrap();
             assert_eq!(
-                user_db.get_merkle_tree_index().unwrap(),
+                user_db.get_next_indexes().unwrap(),
                 (TreeIndex::from(0), IndexInMerkleTree::from(1))
             );
+
             // + 1 user
             user_db.register(ADDR_2).unwrap();
             assert_eq!(
-                user_db.get_merkle_tree_index().unwrap(),
-                (TreeIndex::from(1), IndexInMerkleTree::from(1))
+                user_db.get_next_indexes().unwrap(),
+                (TreeIndex::from(0), IndexInMerkleTree::from(2))
             );
 
             assert_eq!(
                 user_db.get_user_indexes(&ADDR_1).unwrap(),
-                (TreeIndex::from(2), IndexInMerkleTree::from(0))
+                (TreeIndex::from(0), IndexInMerkleTree::from(0))
             );
             assert_eq!(
                 user_db.get_user_indexes(&ADDR_2).unwrap(),
-                (TreeIndex::from(2), IndexInMerkleTree::from(1))
+                (TreeIndex::from(0), IndexInMerkleTree::from(1))
             );
 
             assert_eq!(
@@ -135,7 +137,7 @@ mod tests {
                 Ok(EpochSliceCounter::from(1000))
             );
 
-            // Should be dropped but let's make it explicit
+            // user_db is dropped at the end of the scope, but let's make it explicit
             drop(user_db);
         }
 
@@ -163,16 +165,16 @@ mod tests {
             );
 
             assert_eq!(
-                user_db.get_merkle_tree_index().unwrap(),
-                (TreeIndex::from(2), IndexInMerkleTree::from(2))
+                user_db.get_next_indexes().unwrap(),
+                (TreeIndex::from(0), IndexInMerkleTree::from(2))
             );
             assert_eq!(
                 user_db.get_user_indexes(&ADDR_1).unwrap(),
-                (TreeIndex::from(2), IndexInMerkleTree::from(0))
+                (TreeIndex::from(0), IndexInMerkleTree::from(0))
             );
             assert_eq!(
                 user_db.get_user_indexes(&ADDR_2).unwrap(),
-                (TreeIndex::from(2), IndexInMerkleTree::from(1))
+                (TreeIndex::from(0), IndexInMerkleTree::from(1))
             );
         }
     }

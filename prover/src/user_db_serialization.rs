@@ -67,6 +67,31 @@ impl RlnUserIdentityDeserializer {
 }
 
 #[derive(Clone)]
+pub(crate) struct U64Serializer {}
+
+impl U64Serializer {
+    pub(crate) fn serialize(&self, value: &u64, buffer: &mut Vec<u8>) {
+        buffer.extend(value.to_le_bytes());
+    }
+
+    pub(crate) const fn size_hint(&self) -> usize {
+        size_of::<u64>()
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct U64Deserializer {}
+
+impl U64Deserializer {
+    pub(crate) fn deserialize<'a>(
+        &self,
+        buffer: &'a [u8],
+    ) -> IResult<&'a [u8], u64, nom::error::Error<&'a [u8]>> {
+        le_u64(buffer)
+    }
+}
+
+#[derive(Clone)]
 pub(crate) struct TreeIndexSerializer {}
 
 impl TreeIndexSerializer {
@@ -75,7 +100,7 @@ impl TreeIndexSerializer {
         buffer.extend(value.to_le_bytes());
     }
 
-    pub(crate) fn size_hint(&self) -> usize {
+    pub(crate) const fn size_hint(&self) -> usize {
         // Note: Assume usize size == 8 bytes
         size_of::<TreeIndex>()
     }
@@ -102,7 +127,7 @@ impl IndexInMerkleTreeSerializer {
         buffer.extend(value.to_le_bytes());
     }
 
-    pub(crate) fn size_hint(&self) -> usize {
+    pub(crate) const fn size_hint(&self) -> usize {
         // Note: Assume usize size == 8 bytes
         size_of::<IndexInMerkleTree>()
     }
