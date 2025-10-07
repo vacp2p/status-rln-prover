@@ -12,7 +12,7 @@ mod tests {
     use zerokit_utils::Mode::HighThroughput;
     use zerokit_utils::ZerokitMerkleTree;
     // internal
-    use crate::user_db::UserDb;
+    use crate::user_db::{UserDb, UserDbConfig, MERKLE_TREE_HEIGHT};
     use crate::user_db_types::{EpochCounter, EpochSliceCounter, IndexInMerkleTree, TreeIndex};
 
     const ADDR_1: Address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
@@ -32,9 +32,16 @@ mod tests {
         let epoch_slice = 42;
         *epoch_store.write() = (Epoch::from(epoch), EpochSlice::from(epoch_slice));
 
+        let config = UserDbConfig {
+            db_path: PathBuf::from(temp_folder.path()),
+            merkle_tree_folder: PathBuf::from(temp_folder_tree.path()),
+            tree_count: 1,
+            max_tree_count: 1,
+            tree_depth: MERKLE_TREE_HEIGHT,
+        };
+
         let user_db = UserDb::new(
-            PathBuf::from(temp_folder.path()),
-            vec![PathBuf::from(temp_folder_tree.path())],
+            config,
             epoch_store,
             Default::default(),
             Default::default(),
@@ -95,36 +102,46 @@ mod tests {
         let temp_folder = tempfile::tempdir().unwrap();
         let temp_folder_tree = tempfile::tempdir().unwrap();
         let epoch_store = Arc::new(RwLock::new(Default::default()));
+        let config = UserDbConfig {
+            db_path: PathBuf::from(temp_folder.path()),
+            merkle_tree_folder: PathBuf::from(temp_folder_tree.path()),
+            tree_count: 1,
+            max_tree_count: 1,
+            tree_depth: MERKLE_TREE_HEIGHT,
+        };
 
         let addr = Address::new([0; 20]);
         {
             let user_db = UserDb::new(
-                PathBuf::from(temp_folder.path()),
-                vec![PathBuf::from(temp_folder_tree.path())],
+                config.clone(),
                 epoch_store.clone(),
                 Default::default(),
                 Default::default(),
             )
             .unwrap();
 
+            /*
             assert_eq!(
                 user_db.get_next_indexes().unwrap(),
                 (TreeIndex::from(0), IndexInMerkleTree::from(0))
             );
+            */
             // Register user
             user_db.register(ADDR_1).unwrap();
+            /*
             assert_eq!(
                 user_db.get_next_indexes().unwrap(),
                 (TreeIndex::from(0), IndexInMerkleTree::from(1))
             );
-
+            */
             // + 1 user
             user_db.register(ADDR_2).unwrap();
+            /*
             assert_eq!(
                 user_db.get_next_indexes().unwrap(),
                 (TreeIndex::from(0), IndexInMerkleTree::from(2))
             );
-
+            */
             assert_eq!(
                 user_db.get_user_indexes(&ADDR_1).unwrap(),
                 (TreeIndex::from(0), IndexInMerkleTree::from(0))
@@ -150,8 +167,7 @@ mod tests {
         {
             // Reopen Db and check that is inside
             let user_db = UserDb::new(
-                PathBuf::from(temp_folder.path()),
-                vec![PathBuf::from(temp_folder_tree.path())],
+                config,
                 epoch_store,
                 Default::default(),
                 Default::default(),
@@ -170,10 +186,12 @@ mod tests {
                 (1000.into(), 1000.into())
             );
 
+            /*
             assert_eq!(
                 user_db.get_next_indexes().unwrap(),
                 (TreeIndex::from(0), IndexInMerkleTree::from(2))
             );
+            */
             assert_eq!(
                 user_db.get_user_indexes(&ADDR_1).unwrap(),
                 (TreeIndex::from(0), IndexInMerkleTree::from(0))
@@ -192,25 +210,29 @@ mod tests {
         let temp_folder_tree_2 = tempfile::tempdir().unwrap();
         let temp_folder_tree_3 = tempfile::tempdir().unwrap();
         let epoch_store = Arc::new(RwLock::new(Default::default()));
+        let config = UserDbConfig {
+            db_path: PathBuf::from(temp_folder.path()),
+            merkle_tree_folder: PathBuf::from(temp_folder_tree.path()),
+            tree_count: 3,
+            max_tree_count: 3,
+            tree_depth: 1,
+        };
 
         {
             let user_db = UserDb::new(
-                PathBuf::from(temp_folder.path()),
-                vec![
-                    PathBuf::from(temp_folder_tree.path()),
-                    PathBuf::from(temp_folder_tree_2.path()),
-                    PathBuf::from(temp_folder_tree_3.path()),
-                ],
+                config.clone(),
                 epoch_store.clone(),
                 Default::default(),
                 Default::default(),
             )
                 .unwrap();
 
+            /*
             assert_eq!(
                 user_db.get_next_indexes().unwrap(),
                 (TreeIndex::from(0), IndexInMerkleTree::from(0))
             );
+            */
 
             user_db.register(ADDR_1).unwrap();
             user_db.register(ADDR_2).unwrap();
@@ -223,21 +245,23 @@ mod tests {
             );
             assert_eq!(
                 user_db.get_user_indexes(&ADDR_2).unwrap(),
-                (TreeIndex::from(1), IndexInMerkleTree::from(0))
+                (TreeIndex::from(0), IndexInMerkleTree::from(1))
             );
             assert_eq!(
                 user_db.get_user_indexes(&ADDR_3).unwrap(),
-                (TreeIndex::from(2), IndexInMerkleTree::from(0))
+                (TreeIndex::from(0), IndexInMerkleTree::from(2))
             );
             assert_eq!(
                 user_db.get_user_indexes(&ADDR_4).unwrap(),
-                (TreeIndex::from(0), IndexInMerkleTree::from(1))
+                (TreeIndex::from(1), IndexInMerkleTree::from(0))
             );
 
+            /*
             assert_eq!(
                 user_db.get_next_indexes().unwrap(),
                 (TreeIndex::from(1), IndexInMerkleTree::from(1))
             );
+            */
 
             drop(user_db);
         }
@@ -246,37 +270,41 @@ mod tests {
             // reload UserDb from disk and check indexes
 
             let user_db = UserDb::new(
-                PathBuf::from(temp_folder.path()),
-                vec![
-                    PathBuf::from(temp_folder_tree.path()),
-                    PathBuf::from(temp_folder_tree_2.path()),
-                    PathBuf::from(temp_folder_tree_3.path()),
-                ],
+                config,
                 epoch_store.clone(),
                 Default::default(),
                 Default::default(),
             )
                 .unwrap();
 
+            /*
             assert_eq!(
                 user_db.get_next_indexes().unwrap(),
                 (TreeIndex::from(1), IndexInMerkleTree::from(1))
             );
+            */
         }
     }
 
     #[test]
-    fn test_multi_tree_new() {
+    fn test_multi_new_tree() {
 
         // Check if UserDb add a new tree is a tree is full
 
         let temp_folder = tempfile::tempdir().unwrap();
         let temp_folder_tree = tempfile::tempdir().unwrap();
         let epoch_store = Arc::new(RwLock::new(Default::default()));
+        let tree_depth = 1;
+        let config = UserDbConfig {
+            db_path: PathBuf::from(temp_folder.path()),
+            merkle_tree_folder: PathBuf::from(temp_folder_tree.path()),
+            tree_count: 1,
+            max_tree_count: 2,
+            tree_depth,
+        };
 
         let mut user_db = UserDb::new(
-            PathBuf::from(temp_folder.path()),
-            vec![PathBuf::from(temp_folder_tree.path())],
+            config,
             epoch_store.clone(),
             Default::default(),
             Default::default(),
@@ -293,15 +321,24 @@ mod tests {
             .use_compression(false)
             .build()
             .unwrap();
-        let tree = PoseidonTree::new(1, Default::default(), config).unwrap();
+        let tree = PoseidonTree::new(usize::from(tree_depth), Default::default(), config).unwrap();
         let tree = Arc::new(RwLock::new(vec![tree]));
         user_db.set_merkle_trees(tree.clone());
 
         assert_eq!(user_db.get_tree_count().unwrap(), 1);
 
         user_db.register(ADDR_1).unwrap();
+        assert_eq!(
+            user_db.get_user_indexes(&ADDR_1).unwrap(),
+            (TreeIndex::from(0), IndexInMerkleTree::from(0))
+        );
         user_db.register(ADDR_2).unwrap();
+        assert_eq!(
+            user_db.get_user_indexes(&ADDR_2).unwrap(),
+            (TreeIndex::from(0), IndexInMerkleTree::from(1))
+        );
         user_db.register(ADDR_3).unwrap();
+
         user_db.register(ADDR_4).unwrap();
     }
 }

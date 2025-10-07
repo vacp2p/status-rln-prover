@@ -300,7 +300,7 @@ mod tests {
 
     #[test]
     fn test_index_mtree_ser_der() {
-        let index = IndexInMerkleTree::from(4242);
+        let index = IndexInMerkleTree::from(4242u64);
 
         let serializer = IndexInMerkleTreeSerializer {};
         let mut buffer = Vec::with_capacity(serializer.size_hint());

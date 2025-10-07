@@ -9,7 +9,7 @@ use tracing::debug;
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::AppError;
 use crate::tier::TierLimits;
-use crate::user_db::UserDb;
+use crate::user_db::{UserDb, UserDbConfig};
 use crate::user_db_error::UserDbOpenError;
 use crate::user_db_types::RateLimit;
 
@@ -22,16 +22,14 @@ pub struct UserDbService {
 
 impl UserDbService {
     pub fn new(
-        db_path: PathBuf,
-        merkle_tree_folders: Vec<PathBuf>,
+        config: UserDbConfig,
         epoch_changes_notifier: Arc<Notify>,
         epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
         rate_limit: RateLimit,
         tier_limits: TierLimits,
     ) -> Result<Self, UserDbOpenError> {
         let user_db = UserDb::new(
-            db_path,
-            merkle_tree_folders,
+            config,
             epoch_store,
             tier_limits,
             rate_limit,

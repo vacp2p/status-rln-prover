@@ -184,6 +184,7 @@ mod tests {
     use parking_lot::RwLock;
     // internal
     use crate::epoch_service::{Epoch, EpochSlice};
+    use crate::user_db::{UserDbConfig, MERKLE_TREE_HEIGHT};
     use crate::user_db_service::UserDbService;
 
     // const ADDR_1: Address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
@@ -225,9 +226,16 @@ mod tests {
         let epoch_store = Arc::new(RwLock::new((epoch, epoch_slice)));
         let temp_folder = tempfile::tempdir().unwrap();
         let temp_folder_tree = tempfile::tempdir().unwrap();
+        let config = UserDbConfig {
+            db_path: PathBuf::from(temp_folder.path()),
+            merkle_tree_folder: PathBuf::from(temp_folder_tree.path()),
+            tree_count: 1,
+            max_tree_count: 1,
+            tree_depth: MERKLE_TREE_HEIGHT,
+        };
+
         let user_db_service = UserDbService::new(
-            PathBuf::from(temp_folder.path()),
-            vec![PathBuf::from(temp_folder_tree.path())],
+            config,
             Default::default(),
             epoch_store,
             10.into(),

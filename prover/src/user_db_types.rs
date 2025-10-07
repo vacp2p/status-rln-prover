@@ -2,6 +2,11 @@ use std::ops::{Rem};
 use ark_bn254::Fr;
 use derive_more::{Add, From, Into};
 
+const _: () = assert!(
+    size_of::<u64>() == size_of::<usize>(),
+    "Expect usize to have the same size as of u64"
+);
+
 /// An index to a tree (wrapper over u64)
 /// 
 /// As the prover handles multiple merkle trees, we need to know in which tree is an address
@@ -10,13 +15,19 @@ pub(crate) struct TreeIndex(u64);
 
 impl From<TreeIndex> for usize {
     fn from(value: TreeIndex) -> Self {
-        const _: () = assert!(
-            size_of::<u64>() == size_of::<usize>(),
-            "Expect usize to have the same size as of u64"
-        );
+        // as safe: const assert that u64 size == usize size
         value.0 as usize
     }
 }
+
+/*
+impl From<usize> for TreeIndex {
+    fn from(value: usize) -> Self {
+        // as safe: const assert that u64 size == usize size
+        TreeIndex(value as u64)
+    }
+}
+*/
 
 impl Rem<u64> for TreeIndex {
     type Output = Self;
@@ -32,13 +43,19 @@ pub(crate) struct IndexInMerkleTree(u64);
 
 impl From<IndexInMerkleTree> for usize {
     fn from(value: IndexInMerkleTree) -> Self {
-        const _: () = assert!(
-            size_of::<u64>() == size_of::<usize>(),
-            "Expect usize to have the same size as of u64"
-        );
+        // as safe: const assert that u64 size == usize size
         value.0 as usize
     }
 }
+
+/*
+impl From<usize> for IndexInMerkleTree {
+    fn from(value: usize) -> Self {
+        // as safe: const assert that u64 size == usize size
+        Self { 0: value as u64 }
+    }
+}
+*/
 
 /// A rate limit for a user address
 /// 

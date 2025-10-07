@@ -222,6 +222,7 @@ mod tests {
     // internal
     use crate::user_db_service::UserDbService;
     use rln_proof::RlnIdentifier;
+    use crate::user_db::{UserDbConfig, MERKLE_TREE_HEIGHT};
 
     const ADDR_1: Address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
     const ADDR_2: Address = address!("0xb20a608c624Ca5003905aA834De7156C68b2E1d0");
@@ -321,9 +322,16 @@ mod tests {
         // User db
         let temp_folder = tempfile::tempdir().unwrap();
         let temp_folder_tree = tempfile::tempdir().unwrap();
+        let config = UserDbConfig {
+            db_path: PathBuf::from(temp_folder.path()),
+            merkle_tree_folder: PathBuf::from(temp_folder_tree.path()),
+            tree_count: 1,
+            max_tree_count: 1,
+            tree_depth: MERKLE_TREE_HEIGHT,
+        };
+
         let user_db_service = UserDbService::new(
-            PathBuf::from(temp_folder.path()),
-            vec![PathBuf::from(temp_folder_tree.path())],
+            config,
             Default::default(),
             epoch_store.clone(),
             10.into(),
