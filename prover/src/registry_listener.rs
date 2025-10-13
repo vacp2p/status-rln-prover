@@ -184,7 +184,7 @@ mod tests {
     use parking_lot::RwLock;
     // internal
     use crate::epoch_service::{Epoch, EpochSlice};
-    use crate::user_db::{UserDbConfig, MERKLE_TREE_HEIGHT};
+    use crate::user_db::{MERKLE_TREE_HEIGHT, UserDbConfig};
     use crate::user_db_service::UserDbService;
 
     // const ADDR_1: Address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");

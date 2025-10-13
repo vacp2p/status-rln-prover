@@ -21,7 +21,7 @@ mod tests {
     use crate::error::{AppError, ProofGenerationStringError};
     use crate::proof_generation::{ProofGenerationData, ProofSendingData};
     use crate::proof_service::ProofService;
-    use crate::user_db::{UserDb, UserDbConfig, MERKLE_TREE_HEIGHT};
+    use crate::user_db::{MERKLE_TREE_HEIGHT, UserDb, UserDbConfig};
     use crate::user_db_service::UserDbService;
     use crate::user_db_types::RateLimit;
     use rln_proof::RlnIdentifier;

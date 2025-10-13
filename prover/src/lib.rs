@@ -43,13 +43,13 @@ use crate::proof_service::ProofService;
 use crate::registry_listener::RegistryListener;
 use crate::tier::TierLimits;
 use crate::tiers_listener::TiersListener;
+use crate::user_db::{MERKLE_TREE_HEIGHT, UserDbConfig};
 use crate::user_db_error::RegisterError;
 use crate::user_db_service::UserDbService;
 use crate::user_db_types::RateLimit;
 use rln_proof::RlnIdentifier;
 use smart_contract::KarmaTiers::KarmaTiersInstance;
 use smart_contract::{KarmaTiersError, TIER_LIMITS};
-use crate::user_db::{UserDbConfig, MERKLE_TREE_HEIGHT};
 
 pub async fn run_prover(app_args: AppArgs) -> Result<(), AppError> {
     // Epoch

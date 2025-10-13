@@ -220,9 +220,9 @@ mod tests {
         protocol::{deserialize_proof_values, verify_proof},
     };
     // internal
+    use crate::user_db::{MERKLE_TREE_HEIGHT, UserDbConfig};
     use crate::user_db_service::UserDbService;
     use rln_proof::RlnIdentifier;
-    use crate::user_db::{UserDbConfig, MERKLE_TREE_HEIGHT};
 
     const ADDR_1: Address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
     const ADDR_2: Address = address!("0xb20a608c624Ca5003905aA834De7156C68b2E1d0");

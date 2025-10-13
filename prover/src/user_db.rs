@@ -15,9 +15,7 @@ use rln::{
     poseidon_tree::{MerkleProof, PoseidonTree},
     protocol::keygen,
 };
-use zerokit_utils::{
-    Mode::HighThroughput,
-};
+use zerokit_utils::Mode::HighThroughput;
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::GetMerkleTreeProofError;
@@ -26,9 +24,18 @@ use crate::rocksdb_operands::{
     epoch_counters_operands, u64_counter_operands,
 };
 use crate::tier::{TierLimit, TierLimits, TierMatch, TierName};
-use crate::user_db_error::{DbError, RegisterError, SetTierLimitsError, TxCounterError, UserDbOpenError, UserMerkleTreeIndexError, UserTierInfoError};
-use crate::user_db_serialization::{IndexInMerkleTreeDeserializer, IndexInMerkleTreeSerializer, RlnUserIdentityDeserializer, RlnUserIdentitySerializer, TierDeserializer, TierLimitsDeserializer, TierLimitsSerializer, TreeIndexDeserializer, TreeIndexSerializer, U64Deserializer, U64Serializer};
-use crate::user_db_types::{EpochCounter, EpochSliceCounter, IndexInMerkleTree, RateLimit, TreeIndex};
+use crate::user_db_error::{
+    DbError, RegisterError, SetTierLimitsError, TxCounterError, UserDbOpenError,
+    UserMerkleTreeIndexError, UserTierInfoError,
+};
+use crate::user_db_serialization::{
+    IndexInMerkleTreeDeserializer, IndexInMerkleTreeSerializer, RlnUserIdentityDeserializer,
+    RlnUserIdentitySerializer, TierDeserializer, TierLimitsDeserializer, TierLimitsSerializer,
+    TreeIndexDeserializer, TreeIndexSerializer, U64Deserializer, U64Serializer,
+};
+use crate::user_db_types::{
+    EpochCounter, EpochSliceCounter, IndexInMerkleTree, RateLimit, TreeIndex,
+};
 use rln_proof::{RlnUserIdentity, ZerokitMerkleTree};
 use smart_contract::KarmaAmountExt;
 
@@ -80,7 +87,7 @@ pub(crate) struct UserDb {
     pub(crate) epoch_store: Arc<RwLock<(Epoch, EpochSlice)>>,
     rln_identity_serializer: RlnUserIdentitySerializer,
     rln_identity_deserializer: RlnUserIdentityDeserializer,
-    tree_count_deserializer: U64Deserializer,
+    // tree_count_deserializer: U64Deserializer,
     tree_index_serializer: TreeIndexSerializer,
     tree_index_deserializer: TreeIndexDeserializer,
     index_in_merkle_tree_serializer: IndexInMerkleTreeSerializer,
@@ -102,7 +109,6 @@ impl std::fmt::Debug for UserDb {
 }
 
 impl UserDb {
-
     /// Returns a new `UserDB` instance
     pub fn new(
         config: UserDbConfig,
@@ -110,9 +116,7 @@ impl UserDb {
         tier_limits: TierLimits,
         rate_limit: RateLimit,
     ) -> Result<Self, UserDbOpenError> {
-
         debug_assert!(config.merkle_tree_folder.is_dir());
-        debug_assert!(u64::try_from(config.tree_count).is_ok());
         debug_assert!(config.tree_count <= config.max_tree_count);
 
         let db_options = {
@@ -135,11 +139,9 @@ impl UserDb {
             vec![
                 // Db column for users, key: User address, value: RlnUserIdentity + Merkle trees index + Index in Merkle tree
                 ColumnFamilyDescriptor::new(USER_CF, Options::default()),
-
                 // Db Column for:
                 // * Trees count - key: INDEX_COUNTERS_KEY_COUNT
                 ColumnFamilyDescriptor::new(INDEX_COUNTERS_CF, user_mtree_cf_opts),
-
                 // Db column for user tx counters, key: User address, value: EpochCounters
                 ColumnFamilyDescriptor::new(TX_COUNTER_CF, tx_counter_cf_opts),
                 // Db column for tier limits - key: current && next, value: TierLimits
@@ -165,7 +167,9 @@ impl UserDb {
         let cf_index = db.cf_handle(INDEX_COUNTERS_CF).unwrap();
         let tree_count_serializer = U64Serializer {};
         let tree_count_deserializer = U64Deserializer {};
-        let tree_count = if let Ok(tree_count) = Self::get_tree_count_(db.clone(), cf_index, &tree_count_deserializer) {
+        let tree_count = if let Ok(tree_count) =
+            Self::get_tree_count_(db.clone(), cf_index, &tree_count_deserializer)
+        {
             tree_count
         } else {
             let mut buffer = Vec::with_capacity(tree_count_serializer.size_hint());
@@ -177,11 +181,13 @@ impl UserDb {
         // merkle tree
         let trees = (0..tree_count)
             .map(|i| {
-
                 let tree_folder = config.merkle_tree_folder.join(format!("tree_{}", i));
 
                 if !tree_folder.exists() {
-                    debug!("New - Creating merkle tree folder: {}", tree_folder.display());
+                    debug!(
+                        "New - Creating merkle tree folder: {}",
+                        tree_folder.display()
+                    );
                     std::fs::create_dir(&tree_folder)?;
                 }
 
@@ -194,7 +200,11 @@ impl UserDb {
                     .use_compression(false)
                     .build()?;
 
-                Ok(PoseidonTree::new(usize::from(config.tree_depth), Default::default(), tree_config.clone())?)
+                Ok(PoseidonTree::new(
+                    usize::from(config.tree_depth),
+                    Default::default(),
+                    tree_config.clone(),
+                )?)
             })
             .collect::<Result<Vec<_>, UserDbOpenError>>()?;
 
@@ -210,7 +220,7 @@ impl UserDb {
             epoch_store,
             rln_identity_serializer: RlnUserIdentitySerializer {},
             rln_identity_deserializer: RlnUserIdentityDeserializer {},
-            tree_count_deserializer: U64Deserializer {},
+            // tree_count_deserializer: U64Deserializer {},
             tree_index_serializer: TreeIndexSerializer {},
             tree_index_deserializer: TreeIndexDeserializer {},
             index_in_merkle_tree_serializer: IndexInMerkleTreeSerializer {},
@@ -243,7 +253,6 @@ impl UserDb {
     }
 
     pub(crate) fn register(&self, address: Address) -> Result<Fr, RegisterError> {
-
         // Generate RLN identity
         let (identity_secret_hash, id_commitment) = keygen();
 
@@ -267,10 +276,10 @@ impl UserDb {
         let _index = match self.db.get_cf(cf_user, key) {
             Ok(Some(_)) => {
                 return Err(RegisterError::AlreadyRegistered(address));
-            },
+            }
             Err(e) => {
                 return Err(RegisterError::Db(e));
-            },
+            }
             Ok(None) => {
                 let cf_index = self.get_index_cf();
                 let cf_counter = self.get_counter_cf();
@@ -288,65 +297,64 @@ impl UserDb {
                 let found = merkle_tree_guard
                     .iter_mut()
                     .enumerate()
-                    .find(|(_, tree)| {
-                        tree.leaves_set() < tree.capacity()
-                    });
+                    .find(|(_, tree)| tree.leaves_set() < tree.capacity());
 
-                let (last_tree_index, last_index_in_mt) = if let Some((tree_index, tree_to_set)) = found {
+                let (last_tree_index, last_index_in_mt) =
+                    if let Some((tree_index, tree_to_set)) = found {
+                        // Found a tree that can accept our new user
 
-                    // Found a tree that can accept our new user
+                        let index_in_mt = tree_to_set.leaves_set();
+                        tree_to_set
+                            .set(index_in_mt, rate_commit)
+                            // .map_err(|e| RegisterError::TreeError(e.to_string()))?;
+                            .map_err(RegisterError::TreeError)?;
 
-                    let index_in_mt = tree_to_set.leaves_set();
-                    tree_to_set
-                        .set(usize::from(index_in_mt), rate_commit)
-                        // .map_err(|e| RegisterError::TreeError(e.to_string()))?;
-                        .map_err(|e| RegisterError::TreeError(e))?;
+                        (tree_index, index_in_mt)
+                    } else {
+                        // All trees are full, let's create a new one that can accept our new user
 
-                    (tree_index, index_in_mt)
+                        // as safe : assume sizeof usize == sizeof 64 (see user_db_types.rs)
+                        let tree_count = merkle_tree_guard.len() as u64;
 
-                } else {
+                        if tree_count == self.config.max_tree_count {
+                            return Err(RegisterError::TooManyUsers);
+                        }
 
-                    // All trees are full, let's create a new one that can accept our new user
+                        let tree_folder = self
+                            .config
+                            .merkle_tree_folder
+                            .join(format!("tree_{}", tree_count));
+                        if !tree_folder.exists() {
+                            debug!("Creating merkle tree folder: {}", tree_folder.display());
+                            // Note: Only we create_dir can happen (as we have a write lock)
+                            std::fs::create_dir(&tree_folder)?;
+                        }
 
-                    // as safe : assume sizeof usize == sizeof 64 (see user_db_types.rs)
-                    let tree_count = merkle_tree_guard.len() as u64;
+                        // TODO: config value as args?
+                        let tree_config = PmtreeConfig::builder()
+                            .path(tree_folder)
+                            .temporary(false)
+                            .cache_capacity(100_000)
+                            .flush_every_ms(12_000)
+                            .mode(HighThroughput)
+                            .use_compression(false)
+                            .build()?;
 
-                    if tree_count == self.config.max_tree_count {
-                        return Err(RegisterError::TooManyUsers);
-                    }
+                        let mut tree = PoseidonTree::new(
+                            usize::from(self.config.tree_depth),
+                            Default::default(),
+                            tree_config,
+                        )
+                        .unwrap();
+                        tree.set(0, rate_commit).map_err(RegisterError::TreeError)?;
+                        let tree_index = merkle_tree_guard.len();
+                        merkle_tree_guard.push(tree);
 
-                    let tree_folder = self
-                        .config
-                        .merkle_tree_folder
-                        .join(format!("tree_{}", tree_count));
-                    if !tree_folder.exists() {
-                        debug!("Creating merkle tree folder: {}", tree_folder.display());
-                        // Note: Only we create_dir can happen (as we have a write lock)
-                        std::fs::create_dir(&tree_folder)?;
-                    }
+                        // Update tree count in rocksdb
+                        db_batch.merge_cf(cf_index, INDEX_COUNTERS_KEY_COUNT, 1i64.to_le_bytes());
 
-                    // TODO: config value as args?
-                    let tree_config = PmtreeConfig::builder()
-                        .path(tree_folder)
-                        .temporary(false)
-                        .cache_capacity(100_000)
-                        .flush_every_ms(12_000)
-                        .mode(HighThroughput)
-                        .use_compression(false)
-                        .build()?;
-
-                    let mut tree = PoseidonTree::new(
-                        usize::from(self.config.tree_depth), Default::default(), tree_config).unwrap();
-                    tree.set(0, rate_commit)
-                        .map_err(|e| RegisterError::TreeError(e))?;
-                    let tree_index = merkle_tree_guard.len();
-                    merkle_tree_guard.push(tree);
-
-                    // Update tree count in rocksdb
-                    db_batch.merge_cf(cf_index, INDEX_COUNTERS_KEY_COUNT, 1i64.to_le_bytes());
-
-                    (tree_index, 0)
-                };
+                        (tree_index, 0)
+                    };
 
                 // Drop write guard as soon as possible
                 drop(merkle_tree_guard);
@@ -354,12 +362,14 @@ impl UserDb {
                 // Value
                 // unwrap safe - this is serialized by the Prover + RlnUserIdentitySerializer is unit tested
                 self.rln_identity_serializer
-                     .serialize(&rln_identity, &mut buffer)
-                     .unwrap();
+                    .serialize(&rln_identity, &mut buffer)
+                    .unwrap();
                 self.tree_index_serializer
                     .serialize(&TreeIndex::from(last_tree_index as u64), &mut buffer);
-                self.index_in_merkle_tree_serializer
-                    .serialize(&IndexInMerkleTree::from(last_index_in_mt as u64), &mut buffer);
+                self.index_in_merkle_tree_serializer.serialize(
+                    &IndexInMerkleTree::from(last_index_in_mt as u64),
+                    &mut buffer,
+                );
 
                 // Put user
                 db_batch.put_cf(cf_user, key, buffer.as_slice());
@@ -403,7 +413,6 @@ impl UserDb {
         &self,
         address: &Address,
     ) -> Result<(TreeIndex, IndexInMerkleTree), UserMerkleTreeIndexError> {
-
         let cf_user = self.get_user_cf();
         match self.db.get_pinned_cf(cf_user, address.as_slice()) {
             Ok(Some(buffer)) => {
@@ -570,7 +579,6 @@ impl UserDb {
         self.register(*address)
     }
 
-
     pub fn get_merkle_proof(
         &self,
         address: &Address,
@@ -580,9 +588,7 @@ impl UserDb {
             .map_err(GetMerkleTreeProofError::MerkleTree)?;
 
         // let tree_index: usize = tree_index.into();
-        self.merkle_tree
-            .read()
-            [usize::from(tree_index)]
+        self.merkle_tree.read()[usize::from(tree_index)]
             .proof(index_in_mt.into())
             .map_err(|e| GetMerkleTreeProofError::TreeError(e.to_string()))
     }
@@ -678,32 +684,19 @@ impl UserDb {
         Ok(user_tier_info)
     }
 
-    /// See `get_tree_count_`
-    pub(crate) fn get_tree_count(&self) -> Result<u64, DbError> {
-        Self::get_tree_count_(
-            self.db.clone(),
-            self.get_index_cf(),
-            &self.tree_count_deserializer
-        )
-    }
-
     /// Return the tree count (e.g. number of merkle trees used) stored in the db
     fn get_tree_count_(
         db: Arc<DB>,
         cf: &ColumnFamily,
         tree_count_deserializer: &U64Deserializer,
-    )
-        -> Result<u64, DbError> {
-
+    ) -> Result<u64, DbError> {
         match db.get_pinned_cf(cf, INDEX_COUNTERS_KEY_COUNT) {
             Ok(Some(v)) => {
-                let (_rem, tree_count) = tree_count_deserializer
-                    .deserialize(v.as_ref())
-                    .unwrap();
+                let (_rem, tree_count) = tree_count_deserializer.deserialize(v.as_ref()).unwrap();
                 Ok(tree_count)
             }
-            Ok(None) => { return Err(DbError::DbUninitialized); },
-            Err(e) => { return Err(DbError::Db(e)); },
+            Ok(None) => Err(DbError::DbUninitialized),
+            Err(e) => Err(DbError::Db(e)),
         }
     }
 }
@@ -711,6 +704,11 @@ impl UserDb {
 // Test functions
 #[cfg(test)]
 impl UserDb {
+    /// See `get_tree_count_`
+    pub(crate) fn get_tree_count(&self) -> Result<u64, DbError> {
+        let de = U64Deserializer {};
+        Self::get_tree_count_(self.db.clone(), self.get_index_cf(), &de)
+    }
 
     #[allow(dead_code)]
     pub(crate) fn set_merkle_trees(&mut self, trees: Arc<RwLock<Vec<PoseidonTree>>>) {
@@ -838,13 +836,8 @@ mod tests {
             max_tree_count: 1,
             tree_depth: MERKLE_TREE_HEIGHT,
         };
-        let user_db = UserDb::new(
-            config,
-            epoch_store,
-            Default::default(),
-            Default::default(),
-        )
-        .expect("Cannot create UserDb");
+        let user_db = UserDb::new(config, epoch_store, Default::default(), Default::default())
+            .expect("Cannot create UserDb");
 
         let addr = Address::new([0; 20]);
         user_db.register(addr).unwrap();
@@ -880,13 +873,8 @@ mod tests {
             max_tree_count: 1,
             tree_depth: MERKLE_TREE_HEIGHT,
         };
-        let user_db = UserDb::new(
-            config,
-            epoch_store,
-            Default::default(),
-            Default::default(),
-        )
-        .unwrap();
+        let user_db =
+            UserDb::new(config, epoch_store, Default::default(), Default::default()).unwrap();
 
         let addr = Address::new([0; 20]);
 
@@ -911,13 +899,8 @@ mod tests {
             max_tree_count: 1,
             tree_depth: MERKLE_TREE_HEIGHT,
         };
-        let user_db = UserDb::new(
-            config,
-            epoch_store,
-            Default::default(),
-            Default::default(),
-        )
-        .unwrap();
+        let user_db =
+            UserDb::new(config, epoch_store, Default::default(), Default::default()).unwrap();
 
         let addr = Address::new([0; 20]);
 
@@ -950,7 +933,6 @@ mod tests {
 
     #[test]
     fn test_user_remove() {
-
         let temp_folder = tempfile::tempdir().unwrap();
         let temp_folder_tree = tempfile::tempdir().unwrap();
         let epoch_store = Arc::new(RwLock::new(Default::default()));

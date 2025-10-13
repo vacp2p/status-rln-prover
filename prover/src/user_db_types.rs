@@ -1,6 +1,6 @@
-use std::ops::{Rem};
 use ark_bn254::Fr;
 use derive_more::{Add, From, Into};
+use std::ops::Rem;
 
 const _: () = assert!(
     size_of::<u64>() == size_of::<usize>(),
@@ -8,7 +8,7 @@ const _: () = assert!(
 );
 
 /// An index to a tree (wrapper over u64)
-/// 
+///
 /// As the prover handles multiple merkle trees, we need to know in which tree is an address
 #[derive(Debug, Clone, Copy, From, Into, PartialEq)]
 pub(crate) struct TreeIndex(u64);
@@ -58,8 +58,8 @@ impl From<usize> for IndexInMerkleTree {
 */
 
 /// A rate limit for a user address
-/// 
-/// This is also referred as the "spam limit": 
+///
+/// This is also referred as the "spam limit":
 /// the max number of messages that a user can send before being slashed
 #[derive(Debug, Clone, Copy, Default, PartialOrd, PartialEq, From, Into)]
 pub struct RateLimit(u64);

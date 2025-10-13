@@ -9,7 +9,7 @@ mod tests {
     use claims::assert_matches;
     use parking_lot::RwLock;
     // internal
-    use crate::user_db::{UserDb, UserDbConfig, MERKLE_TREE_HEIGHT};
+    use crate::user_db::{MERKLE_TREE_HEIGHT, UserDb, UserDbConfig};
     use crate::user_db_error::RegisterError;
     use crate::user_db_types::{EpochCounter, EpochSliceCounter, IndexInMerkleTree, TreeIndex};
 
@@ -38,13 +38,8 @@ mod tests {
             tree_depth: MERKLE_TREE_HEIGHT,
         };
 
-        let user_db = UserDb::new(
-            config,
-            epoch_store,
-            Default::default(),
-            Default::default(),
-        )
-        .unwrap();
+        let user_db =
+            UserDb::new(config, epoch_store, Default::default(), Default::default()).unwrap();
 
         // Register users
         user_db.register(ADDR_1).unwrap();
@@ -96,7 +91,6 @@ mod tests {
 
     #[test]
     fn test_persistent_storage() {
-
         let temp_folder = tempfile::tempdir().unwrap();
         let temp_folder_tree = tempfile::tempdir().unwrap();
         let epoch_store = Arc::new(RwLock::new(Default::default()));
@@ -164,13 +158,8 @@ mod tests {
 
         {
             // Reopen Db and check that is inside
-            let user_db = UserDb::new(
-                config,
-                epoch_store,
-                Default::default(),
-                Default::default(),
-            )
-            .unwrap();
+            let user_db =
+                UserDb::new(config, epoch_store, Default::default(), Default::default()).unwrap();
 
             assert!(!user_db.has_user(&addr).unwrap());
             assert!(user_db.has_user(&ADDR_1).unwrap());
@@ -224,7 +213,7 @@ mod tests {
                 Default::default(),
                 Default::default(),
             )
-                .unwrap();
+            .unwrap();
 
             assert_eq!(user_db.get_tree_count().unwrap(), tree_count);
             assert_eq!(user_db.tree_count() as u64, tree_count);
@@ -263,7 +252,7 @@ mod tests {
                 Default::default(),
                 Default::default(),
             )
-                .unwrap();
+            .unwrap();
 
             assert_eq!(user_db.get_tree_count().unwrap(), tree_count);
             assert_eq!(user_db.tree_count() as u64, tree_count);
@@ -296,7 +285,6 @@ mod tests {
 
     #[test]
     fn test_new_multi_tree() {
-
         // Check if UserDb add a new tree is a tree is full
 
         let temp_folder = tempfile::tempdir().unwrap();
@@ -317,7 +305,8 @@ mod tests {
             epoch_store.clone(),
             Default::default(),
             Default::default(),
-        ).unwrap();
+        )
+        .unwrap();
 
         /*
         let temp_folder_tree_2 = tempfile::tempdir().unwrap();
@@ -374,7 +363,7 @@ mod tests {
                 Default::default(),
                 Default::default(),
             )
-                .unwrap();
+            .unwrap();
 
             assert_eq!(user_db.get_tree_count().unwrap(), tree_count_initial + 1);
             assert_eq!(user_db.tree_count() as u64, tree_count_initial + 1);

@@ -65,11 +65,7 @@ pub struct AppArgs {
         default_value = "./storage/trees"
     )]
     pub merkle_tree_folder: PathBuf,
-    #[arg(
-        long = "tree-count",
-        help = "Merkle tree count",
-        default_value = "1"
-    )]
+    #[arg(long = "tree-count", help = "Merkle tree count", default_value = "1")]
     pub merkle_tree_count: u64,
     #[arg(
         long = "max-tree-count",
