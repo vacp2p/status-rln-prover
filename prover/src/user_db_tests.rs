@@ -6,6 +6,7 @@ mod tests {
     // third-party
     use crate::epoch_service::{Epoch, EpochSlice};
     use alloy::primitives::{Address, address};
+    use claims::assert_matches;
     use parking_lot::RwLock;
     use rln::pm_tree_adapter::PmtreeConfig;
     use rln::poseidon_tree::PoseidonTree;
@@ -13,6 +14,7 @@ mod tests {
     use zerokit_utils::ZerokitMerkleTree;
     // internal
     use crate::user_db::{UserDb, UserDbConfig, MERKLE_TREE_HEIGHT};
+    use crate::user_db_error::RegisterError;
     use crate::user_db_types::{EpochCounter, EpochSliceCounter, IndexInMerkleTree, TreeIndex};
 
     const ADDR_1: Address = address!("0xd8da6bf26964af9d7eed9e03e53415d37aa96045");
@@ -341,7 +343,18 @@ mod tests {
             (TreeIndex::from(0), IndexInMerkleTree::from(1))
         );
         user_db.register(ADDR_3).unwrap();
-
+        assert_eq!(
+            user_db.get_user_indexes(&ADDR_3).unwrap(),
+            (TreeIndex::from(1), IndexInMerkleTree::from(0))
+        );
         user_db.register(ADDR_4).unwrap();
+        assert_eq!(
+            user_db.get_user_indexes(&ADDR_4).unwrap(),
+            (TreeIndex::from(1), IndexInMerkleTree::from(1))
+        );
+
+        let addr = Address::random();
+        let res = user_db.register(addr);
+        assert_matches!(res, Err(RegisterError::TooManyUsers));
     }
 }

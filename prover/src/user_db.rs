@@ -450,7 +450,7 @@ impl UserDb {
                         usize::from(self.config.tree_depth), Default::default(), tree_config).unwrap();
                     tree.set(0, rate_commit)
                         .map_err(|e| RegisterError::TreeError(e.to_string()))?;
-                    let tree_index = merkle_tree_guard.len() + 1;
+                    let tree_index = merkle_tree_guard.len();
                     merkle_tree_guard.push(tree);
 
                     // Update tree count in rocksdb
