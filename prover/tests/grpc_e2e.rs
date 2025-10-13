@@ -257,6 +257,7 @@ async fn test_grpc_gen_proof() {
         registration_min_amount: AppArgs::default_minimal_amount_for_registration(),
         rln_identifier: AppArgs::default_rln_identifier_name(),
         spam_limit: AppArgs::default_spam_limit(),
+        no_grpc_reflection: true,
     };
 
     info!("Starting prover with args: {:?}", app_args);

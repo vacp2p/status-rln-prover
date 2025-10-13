@@ -155,6 +155,7 @@ fn proof_generation_bench(c: &mut Criterion) {
         registration_min_amount: AppArgs::default_minimal_amount_for_registration(),
         rln_identifier: AppArgs::default_rln_identifier_name(),
         spam_limit: 1_000_000u64,
+        no_grpc_reflection: true,
     };
 
     // Tokio notify - wait for some time after spawning run_prover then notify it's ready to accept
