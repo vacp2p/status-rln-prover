@@ -21,7 +21,7 @@ mod tests {
     use crate::error::{AppError, ProofGenerationStringError};
     use crate::proof_generation::{ProofGenerationData, ProofSendingData};
     use crate::proof_service::ProofService;
-    use crate::user_db::UserDb;
+    use crate::user_db::{MERKLE_TREE_HEIGHT, UserDb, UserDbConfig};
     use crate::user_db_service::UserDbService;
     use crate::user_db_types::RateLimit;
     use rln_proof::RlnIdentifier;
@@ -136,9 +136,16 @@ mod tests {
         // User db
         let temp_folder = tempfile::tempdir().unwrap();
         let temp_folder_tree = tempfile::tempdir().unwrap();
+        let config = UserDbConfig {
+            db_path: PathBuf::from(temp_folder.path()),
+            merkle_tree_folder: PathBuf::from(temp_folder_tree.path()),
+            tree_count: 1,
+            max_tree_count: 1,
+            tree_depth: MERKLE_TREE_HEIGHT,
+        };
+
         let user_db_service = UserDbService::new(
-            PathBuf::from(temp_folder.path()),
-            PathBuf::from(temp_folder_tree.path()),
+            config,
             Default::default(),
             epoch_store.clone(),
             10.into(),
@@ -300,9 +307,15 @@ mod tests {
         // User db
         let temp_folder = tempfile::tempdir().unwrap();
         let temp_folder_tree = tempfile::tempdir().unwrap();
+        let config = UserDbConfig {
+            db_path: PathBuf::from(temp_folder.path()),
+            merkle_tree_folder: PathBuf::from(temp_folder_tree.path()),
+            tree_count: 1,
+            max_tree_count: 1,
+            tree_depth: MERKLE_TREE_HEIGHT,
+        };
         let user_db_service = UserDbService::new(
-            PathBuf::from(temp_folder.path()),
-            PathBuf::from(temp_folder_tree.path()),
+            config,
             Default::default(),
             epoch_store.clone(),
             rate_limit,
@@ -370,9 +383,15 @@ mod tests {
         // User db - limit is 1 message per epoch
         let temp_folder = tempfile::tempdir().unwrap();
         let temp_folder_tree = tempfile::tempdir().unwrap();
+        let config = UserDbConfig {
+            db_path: PathBuf::from(temp_folder.path()),
+            merkle_tree_folder: PathBuf::from(temp_folder_tree.path()),
+            tree_count: 1,
+            max_tree_count: 1,
+            tree_depth: MERKLE_TREE_HEIGHT,
+        };
         let user_db_service = UserDbService::new(
-            PathBuf::from(temp_folder.path()),
-            PathBuf::from(temp_folder_tree.path()),
+            config,
             Default::default(),
             epoch_store.clone(),
             rate_limit,

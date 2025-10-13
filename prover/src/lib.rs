@@ -43,6 +43,7 @@ use crate::proof_service::ProofService;
 use crate::registry_listener::RegistryListener;
 use crate::tier::TierLimits;
 use crate::tiers_listener::TiersListener;
+use crate::user_db::{MERKLE_TREE_HEIGHT, UserDbConfig};
 use crate::user_db_error::RegisterError;
 use crate::user_db_service::UserDbService;
 use crate::user_db_types::RateLimit;
@@ -102,9 +103,15 @@ pub async fn run_prover(app_args: AppArgs) -> Result<(), AppError> {
     tier_limits.validate()?;
 
     // User db service
+    let user_db_config = UserDbConfig {
+        db_path: app_args.db_path.clone(),
+        merkle_tree_folder: app_args.merkle_tree_folder.clone(),
+        tree_count: app_args.merkle_tree_count,
+        max_tree_count: app_args.merkle_tree_max_count,
+        tree_depth: MERKLE_TREE_HEIGHT,
+    };
     let user_db_service = UserDbService::new(
-        app_args.db_path.clone(),
-        app_args.merkle_tree_path.clone(),
+        user_db_config,
         epoch_service.epoch_changes.clone(),
         epoch_service.current_epoch.clone(),
         RateLimit::new(app_args.spam_limit),
