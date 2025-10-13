@@ -40,7 +40,7 @@ zeroize = "1.8"
 tonic = "0.14.1"
 prost = "0.14.1"
 tonic-prost = "0.14.1"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 tracing = "0.1.41"
 
 #[build-dependencies]
