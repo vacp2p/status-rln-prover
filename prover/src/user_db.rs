@@ -401,11 +401,9 @@ impl UserDb {
                 let found = merkle_tree_guard
                     .iter_mut()
                     .enumerate()
-                    .find(|(i, tree)| tree.leaves_set() < tree.capacity());
-
-                if let Some((f_idx, _f_tree)) = found.as_ref() {
-                    println!("found: {:?}", f_idx);
-                }
+                    .find(|(_, tree)| {
+                        tree.leaves_set() < tree.capacity()
+                    });
 
                 let (last_tree_index, last_index_in_mt) = if let Some((tree_index, tree_to_set)) = found {
                     let index_in_mt = tree_to_set.leaves_set();

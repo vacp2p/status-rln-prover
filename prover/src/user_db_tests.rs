@@ -227,13 +227,6 @@ mod tests {
             )
                 .unwrap();
 
-            /*
-            assert_eq!(
-                user_db.get_next_indexes().unwrap(),
-                (TreeIndex::from(0), IndexInMerkleTree::from(0))
-            );
-            */
-
             user_db.register(ADDR_1).unwrap();
             user_db.register(ADDR_2).unwrap();
             user_db.register(ADDR_3).unwrap();
@@ -249,19 +242,12 @@ mod tests {
             );
             assert_eq!(
                 user_db.get_user_indexes(&ADDR_3).unwrap(),
-                (TreeIndex::from(0), IndexInMerkleTree::from(2))
+                (TreeIndex::from(1), IndexInMerkleTree::from(0))
             );
             assert_eq!(
                 user_db.get_user_indexes(&ADDR_4).unwrap(),
-                (TreeIndex::from(1), IndexInMerkleTree::from(0))
-            );
-
-            /*
-            assert_eq!(
-                user_db.get_next_indexes().unwrap(),
                 (TreeIndex::from(1), IndexInMerkleTree::from(1))
             );
-            */
 
             drop(user_db);
         }
@@ -277,17 +263,34 @@ mod tests {
             )
                 .unwrap();
 
-            /*
+            let addr = Address::random();
+            user_db.register(addr).unwrap();
+
             assert_eq!(
-                user_db.get_next_indexes().unwrap(),
+                user_db.get_user_indexes(&ADDR_1).unwrap(),
+                (TreeIndex::from(0), IndexInMerkleTree::from(0))
+            );
+            assert_eq!(
+                user_db.get_user_indexes(&ADDR_2).unwrap(),
+                (TreeIndex::from(0), IndexInMerkleTree::from(1))
+            );
+            assert_eq!(
+                user_db.get_user_indexes(&ADDR_3).unwrap(),
+                (TreeIndex::from(1), IndexInMerkleTree::from(0))
+            );
+            assert_eq!(
+                user_db.get_user_indexes(&ADDR_4).unwrap(),
                 (TreeIndex::from(1), IndexInMerkleTree::from(1))
             );
-            */
+            assert_eq!(
+                user_db.get_user_indexes(&addr).unwrap(),
+                (TreeIndex::from(2), IndexInMerkleTree::from(0))
+            );
         }
     }
 
     #[test]
-    fn test_multi_new_tree() {
+    fn test_new_multi_tree() {
 
         // Check if UserDb add a new tree is a tree is full
 
