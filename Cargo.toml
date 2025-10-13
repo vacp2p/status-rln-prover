@@ -34,17 +34,17 @@ alloy = { version = "1.0.38", features = [
 ] }
 async-trait = "0.1.89"
 derive_more = "2.0.1"
-thiserror = "2.0.16"
-rustls = "0.23.31"
-zeroize = "1.8"
-tonic = "0.14.1"
+thiserror = "2.0.17"
+rustls = "0.23.32"
+zeroize = "1.8.2"
+tonic = "0.14.2"
 prost = "0.14.1"
-tonic-prost = "0.14.1"
+tonic-prost = "0.14.2"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 tracing = "0.1.41"
 
 #[build-dependencies]
-tonic-prost-build = "0.14.1"
+tonic-prost-build = "0.14.2"
 
 #[dev.dependencies]
 criterion = { version = "0.7.0", features = ["async_tokio"] }
