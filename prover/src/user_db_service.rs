@@ -1,6 +1,5 @@
 // std
 use parking_lot::RwLock;
-use std::path::PathBuf;
 use std::sync::Arc;
 // third-party
 use tokio::sync::Notify;

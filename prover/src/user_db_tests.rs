@@ -8,10 +8,6 @@ mod tests {
     use alloy::primitives::{Address, address};
     use claims::assert_matches;
     use parking_lot::RwLock;
-    use rln::pm_tree_adapter::PmtreeConfig;
-    use rln::poseidon_tree::PoseidonTree;
-    use zerokit_utils::Mode::HighThroughput;
-    use zerokit_utils::ZerokitMerkleTree;
     // internal
     use crate::user_db::{UserDb, UserDbConfig, MERKLE_TREE_HEIGHT};
     use crate::user_db_error::RegisterError;
@@ -209,13 +205,14 @@ mod tests {
     fn test_multi_tree() {
         let temp_folder = tempfile::tempdir().unwrap();
         let temp_folder_tree = tempfile::tempdir().unwrap();
-        let temp_folder_tree_2 = tempfile::tempdir().unwrap();
-        let temp_folder_tree_3 = tempfile::tempdir().unwrap();
+        // let temp_folder_tree_2 = tempfile::tempdir().unwrap();
+        // let temp_folder_tree_3 = tempfile::tempdir().unwrap();
         let epoch_store = Arc::new(RwLock::new(Default::default()));
+        let tree_count = 3;
         let config = UserDbConfig {
             db_path: PathBuf::from(temp_folder.path()),
             merkle_tree_folder: PathBuf::from(temp_folder_tree.path()),
-            tree_count: 3,
+            tree_count,
             max_tree_count: 3,
             tree_depth: 1,
         };
@@ -228,6 +225,9 @@ mod tests {
                 Default::default(),
             )
                 .unwrap();
+
+            assert_eq!(user_db.get_tree_count().unwrap(), tree_count);
+            assert_eq!(user_db.tree_count() as u64, tree_count);
 
             user_db.register(ADDR_1).unwrap();
             user_db.register(ADDR_2).unwrap();
@@ -265,6 +265,9 @@ mod tests {
             )
                 .unwrap();
 
+            assert_eq!(user_db.get_tree_count().unwrap(), tree_count);
+            assert_eq!(user_db.tree_count() as u64, tree_count);
+
             let addr = Address::random();
             user_db.register(addr).unwrap();
 
@@ -300,22 +303,23 @@ mod tests {
         let temp_folder_tree = tempfile::tempdir().unwrap();
         let epoch_store = Arc::new(RwLock::new(Default::default()));
         let tree_depth = 1;
+        let tree_count_initial = 1;
         let config = UserDbConfig {
             db_path: PathBuf::from(temp_folder.path()),
             merkle_tree_folder: PathBuf::from(temp_folder_tree.path()),
-            tree_count: 1,
+            tree_count: tree_count_initial,
             max_tree_count: 2,
             tree_depth,
         };
 
-        let mut user_db = UserDb::new(
-            config,
+        let user_db = UserDb::new(
+            config.clone(),
             epoch_store.clone(),
             Default::default(),
             Default::default(),
-        )
-            .unwrap();
+        ).unwrap();
 
+        /*
         let temp_folder_tree_2 = tempfile::tempdir().unwrap();
         let config = PmtreeConfig::builder()
             .path(temp_folder_tree_2.path().to_path_buf())
@@ -329,8 +333,10 @@ mod tests {
         let tree = PoseidonTree::new(usize::from(tree_depth), Default::default(), config).unwrap();
         let tree = Arc::new(RwLock::new(vec![tree]));
         user_db.set_merkle_trees(tree.clone());
+        */
 
-        assert_eq!(user_db.get_tree_count().unwrap(), 1);
+        assert_eq!(user_db.get_tree_count().unwrap(), tree_count_initial);
+        assert_eq!(user_db.tree_count() as u64, tree_count_initial);
 
         user_db.register(ADDR_1).unwrap();
         assert_eq!(
@@ -356,5 +362,22 @@ mod tests {
         let addr = Address::random();
         let res = user_db.register(addr);
         assert_matches!(res, Err(RegisterError::TooManyUsers));
+        assert_eq!(user_db.get_tree_count().unwrap(), tree_count_initial + 1);
+        assert_eq!(user_db.tree_count() as u64, tree_count_initial + 1);
+
+        drop(user_db);
+
+        {
+            let user_db = UserDb::new(
+                config,
+                epoch_store.clone(),
+                Default::default(),
+                Default::default(),
+            )
+                .unwrap();
+
+            assert_eq!(user_db.get_tree_count().unwrap(), tree_count_initial + 1);
+            assert_eq!(user_db.tree_count() as u64, tree_count_initial + 1);
+        }
     }
 }

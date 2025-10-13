@@ -17,8 +17,10 @@ pub enum UserDbOpenError {
     TreeConfig(#[from] FromConfigError),
     #[error(transparent)]
     MerkleTree(#[from] ZerokitMerkleTreeError),
+    // #[error(transparent)]
+    // MerkleTreeIndex(#[from] MerkleTreeIndexError),
     #[error(transparent)]
-    MerkleTreeIndex(#[from] MerkleTreeIndexError),
+    IoError(#[from] std::io::Error),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -30,7 +32,11 @@ pub enum RegisterError {
     #[error("Too many users, exceeding merkle tree capacity...")]
     TooManyUsers,
     #[error("Merkle tree error: {0}")]
-    TreeError(String),
+    TreeError(ZerokitMerkleTreeError),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    FromConfig(#[from] FromConfigError),
 }
 
 #[derive(thiserror::Error, Debug, PartialEq)]
@@ -41,8 +47,18 @@ pub enum TxCounterError {
     Db(#[from] rocksdb::Error),
 }
 
+/*
 #[derive(thiserror::Error, Debug, PartialEq, Clone)]
 pub enum MerkleTreeIndexError {
+    #[error("Uninitialized counter")]
+    DbUninitialized,
+    #[error(transparent)]
+    Db(#[from] rocksdb::Error),
+}
+*/
+
+#[derive(thiserror::Error, Debug, PartialEq, Clone)]
+pub enum DbError {
     #[error("Uninitialized counter")]
     DbUninitialized,
     #[error(transparent)]
