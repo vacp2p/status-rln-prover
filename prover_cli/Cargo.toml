@@ -11,11 +11,11 @@ rustls.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
 toml = "0.9.5"
-opentelemetry = { version = "0.30.0", default-features = false, features = [
+opentelemetry = { version = "0.31.0", default-features = false, features = [
     "trace",
 ] }
-opentelemetry_sdk = { version = "0.30.0", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.30.0", features = [
+opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.31.0", features = [
     "grpc-tonic",
     "reqwest-client",
     "reqwest-rustls",
@@ -23,5 +23,5 @@ opentelemetry-otlp = { version = "0.30.0", features = [
     "tls",
     "tls-roots",
 ] }
-tracing-opentelemetry = "0.31.0"
+tracing-opentelemetry = "0.32.0"
 anyhow = "1.0.100"
