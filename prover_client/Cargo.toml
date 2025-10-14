@@ -9,7 +9,6 @@ clap.workspace = true
 alloy.workspace = true
 tonic.workspace = true
 prost.workspace = true
-tonic-prost.workspace = true
 sha2 = "0.10.9"
 
 [build-dependencies]
