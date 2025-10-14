@@ -60,6 +60,8 @@ pub struct SendTransactionArgs {
         help = "Send an invalid tx hash"
     )]
     invalid_hash: bool,
+    #[arg(short = 'g', long = "tx-gas", help = "Tx estimated gas used", default_value = "21000")]
+    estimated_gas_used: u64,
 }
 
 #[tokio::main]
@@ -96,6 +98,7 @@ async fn main() {
                 sender: Some(grpc_addr),
                 chain_id: Some(chain_id),
                 transaction_hash: tx_hash,
+                estimated_gas_used: send_transaction_args.estimated_gas_used,
             };
             let request = tonic::Request::new(request_0);
             let response: Response<SendTransactionReply> =

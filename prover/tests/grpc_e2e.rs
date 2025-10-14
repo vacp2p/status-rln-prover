@@ -23,7 +23,7 @@ use crate::prover_proto::{
     RlnProofReply, SendTransactionReply, SendTransactionRequest, U256 as GrpcU256, Wei as GrpcWei,
     rln_prover_client::RlnProverClient,
 };
-
+use crate::prover_proto::get_user_tier_info_reply::Resp;
 /*
 async fn register_users(port: u16, addresses: Vec<Address>) {
     let url = format!("http://127.0.0.1:{}", port);
@@ -116,13 +116,15 @@ async fn test_grpc_register_users() {
 }
 */
 
-async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
-    let start = std::time::Instant::now();
+#[derive(Default)]
+struct TxData {
+    chain_id: Option<U256>,
+    gas_price: Option<U256>,
+    estimated_gas_used: Option<u64>
+}
 
-    let chain_id = GrpcU256 {
-        // FIXME: LE or BE?
-        value: U256::from(1).to_le_bytes::<32>().to_vec(),
-    };
+async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize, tx_data: TxData) {
+    let start = std::time::Instant::now();
 
     let url = format!("http://127.0.0.1:{port}");
     let mut client = RlnProverClient::connect(url).await.unwrap();
@@ -130,10 +132,16 @@ async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
     let addr = GrpcAddress {
         value: addresses[0].to_vec(),
     };
-    let wei = GrpcWei {
-        // FIXME: LE or BE?
-        value: U256::from(1000).to_le_bytes::<32>().to_vec(),
+    let chain_id = GrpcU256 {
+        value: tx_data.chain_id.unwrap_or(U256::from(1)).to_le_bytes::<32>().to_vec(),
     };
+
+    let wei = GrpcWei {
+        value: tx_data.gas_price.unwrap_or(U256::from(1_000))
+            .to_le_bytes::<32>().to_vec()
+    };
+
+    let estimated_gas_used = tx_data.estimated_gas_used.unwrap_or(1_000);
 
     let mut count = 0;
     for i in 0..proof_count {
@@ -144,6 +152,7 @@ async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize) {
             sender: Some(addr.clone()),
             chain_id: Some(chain_id.clone()),
             transaction_hash: tx_hash,
+            estimated_gas_used,
         };
 
         let request = tonic::Request::new(request_0);
@@ -258,6 +267,7 @@ async fn test_grpc_gen_proof() {
         rln_identifier: AppArgs::default_rln_identifier_name(),
         spam_limit: AppArgs::default_spam_limit(),
         no_grpc_reflection: true,
+        tx_gas_quota: AppArgs::default_tx_gas_quota(),
     };
 
     info!("Starting prover with args: {:?}", app_args);
@@ -275,7 +285,7 @@ async fn test_grpc_gen_proof() {
     let proof_count = 10;
     let mut set = JoinSet::new();
     set.spawn(
-        proof_sender(port, addresses.clone(), proof_count).map(|_| vec![]), // JoinSet require having the same return type
+        proof_sender(port, addresses.clone(), proof_count, Default::default()).map(|_| vec![]), // JoinSet require having the same return type
     );
     set.spawn(proof_collector(port, proof_count));
     let res = set.join_all().await;
@@ -286,4 +296,92 @@ async fn test_grpc_gen_proof() {
     info!("Aborting prover...");
     prover_handle.abort();
     tokio::time::sleep(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+#[traced_test]
+async fn test_grpc_tx_exceed_gas_quota() {
+    let mock_users = vec![
+        MockUser {
+            address: Address::from_str("0xd8da6bf26964af9d7eed9e03e53415d37aa96045").unwrap(),
+            tx_count: 0,
+        },
+        MockUser {
+            address: Address::from_str("0xb20a608c624Ca5003905aA834De7156C68b2E1d0").unwrap(),
+            tx_count: 0,
+        },
+    ];
+    let addresses: Vec<Address> = mock_users.iter().map(|u| u.address).collect();
+
+    // Write mock users to tempfile
+    let mock_users_as_str = serde_json::to_string(&mock_users).unwrap();
+    let mut temp_file = NamedTempFile::new().unwrap();
+    let temp_file_path = temp_file.path().to_path_buf();
+    temp_file.write_all(mock_users_as_str.as_bytes()).unwrap();
+    temp_file.flush().unwrap();
+    debug!(
+        "Mock user temp file path: {}",
+        temp_file_path.to_str().unwrap()
+    );
+    //
+
+    let temp_folder = tempfile::tempdir().unwrap();
+    let temp_folder_tree = tempfile::tempdir().unwrap();
+
+    let port = 50052;
+    let tx_gas_quota = 1_000;
+    let app_args = AppArgs {
+        ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+        port,
+        ws_rpc_url: None,
+        db_path: temp_folder.path().to_path_buf(),
+        merkle_tree_folder: temp_folder_tree.path().to_path_buf(),
+        merkle_tree_count: 1,
+        merkle_tree_max_count: 1,
+        ksc_address: None,
+        rlnsc_address: None,
+        tsc_address: None,
+        mock_sc: Some(true),
+        mock_user: Some(temp_file_path),
+        config_path: Default::default(),
+        no_config: true,
+        metrics_ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+        metrics_port: 30031,
+        broadcast_channel_size: 500,
+        proof_service_count: 8,
+        transaction_channel_size: 500,
+        proof_sender_channel_size: 500,
+        registration_min_amount: AppArgs::default_minimal_amount_for_registration(),
+        rln_identifier: AppArgs::default_rln_identifier_name(),
+        spam_limit: AppArgs::default_spam_limit(),
+        no_grpc_reflection: true,
+        tx_gas_quota,
+    };
+
+    info!("Starting prover with args: {:?}", app_args);
+    let _prover_handle = task::spawn(run_prover(app_args));
+    // Wait for the prover to be ready
+    // Note: if unit test is failing - maybe add an optional notification when service is ready
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    let quota_mult = 11;
+    let tx_data = TxData {
+        estimated_gas_used: Some(tx_gas_quota * quota_mult),
+        ..Default::default()
+    };
+    // Send a tx with 11 * the tx_gas_quota
+    proof_sender(port, addresses.clone(), 1, tx_data).await;
+
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    let res = query_user_info(port, vec![addresses[0]]).await;
+    let resp = res[0].resp.as_ref().unwrap();
+    match resp {
+        Resp::Res(r) => {
+            // Check the tx counter is updated to the right value
+            assert_eq!(r.tx_count, quota_mult);
+        }
+        Resp::Error(e) => {
+            panic!("Unexpected error {:?}", e);
+        }
+    }
 }

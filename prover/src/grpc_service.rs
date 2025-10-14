@@ -87,6 +87,7 @@ pub struct ProverService<KSC: KarmaAmountExt> {
     karma_sc: KSC,
     // karma_rln_sc: RLNSC,
     proof_sender_channel_size: usize,
+    tx_gas_quota: u64,
 }
 
 #[tonic::async_trait]
@@ -100,6 +101,7 @@ where
         &self,
         request: Request<SendTransactionRequest>,
     ) -> Result<Response<SendTransactionReply>, Status> {
+
         counter!(SEND_TRANSACTION_REQUESTS.name, "prover" => "grpc").increment(1);
         debug!("send_transaction request: {:?}", request);
         let req = request.into_inner();
@@ -120,8 +122,14 @@ where
             return Err(Status::not_found("Sender not registered"));
         };
 
+        let tx_counter_incr = if req.estimated_gas_used <= self.tx_gas_quota {
+            None
+        } else {
+            Some(req.estimated_gas_used / self.tx_gas_quota)
+        };
+
         // Update the counter as soon as possible (should help to prevent spamming...)
-        let counter = self.user_db.on_new_tx(&sender, None).unwrap_or_default();
+        let counter = self.user_db.on_new_tx(&sender, tx_counter_incr).unwrap_or_default();
 
         if req.transaction_hash.len() != PROVER_TX_HASH_BYTESIZE {
             return Err(Status::invalid_argument(
@@ -297,6 +305,7 @@ pub(crate) struct GrpcProverService<P: Provider> {
     pub provider: Option<P>,
     pub proof_sender_channel_size: usize,
     pub grpc_reflection: bool,
+    pub tx_gas_quota: u64,
 }
 
 impl<P: Provider + Clone + Send + Sync + 'static> GrpcProverService<P> {
@@ -319,6 +328,7 @@ impl<P: Provider + Clone + Send + Sync + 'static> GrpcProverService<P> {
             ),
             karma_sc,
             proof_sender_channel_size: self.proof_sender_channel_size,
+            tx_gas_quota: self.tx_gas_quota,
         };
 
         let reflection_service = if self.grpc_reflection {
@@ -387,6 +397,7 @@ impl<P: Provider + Clone + Send + Sync + 'static> GrpcProverService<P> {
             karma_sc: MockKarmaSc {},
             // karma_rln_sc: MockKarmaRLNSc {},
             proof_sender_channel_size: self.proof_sender_channel_size,
+            tx_gas_quota: self.tx_gas_quota,
         };
 
         let reflection_service = if self.grpc_reflection {
