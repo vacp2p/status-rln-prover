@@ -188,7 +188,6 @@ async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
     let mut start_per_message = std::time::Instant::now();
     let receiver = async move {
         while let Some(response) = stream.message().await.unwrap() {
-            println!("[proof_collector] response: {:?}", response);
             result_2.write().push(response);
             count += 1;
             if count >= proof_count {
@@ -327,6 +326,7 @@ async fn proof_sender_2(port: u16, addresses: Vec<Address>, proof_count: usize) 
             sender: Some(addr.clone()),
             chain_id: Some(chain_id.clone()),
             transaction_hash: tx_hash,
+            estimated_gas_used: 1_000,
         };
 
         let request = tonic::Request::new(request_0);
@@ -335,7 +335,7 @@ async fn proof_sender_2(port: u16, addresses: Vec<Address>, proof_count: usize) 
         // assert!(response.into_inner().result);
 
         if response.is_err() {
-            println!("Error sending tx: {:?}", response);
+            println!("Error sending tx: {:?}", response.err());
             break;
         }
 
@@ -388,7 +388,9 @@ async fn test_grpc_user_spamming() {
         port,
         ws_rpc_url: None,
         db_path: temp_folder.path().to_path_buf(),
-        merkle_tree_path: temp_folder_tree.path().to_path_buf(),
+        merkle_tree_folder: temp_folder_tree.path().to_path_buf(),
+        merkle_tree_count: 1,
+        merkle_tree_max_count: 1,
         ksc_address: None,
         rlnsc_address: None,
         tsc_address: None,
@@ -405,6 +407,8 @@ async fn test_grpc_user_spamming() {
         registration_min_amount: AppArgs::default_minimal_amount_for_registration(),
         rln_identifier: AppArgs::default_rln_identifier_name(),
         spam_limit: 3,
+        no_grpc_reflection: true,
+        tx_gas_quota: 1_000,
     };
 
     info!("Starting prover with args: {:?}", app_args);
