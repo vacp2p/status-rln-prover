@@ -18,12 +18,12 @@ pub mod prover_proto {
     // Include generated code (see build.rs)
     tonic::include_proto!("prover");
 }
+use crate::prover_proto::get_user_tier_info_reply::Resp;
 use crate::prover_proto::{
     Address as GrpcAddress, GetUserTierInfoReply, GetUserTierInfoRequest, RlnProofFilter,
     RlnProofReply, SendTransactionReply, SendTransactionRequest, U256 as GrpcU256, Wei as GrpcWei,
     rln_prover_client::RlnProverClient,
 };
-use crate::prover_proto::get_user_tier_info_reply::Resp;
 /*
 async fn register_users(port: u16, addresses: Vec<Address>) {
     let url = format!("http://127.0.0.1:{}", port);
@@ -120,7 +120,7 @@ async fn test_grpc_register_users() {
 struct TxData {
     chain_id: Option<U256>,
     gas_price: Option<U256>,
-    estimated_gas_used: Option<u64>
+    estimated_gas_used: Option<u64>,
 }
 
 async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize, tx_data: TxData) {
@@ -133,12 +133,19 @@ async fn proof_sender(port: u16, addresses: Vec<Address>, proof_count: usize, tx
         value: addresses[0].to_vec(),
     };
     let chain_id = GrpcU256 {
-        value: tx_data.chain_id.unwrap_or(U256::from(1)).to_le_bytes::<32>().to_vec(),
+        value: tx_data
+            .chain_id
+            .unwrap_or(U256::from(1))
+            .to_le_bytes::<32>()
+            .to_vec(),
     };
 
     let wei = GrpcWei {
-        value: tx_data.gas_price.unwrap_or(U256::from(1_000))
-            .to_le_bytes::<32>().to_vec()
+        value: tx_data
+            .gas_price
+            .unwrap_or(U256::from(1_000))
+            .to_le_bytes::<32>()
+            .to_vec(),
     };
 
     let estimated_gas_used = tx_data.estimated_gas_used.unwrap_or(1_000);
@@ -330,8 +337,7 @@ async fn proof_sender_2(port: u16, addresses: Vec<Address>, proof_count: usize) 
         };
 
         let request = tonic::Request::new(request_0);
-        let response =
-            client.send_transaction(request).await;
+        let response = client.send_transaction(request).await;
         // assert!(response.into_inner().result);
 
         if response.is_err() {
@@ -349,12 +355,9 @@ async fn proof_sender_2(port: u16, addresses: Vec<Address>, proof_count: usize) 
     );
 }
 
-
-
 #[tokio::test]
 // #[traced_test]
 async fn test_grpc_user_spamming() {
-
     let mock_users = vec![
         MockUser {
             address: Address::from_str("0xd8da6bf26964af9d7eed9e03e53415d37aa96045").unwrap(),
@@ -428,7 +431,7 @@ async fn test_grpc_user_spamming() {
     set.spawn(
         proof_sender_2(port, addresses.clone(), proof_count).map(|_| vec![]), // JoinSet require having the same return type
     );
-    set.spawn(proof_collector(port, 2+1));
+    set.spawn(proof_collector(port, 2 + 1));
     let res = set.join_all().await;
 
     println!("res lengths: {} {}", res[0].len(), res[1].len());

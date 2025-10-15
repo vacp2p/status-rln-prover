@@ -41,6 +41,7 @@ pub mod prover_proto {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
         tonic::include_file_descriptor_set!("prover_descriptor");
 }
+use crate::user_db_types::RateLimit;
 use prover_proto::{
     GetUserTierInfoReply,
     GetUserTierInfoRequest,
@@ -60,7 +61,6 @@ use prover_proto::{
     rln_proof_reply::Resp as GetProofsResp,
     rln_prover_server::{RlnProver, RlnProverServer},
 };
-use crate::user_db_types::RateLimit;
 
 const PROVER_SERVICE_LIMIT_PER_CONNECTION: usize = 16;
 // Timeout for all handlers of a request
@@ -103,7 +103,6 @@ where
         &self,
         request: Request<SendTransactionRequest>,
     ) -> Result<Response<SendTransactionReply>, Status> {
-
         counter!(SEND_TRANSACTION_REQUESTS.name, "prover" => "grpc").increment(1);
         debug!("send_transaction request: {:?}", request);
         let req = request.into_inner();
@@ -131,7 +130,10 @@ where
         };
 
         // Update the counter as soon as possible (should help to prevent spamming...)
-        let counter = self.user_db.on_new_tx(&sender, tx_counter_incr).unwrap_or_default();
+        let counter = self
+            .user_db
+            .on_new_tx(&sender, tx_counter_incr)
+            .unwrap_or_default();
 
         if counter > self.rate_limit {
             return Err(Status::resource_exhausted(

@@ -8,7 +8,7 @@ use metrics::{counter, histogram};
 use parking_lot::RwLock;
 use rln::hashers::hash_to_field_le;
 use rln::protocol::serialize_proof_values;
-use tracing::{Instrument, debug_span, info, error};
+use tracing::{Instrument, debug_span, error, info};
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::{AppError, ProofGenerationError, ProofGenerationStringError};
@@ -183,7 +183,10 @@ impl ProofService {
                 .map_err(ProofGenerationStringError::from);
 
             if proof_sending_data.is_err() {
-                error!("[proof service {counter_id}] error: {:?}", proof_sending_data);
+                error!(
+                    "[proof service {counter_id}] error: {:?}",
+                    proof_sending_data
+                );
             }
 
             if let Err(e) = self.broadcast_sender.send(proof_sending_data) {

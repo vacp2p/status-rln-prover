@@ -60,7 +60,12 @@ pub struct SendTransactionArgs {
         help = "Send an invalid tx hash"
     )]
     invalid_hash: bool,
-    #[arg(short = 'g', long = "tx-gas", help = "Tx estimated gas used", default_value = "21000")]
+    #[arg(
+        short = 'g',
+        long = "tx-gas",
+        help = "Tx estimated gas used",
+        default_value = "21000"
+    )]
     estimated_gas_used: u64,
 }
 
