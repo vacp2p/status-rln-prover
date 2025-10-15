@@ -2,6 +2,7 @@
 
 // std
 use std::net::SocketAddr;
+use std::num::NonZeroU64;
 use std::sync::Arc;
 use std::time::Duration;
 // third-party
@@ -88,7 +89,7 @@ pub struct ProverService<KSC: KarmaAmountExt> {
     karma_sc: KSC,
     // karma_rln_sc: RLNSC,
     proof_sender_channel_size: usize,
-    tx_gas_quota: u64,
+    tx_gas_quota: NonZeroU64,
     rate_limit: RateLimit,
 }
 
@@ -123,7 +124,7 @@ where
             return Err(Status::not_found("Sender not registered"));
         };
 
-        let tx_counter_incr = if req.estimated_gas_used <= self.tx_gas_quota {
+        let tx_counter_incr = if req.estimated_gas_used <= self.tx_gas_quota.get() {
             None
         } else {
             Some(req.estimated_gas_used / self.tx_gas_quota)
@@ -315,7 +316,7 @@ pub(crate) struct GrpcProverService<P: Provider> {
     pub provider: Option<P>,
     pub proof_sender_channel_size: usize,
     pub grpc_reflection: bool,
-    pub tx_gas_quota: u64,
+    pub tx_gas_quota: NonZeroU64,
     pub rate_limit: RateLimit,
 }
 

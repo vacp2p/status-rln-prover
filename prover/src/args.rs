@@ -1,4 +1,5 @@
 use std::net::IpAddr;
+use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::str::FromStr;
 // third-party
@@ -49,7 +50,7 @@ const ARGS_DEFAULT_PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION: WrappedU256 =
 /// Prover will receive a Tx with the field 'estimated_gas_used'.
 /// If 'estimated_gas_used' <= 'tx gas quota', tx counter is increased by 1
 /// If 'estimated_gas_used' <= 'tx gas quota', tx counter is increased by (estimated_gas_used / tx gas quota)
-const ARGS_DEFAULT_TX_GAS_QUOTA: u64 = 100_000;
+const ARGS_DEFAULT_TX_GAS_QUOTA: NonZeroU64 = NonZeroU64::new(100_000).unwrap();
 
 #[derive(Debug, Clone, Parser, ClapConfig)]
 #[command(about = "RLN prover service", long_about = None)]
@@ -183,7 +184,7 @@ pub struct AppArgs {
         help = "Gas quota for a Tx",
         default_value_t = AppArgs::default_tx_gas_quota(),
     )]
-    pub tx_gas_quota: u64,
+    pub tx_gas_quota: NonZeroU64,
 
     // Hidden option - expect user set it via a config file
     #[arg(
@@ -241,7 +242,7 @@ impl AppArgs {
         ARGS_DEFAULT_RLN_IDENTIFIER_NAME.to_string()
     }
 
-    pub fn default_tx_gas_quota() -> u64 {
+    pub fn default_tx_gas_quota() -> NonZeroU64 {
         ARGS_DEFAULT_TX_GAS_QUOTA
     }
 }
