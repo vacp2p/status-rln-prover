@@ -4,6 +4,7 @@ use parking_lot::RwLock;
 use prover::{AppArgs, MockUser, run_prover};
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr};
+use std::num::NonZeroU64;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -411,7 +412,7 @@ async fn test_grpc_user_spamming() {
         rln_identifier: AppArgs::default_rln_identifier_name(),
         spam_limit: 3,
         no_grpc_reflection: true,
-        tx_gas_quota: 1_000,
+        tx_gas_quota: NonZeroU64::new(1_000).unwrap(),
     };
 
     info!("Starting prover with args: {:?}", app_args);
@@ -475,7 +476,7 @@ async fn test_grpc_tx_exceed_gas_quota() {
     let temp_folder_tree = tempfile::tempdir().unwrap();
 
     let port = 50054;
-    let tx_gas_quota = 1_000;
+    let tx_gas_quota = NonZeroU64::new(1_000).unwrap();
     let app_args = AppArgs {
         ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         port,
@@ -512,7 +513,7 @@ async fn test_grpc_tx_exceed_gas_quota() {
 
     let quota_mult = 11;
     let tx_data = TxData {
-        estimated_gas_used: Some(tx_gas_quota * quota_mult),
+        estimated_gas_used: Some(tx_gas_quota.get() * quota_mult),
         ..Default::default()
     };
     // Send a tx with 11 * the tx_gas_quota
