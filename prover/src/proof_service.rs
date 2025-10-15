@@ -307,7 +307,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[tracing_test::traced_test]
+    // #[tracing_test::traced_test]
     async fn test_proof_generation() {
         // Queues
         let (broadcast_sender, _broadcast_receiver) = broadcast::channel(2);

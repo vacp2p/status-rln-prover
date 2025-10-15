@@ -352,7 +352,7 @@ async fn proof_sender_2(port: u16, addresses: Vec<Address>, proof_count: usize) 
 
 
 #[tokio::test]
-#[traced_test]
+// #[traced_test]
 async fn test_grpc_user_spamming() {
 
     let mock_users = vec![
@@ -382,7 +382,7 @@ async fn test_grpc_user_spamming() {
     let temp_folder = tempfile::tempdir().unwrap();
     let temp_folder_tree = tempfile::tempdir().unwrap();
 
-    let port = 50052;
+    let port = 50053;
     let app_args = AppArgs {
         ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         port,
@@ -442,7 +442,7 @@ async fn test_grpc_user_spamming() {
 }
 
 #[tokio::test]
-#[traced_test]
+// #[traced_test]
 async fn test_grpc_tx_exceed_gas_quota() {
     let mock_users = vec![
         MockUser {
@@ -471,7 +471,7 @@ async fn test_grpc_tx_exceed_gas_quota() {
     let temp_folder = tempfile::tempdir().unwrap();
     let temp_folder_tree = tempfile::tempdir().unwrap();
 
-    let port = 50052;
+    let port = 50054;
     let tx_gas_quota = 1_000;
     let app_args = AppArgs {
         ip: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
