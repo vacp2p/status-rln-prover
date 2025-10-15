@@ -187,6 +187,8 @@ pub async fn run_prover(app_args: AppArgs) -> Result<(), AppError> {
             provider: provider.clone(),
             proof_sender_channel_size: app_args.proof_sender_channel_size,
             grpc_reflection: !app_args.no_grpc_reflection,
+            tx_gas_quota: app_args.tx_gas_quota,
+            rate_limit: RateLimit::from(app_args.spam_limit),
         };
 
         if app_args.ws_rpc_url.is_some() {

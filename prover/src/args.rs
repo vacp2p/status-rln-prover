@@ -1,4 +1,5 @@
 use std::net::IpAddr;
+use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::str::FromStr;
 // third-party
@@ -43,6 +44,13 @@ const ARGS_DEFAULT_PROVER_SPAM_LIMIT: u64 = 10_000_u64;
 pub const ARGS_DEFAULT_GENESIS: DateTime<Utc> = DateTime::from_timestamp(1431648000, 0).unwrap();
 const ARGS_DEFAULT_PROVER_MINIMAL_AMOUNT_FOR_REGISTRATION: WrappedU256 =
     WrappedU256(U256::from_le_slice(10u64.to_le_bytes().as_slice()));
+
+/// Tx gas quota
+///
+/// Prover will receive a Tx with the field 'estimated_gas_used'.
+/// If 'estimated_gas_used' <= 'tx gas quota', tx counter is increased by 1
+/// If 'estimated_gas_used' <= 'tx gas quota', tx counter is increased by (estimated_gas_used / tx gas quota)
+const ARGS_DEFAULT_TX_GAS_QUOTA: NonZeroU64 = NonZeroU64::new(100_000).unwrap();
 
 #[derive(Debug, Clone, Parser, ClapConfig)]
 #[command(about = "RLN prover service", long_about = None)]
@@ -170,6 +178,14 @@ pub struct AppArgs {
     )]
     pub registration_min_amount: WrappedU256,
 
+    #[arg(
+        help_heading = "prover config",
+        long = "tx-gas-quota",
+        help = "Gas quota for a Tx",
+        default_value_t = AppArgs::default_tx_gas_quota(),
+    )]
+    pub tx_gas_quota: NonZeroU64,
+
     // Hidden option - expect user set it via a config file
     #[arg(
         long = "broadcast-channel-size",
@@ -224,6 +240,10 @@ impl AppArgs {
 
     pub fn default_rln_identifier_name() -> String {
         ARGS_DEFAULT_RLN_IDENTIFIER_NAME.to_string()
+    }
+
+    pub fn default_tx_gas_quota() -> NonZeroU64 {
+        ARGS_DEFAULT_TX_GAS_QUOTA
     }
 }
 

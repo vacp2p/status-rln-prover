@@ -8,11 +8,7 @@ use metrics::{counter, histogram};
 use parking_lot::RwLock;
 use rln::hashers::hash_to_field_le;
 use rln::protocol::serialize_proof_values;
-use tracing::{
-    Instrument, // debug,
-    debug_span,
-    info,
-};
+use tracing::{Instrument, debug_span, error, info};
 // internal
 use crate::epoch_service::{Epoch, EpochSlice};
 use crate::error::{AppError, ProofGenerationError, ProofGenerationStringError};
@@ -186,6 +182,13 @@ impl ProofService {
                 })
                 .map_err(ProofGenerationStringError::from);
 
+            if proof_sending_data.is_err() {
+                error!(
+                    "[proof service {counter_id}] error: {:?}",
+                    proof_sending_data
+                );
+            }
+
             if let Err(e) = self.broadcast_sender.send(proof_sending_data) {
                 info!("Stopping proof generation service: {}", e);
                 break;
@@ -307,7 +310,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[tracing_test::traced_test]
+    // #[tracing_test::traced_test]
     async fn test_proof_generation() {
         // Queues
         let (broadcast_sender, _broadcast_receiver) = broadcast::channel(2);

@@ -53,6 +53,7 @@ async fn proof_sender(ip: IpAddr, port: u16, addresses: Vec<Address>, proof_coun
             sender: Some(addr.clone()),
             chain_id: Some(chain_id.clone()),
             transaction_hash: tx_hash,
+            estimated_gas_used: 1_000,
         };
 
         let request = tonic::Request::new(request_0);
@@ -156,6 +157,7 @@ fn proof_generation_bench(c: &mut Criterion) {
         rln_identifier: AppArgs::default_rln_identifier_name(),
         spam_limit: 1_000_000u64,
         no_grpc_reflection: true,
+        tx_gas_quota: AppArgs::default_tx_gas_quota(),
     };
 
     // Tokio notify - wait for some time after spawning run_prover then notify it's ready to accept
