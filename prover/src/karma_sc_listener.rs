@@ -14,14 +14,14 @@ use crate::user_db::UserDb;
 use crate::user_db_error::RegisterError;
 use smart_contract::{KarmaAmountExt, KarmaRLNSC, KarmaSC, RLNRegister};
 
-pub(crate) struct RegistryListener {
+pub(crate) struct KarmaScEventListener {
     karma_sc_address: Address,
     rln_sc_address: Address,
     user_db: UserDb,
     minimal_amount: U256,
 }
 
-impl RegistryListener {
+impl KarmaScEventListener {
     pub(crate) fn new(
         karma_sc_address: Address,
         rln_sc_address: Address,
@@ -42,17 +42,14 @@ impl RegistryListener {
         provider: P,
         provider_with_signer: PS,
     ) -> Result<(), AppError> {
-        // let provider = self.setup_provider_ws().await.map_err(AppError::from)?;
-        let karma_sc = KarmaSC::new(self.karma_sc_address, provider.clone());
 
-        // let provider_with_signer = self.setup_provider_with_signer(self.private_key.clone())
-        //     .await
-        //     .map_err(AppError::from)?;
+        let karma_sc = KarmaSC::new(self.karma_sc_address, provider.clone());
         let rln_sc = KarmaRLNSC::new(self.rln_sc_address, provider_with_signer);
 
         let filter = alloy::rpc::types::Filter::new()
             .address(self.karma_sc_address)
-            .event(KarmaSC::Transfer::SIGNATURE);
+            .event(KarmaSC::Transfer::SIGNATURE)
+            .event(KarmaSC::AccountSlashed::SIGNATURE);
 
         // Subscribe to logs matching the filter.
         let subscription = provider.subscribe_logs(&filter).await?;
@@ -93,6 +90,12 @@ impl RegistryListener {
                     //         in order to avoid a too long service interruption?
                 }
             }
+            // TODO
+            /*
+            match KarmaSC::AccountSlashed::decode_log_data(log.data()) {
+
+            }
+            */
         }
 
         Ok(())
@@ -247,7 +250,7 @@ mod tests {
         assert!(user_db_service.get_user_db().get_user(&ADDR_2).is_none());
 
         let minimal_amount = U256::from(25);
-        let registry = RegistryListener {
+        let registry = KarmaScEventListener {
             rln_sc_address: Default::default(),
             karma_sc_address: Default::default(),
             user_db,
