@@ -22,7 +22,7 @@ ark-serialize = { version = "0.5.0", default-features = false, features = [] }
 tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread"] }
 clap = { version = "4.5.49", features = ["derive", "wrap_help"] }
 url = { version = "2.5.7", features = ["serde"] }
-alloy = { version = "1.0.38", features = [
+alloy = { version = "1.0.41", features = [
     "getrandom",
     "sol-types",
     "contract",
