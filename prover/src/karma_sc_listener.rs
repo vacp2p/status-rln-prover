@@ -3,6 +3,7 @@ use alloy::{
     contract::Error as AlloyContractError,
     primitives::{Address, U256},
     providers::Provider,
+    rpc::types::Log,
     sol_types::SolEvent,
 };
 use num_bigint::BigUint;
@@ -57,6 +58,22 @@ impl KarmaScEventListener {
 
         // Loop through the incoming event logs
         while let Some(log) = stream.next().await {
+
+            match log.topic0() {
+                Some(&KarmaSC::Transfer::SIGNATURE_HASH) => {
+                    self.transfer_event(&log, &karma_sc, &rln_sc)
+                        .await
+                        .map_err(AppError::RegistryError)?;
+                },
+                Some(&KarmaSC::AccountSlashed::SIGNATURE_HASH) => {
+                    self.slash_event(&log).await;
+                },
+                _ => {
+                    debug!("Received unknown topic from karma sc: {:?}", log);
+                }
+            }
+
+            /*
             match KarmaSC::Transfer::decode_log_data(log.data()) {
                 Ok(transfer_event) => {
                     match self
@@ -90,12 +107,60 @@ impl KarmaScEventListener {
                     //         in order to avoid a too long service interruption?
                 }
             }
+            */
             // TODO
             /*
             match KarmaSC::AccountSlashed::decode_log_data(log.data()) {
 
             }
             */
+        }
+
+        Ok(())
+    }
+
+    /// Decode transfert event from log and call `handle_transfer_event`
+    async fn transfer_event<
+        E: Into<AlloyContractError>,
+        KSC: KarmaAmountExt<Error = E>,
+        RLNSC: RLNRegister<Error = E>,
+    >(&self, log: &Log, karma_sc: &KSC, rln_sc: &RLNSC) -> Result<(), HandleTransferError> {
+
+        match KarmaSC::Transfer::decode_log_data(log.data()) {
+            Ok(transfer_event) => {
+                match self
+                    .handle_transfer_event(karma_sc, rln_sc, transfer_event)
+                    .await
+                {
+                    Ok(addr) => {
+                        info!("Registered new user: {}", addr);
+                    }
+                    Err(HandleTransferError::Register(RegisterError::AlreadyRegistered(
+                                                          address,
+                                                      ))) => {
+                        debug!("Already registered: {}", address);
+                    }
+                    Err(e) => {
+                        error!("Unexpected error: {}", e);
+                        // Note: Err(e) == HandleTransferError::FetchBalanceOf
+                        //       if we cannot fetch the user balance, something is seriously wrong
+                        //       and the prover will fail here
+
+                        // return Err(AppError::RegistryError(e));
+                        return Err(e);
+                    }
+                };
+            }
+            Err(e) => {
+                error!("Error decoding log data: {:?}", e);
+                // It's also useful to print the raw log data for debugging
+                error!("Raw log topics: {:?}", log.topics());
+                error!("Raw log data: {:?}", log.data());
+                // Note: This can happen when
+                // - SC code has been updated but not the Prover
+                // - In the update process, the Prover has not been shutdown (yet)
+                //   in order to avoid a too long service interruption?
+            }
         }
 
         Ok(())
@@ -158,7 +223,7 @@ impl KarmaScEventListener {
                     U256::from_le_slice(BigUint::from(id_commitment).to_bytes_le().as_slice());
 
                 if let Err(e) = rln_sc.register_user(&to_address, id_co).await {
-                    // Fail to register user on smart contract
+                    // Fail to register the user on smart contract
                     // Remove the user in internal Db
                     if !self.user_db.remove_user(&to_address, false) {
                         // Fails if DB & SC are inconsistent
@@ -172,6 +237,31 @@ impl KarmaScEventListener {
         }
 
         Ok(to_address)
+    }
+
+    /// Handle slash event from Karma smart contract
+    async fn slash_event(&self, log: &Log) {
+        match KarmaSC::AccountSlashed::decode_log_data(log.data()) {
+            Ok(slash_event) => {
+
+                let address_slashed: Address = slash_event.account;
+                if !self
+                    .user_db
+                    .remove_user(&address_slashed, false) {
+                    error!("Cannot remove user ({:?}) from DB", address_slashed);
+                }
+            },
+            Err(e) => {
+                error!("Error decoding log data: {:?}", e);
+                // It's also useful to print the raw log data for debugging
+                error!("Raw log topics: {:?}", log.topics());
+                error!("Raw log data: {:?}", log.data());
+                // Note: This can happen when
+                // - SC code has been updated but not the Prover
+                // - In the update process, the Prover has not been shutdown (yet)
+                //   to avoid a too long service interruption?
+            }
+        }
     }
 }
 
