@@ -4232,8 +4232,9 @@ dependencies = [
 
 [[package]]
 name = "rln"
-version = "0.8.0"
-source = "git+https://github.com/vacp2p/zerokit/#0b00c639a059a2cfde74bcf68fdf75db3b6898a4"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d80918728b4171dff6eca5c157aaf048077b498e3bc71b6f3f3cc9c38d7185ea"
 dependencies = [
  "ark-bn254",
  "ark-ec",
@@ -6169,8 +6170,9 @@ dependencies = [
 
 [[package]]
 name = "zerokit_utils"
-version = "0.6.0"
-source = "git+https://github.com/vacp2p/zerokit/#0b00c639a059a2cfde74bcf68fdf75db3b6898a4"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b502278f6be3ac77fb43386f9a16f947b53f6b95d316d417309e4cfd4123e1ce"
 dependencies = [
  "ark-ff 0.5.0",
  "hex",
