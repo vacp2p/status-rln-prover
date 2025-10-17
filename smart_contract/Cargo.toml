@@ -5,15 +5,15 @@ edition = "2024"
 
 [[bin]]
 name = "karma_sc_test"
-path = "src/karma_sc_test.rs"
+path = "src/bin_tests/karma_sc_test.rs"
 
 [[bin]]
 name = "karma_tiers_test"
-path = "src/karma_tiers_test.rs"
+path = "src/bin_tests/karma_tiers_test.rs"
 
 [[bin]]
 name = "rln_sc_test"
-path = "src/rln_sc_test.rs"
+path = "src/bin_tests/rln_sc_test.rs"
 
 [dependencies]
 tokio.workspace = true
