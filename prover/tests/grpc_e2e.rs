@@ -13,7 +13,7 @@ use tokio::task;
 use tokio::task::JoinSet;
 use tonic::Response;
 use tracing::{debug, info};
-use tracing_test::traced_test;
+// use tracing_test::traced_test;
 // internal
 use prover::{AppArgs, MockUser, run_prover};
 pub mod prover_proto {
