@@ -43,7 +43,6 @@ impl KarmaScEventListener {
         provider: P,
         provider_with_signer: PS,
     ) -> Result<(), AppError> {
-
         let karma_sc = KarmaSC::new(self.karma_sc_address, provider.clone());
         let rln_sc = KarmaRLNSC::new(self.rln_sc_address, provider_with_signer);
 
@@ -58,16 +57,15 @@ impl KarmaScEventListener {
 
         // Loop through the incoming event logs
         while let Some(log) = stream.next().await {
-
             match log.topic0() {
                 Some(&KarmaSC::Transfer::SIGNATURE_HASH) => {
                     self.transfer_event(&log, &karma_sc, &rln_sc)
                         .await
                         .map_err(AppError::RegistryError)?;
-                },
+                }
                 Some(&KarmaSC::AccountSlashed::SIGNATURE_HASH) => {
                     self.slash_event(&log).await;
-                },
+                }
                 _ => {
                     debug!("Received unknown topic from karma sc: {:?}", log);
                 }
@@ -124,8 +122,12 @@ impl KarmaScEventListener {
         E: Into<AlloyContractError>,
         KSC: KarmaAmountExt<Error = E>,
         RLNSC: RLNRegister<Error = E>,
-    >(&self, log: &Log, karma_sc: &KSC, rln_sc: &RLNSC) -> Result<(), HandleTransferError> {
-
+    >(
+        &self,
+        log: &Log,
+        karma_sc: &KSC,
+        rln_sc: &RLNSC,
+    ) -> Result<(), HandleTransferError> {
         match KarmaSC::Transfer::decode_log_data(log.data()) {
             Ok(transfer_event) => {
                 match self
@@ -136,8 +138,8 @@ impl KarmaScEventListener {
                         info!("Registered new user: {}", addr);
                     }
                     Err(HandleTransferError::Register(RegisterError::AlreadyRegistered(
-                                                          address,
-                                                      ))) => {
+                        address,
+                    ))) => {
                         debug!("Already registered: {}", address);
                     }
                     Err(e) => {
@@ -243,14 +245,11 @@ impl KarmaScEventListener {
     async fn slash_event(&self, log: &Log) {
         match KarmaSC::AccountSlashed::decode_log_data(log.data()) {
             Ok(slash_event) => {
-
                 let address_slashed: Address = slash_event.account;
-                if !self
-                    .user_db
-                    .remove_user(&address_slashed, false) {
+                if !self.user_db.remove_user(&address_slashed, false) {
                     error!("Cannot remove user ({:?}) from DB", address_slashed);
                 }
-            },
+            }
             Err(e) => {
                 error!("Error decoding log data: {:?}", e);
                 // It's also useful to print the raw log data for debugging
