@@ -35,6 +35,8 @@ thiserror = "2.0.17"
 rustls = "0.23.33"
 zeroize = "1.8.2"
 tonic = "0.14.2"
+tonic-web = "0.14.2"
+tonic-reflection = "0.14.2"
 prost = "0.14.1"
 tonic-prost = "0.14.2"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
