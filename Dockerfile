@@ -1,5 +1,5 @@
 # Stage 1: Build Prover
-FROM rust:1.89-slim-bookworm AS builder
+FROM rust:1.90-slim-bookworm AS builder
 
 RUN apt update && apt install -y \
     pkg-config \
@@ -23,7 +23,9 @@ COPY smart_contract ./smart_contract
 RUN cargo build --release
 
 # Stage 2: Run Prover
-FROM ubuntu:25.04
+FROM ubuntu:25.10
+
+ARG RUST_LOG_LEVEL=info
 
 RUN groupadd -r user && useradd -r -g user user
 
@@ -44,6 +46,8 @@ USER user
 
 # Exppose default port
 EXPOSE 50051
+
+ENV RUST_LOG=${RUST_LOG_LEVEL}
 
 # Run the prover - shell script will build arguments with parsed env var
 ENTRYPOINT ["docker-entrypoint.sh"]
