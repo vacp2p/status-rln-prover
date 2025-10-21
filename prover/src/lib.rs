@@ -2,11 +2,11 @@ mod args;
 mod epoch_service;
 mod error;
 mod grpc_service;
+mod karma_sc_listener;
 pub mod metrics;
 mod mock;
 mod proof_generation;
 mod proof_service;
-mod registry_listener;
 mod rocksdb_operands;
 mod tier;
 mod tiers_listener;
@@ -37,10 +37,10 @@ pub use crate::args::{ARGS_DEFAULT_GENESIS, AppArgs, AppArgsConfig};
 use crate::epoch_service::EpochService;
 use crate::error::AppError;
 use crate::grpc_service::GrpcProverService;
+use crate::karma_sc_listener::KarmaScEventListener;
 pub use crate::mock::MockUser;
 use crate::mock::read_mock_user;
 use crate::proof_service::ProofService;
-use crate::registry_listener::RegistryListener;
 use crate::tier::TierLimits;
 use crate::tiers_listener::TiersListener;
 use crate::user_db::{MERKLE_TREE_HEIGHT, UserDbConfig};
@@ -150,7 +150,7 @@ pub async fn run_prover(app_args: AppArgs) -> Result<(), AppError> {
         // No registry listener when mock is enabled
         None
     } else {
-        Some(RegistryListener::new(
+        Some(KarmaScEventListener::new(
             app_args.ksc_address.unwrap(),
             app_args.rlnsc_address.unwrap(),
             user_db_service.get_user_db(),

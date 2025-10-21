@@ -1,20 +1,21 @@
-use alloy::primitives::{Address, U256};
-use futures::FutureExt;
-use parking_lot::RwLock;
-use prover::{AppArgs, MockUser, run_prover};
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr};
 use std::num::NonZeroU64;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+// third-party
+use alloy::primitives::{Address, U256};
+use futures::FutureExt;
+use parking_lot::RwLock;
 use tempfile::NamedTempFile;
 use tokio::task;
 use tokio::task::JoinSet;
 use tonic::Response;
 use tracing::{debug, info};
-use tracing_test::traced_test;
-
+// use tracing_test::traced_test;
+// internal
+use prover::{AppArgs, MockUser, run_prover};
 pub mod prover_proto {
     // Include generated code (see build.rs)
     tonic::include_proto!("prover");
@@ -220,7 +221,7 @@ async fn proof_collector(port: u16, proof_count: usize) -> Vec<RlnProofReply> {
 }
 
 #[tokio::test]
-#[traced_test]
+// #[traced_test]
 async fn test_grpc_gen_proof() {
     let mock_users = vec![
         MockUser {

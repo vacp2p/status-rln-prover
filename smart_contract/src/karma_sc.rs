@@ -29,7 +29,8 @@ pub trait KarmaAmountExt {
 }
 
 sol! {
-    // https://github.com/vacp2p/staking-reward-streamer/blob/main/src/Karma.sol
+    // https://github.com/status-im/status-network-monorepo/blob/develop/status-network-contracts/src/Karma.sol
+    // OLD: https://github.com/vacp2p/staking-reward-streamer/blob/main/src/Karma.sol
     //
     // docker run -v ./:/sources ethereum/solc:stable --bin --via-ir --optimize --optimize-runs 1 --overwrite  @openzeppelin/contracts=/sources/lib/openzeppelin-contracts/contracts @openzeppelin/contracts-upgradeable=/sources/lib/openzeppelin-contracts-upgradeable/contracts /sources/src/Karma.sol
 
@@ -53,6 +54,9 @@ sol! {
 
         // From: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC20/IERC20.sol#L16
         event Transfer(address indexed from, address indexed to, uint256 value);
+        event AccountSlashed(
+            address indexed account, uint256 amount, address indexed rewardRecipient, uint256 rewardAmount
+        );
 
         function balanceOf(address account) public view override returns (uint256);
 
