@@ -130,17 +130,30 @@ where
             Some(req.estimated_gas_used / self.tx_gas_quota)
         };
 
+        // Check (and reject) if the user has reached the rate limit
+        // If the user has previously reached the rate limit, the user will be slashed (but this can take some times)
+        // so in the meantime, we reject the tx
+        let (current_tx_counter, _) = self.user_db.get_tx_counter(&sender).unwrap_or_default();
+        // FIXME: should we implement PartialOrd here instead of u64 conv?
+        if u64::from(current_tx_counter) > u64::from(self.rate_limit) {
+            return Err(Status::resource_exhausted(
+                "Too many transactions sent by this user",
+            ));
+        }
+
         // Update the counter as soon as possible (should help to prevent spamming...)
         let counter = self
             .user_db
             .on_new_tx(&sender, tx_counter_incr)
             .unwrap_or_default();
 
+        /*
         if counter > self.rate_limit {
             return Err(Status::resource_exhausted(
                 "Too many transactions sent by this user",
             ));
         }
+        */
 
         if req.transaction_hash.len() != PROVER_TX_HASH_BYTESIZE {
             return Err(Status::invalid_argument(

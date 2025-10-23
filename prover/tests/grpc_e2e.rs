@@ -118,7 +118,7 @@ async fn test_grpc_register_users() {
 }
 */
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct TxData {
     chain_id: Option<U256>,
     gas_price: Option<U256>,
@@ -501,7 +501,7 @@ async fn test_grpc_tx_exceed_gas_quota() {
         proof_sender_channel_size: 500,
         registration_min_amount: AppArgs::default_minimal_amount_for_registration(),
         rln_identifier: AppArgs::default_rln_identifier_name(),
-        spam_limit: AppArgs::default_spam_limit(),
+        spam_limit: 15,
         no_grpc_reflection: true,
         tx_gas_quota,
     };
@@ -518,7 +518,7 @@ async fn test_grpc_tx_exceed_gas_quota() {
         ..Default::default()
     };
     // Send a tx with 11 * the tx_gas_quota
-    proof_sender(port, addresses.clone(), 1, tx_data).await;
+    proof_sender(port, addresses.clone(), 1, tx_data.clone()).await;
 
     tokio::time::sleep(Duration::from_secs(5)).await;
     let res = query_user_info(port, vec![addresses[0]]).await;
@@ -532,4 +532,19 @@ async fn test_grpc_tx_exceed_gas_quota() {
             panic!("Unexpected error {:?}", e);
         }
     }
+
+    // Send another tx with 11 * the tx_gas_quota
+    proof_sender(port, addresses.clone(), 1, tx_data).await;
+    let res = query_user_info(port, vec![addresses[0]]).await;
+    let resp = res[0].resp.as_ref().unwrap();
+    match resp {
+        Resp::Res(r) => {
+            // Check the tx counter is updated to the right value
+            assert_eq!(r.tx_count, quota_mult * 2);
+        }
+        Resp::Error(e) => {
+            panic!("Unexpected error {:?}", e);
+        }
+    }
+
 }
